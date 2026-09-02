@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# The public wrapper clears the caller environment before Bash loads scanner code.
+
+case "$0" in
+    /*) scanner_path="$0" ;;
+    *) scanner_path="$PWD/$0" ;;
+esac
+scanner_directory="${scanner_path%/*}"
+
+main_file=""
+for candidate_main_file in \
+    "$scanner_directory/../lib/kisa-cce-scan-main.sh" \
+    "$scanner_directory/../lib/kisa-cce-linux-scanner/kisa-cce-scan-main.sh" \
+    "$scanner_directory/../libexec/kisa-cce-linux-scanner/kisa-cce-scan-main.sh"; do
+    if [ -r "$candidate_main_file" ]; then
+        main_file="$candidate_main_file"
+        break
+    fi
+done
+
+if [ -z "$main_file" ]; then
+    printf 'ERROR: 스캐너 본문을 찾을 수 없습니다: %s\n' "$scanner_directory" >&2
+    exit 2
+fi
+
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    /bin/bash "$main_file" "$@"

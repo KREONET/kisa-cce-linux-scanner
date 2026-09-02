@@ -1,0 +1,254 @@
+.TH KISA-CCE-SCAN 8 "2026-09-02" "KISA CCE Linux Scanner" "System Administration Commands"
+.SH NAME
+kisa-cce-scan \- assess KISA CCE 2026 Unix-server criteria on supported
+Linux systems
+.SH SYNOPSIS
+.B kisa-cce-scan
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B kisa-cce-scan
+collects persistent configuration, manager-normalized configuration, and
+runtime state for the 67 KISA CCE 2026 Unix-server criteria.
+It supports Ubuntu Server 26.04 LTS and Red Hat Enterprise Linux 10.x.
+.PP
+The scanner does not remediate configuration, reload services, refresh package
+metadata, or contact external hosts.
+A normal scan writes protected text and JSONL reports.
+.SH OPTIONS
+.TP
+.BI \-\-root " PATH"
+Inspect an existing offline filesystem directory rooted at the absolute
+.IR PATH .
+Runtime collection is disabled automatically.
+The special path
+.B /
+remains a live-root scan.
+.TP
+.BI \-\-output-dir " PATH"
+Write reports below the absolute
+.IR PATH .
+The directory must not be a symbolic link, must belong to the invoking user,
+and must grant no permissions to group or other users.
+A missing directory is created with mode 0700.
+This option has no effect in sysctl explanation mode.
+.TP
+.BI \-\-checks " U-01,U-02"
+Run only the comma-separated criterion codes.
+Codes are case-insensitive, whitespace is removed, and duplicates are ignored.
+Results retain catalog order rather than argument order.
+.TP
+.B \-\-no-runtime
+Disable live service, listener, kernel-value, and native-validator collection.
+A scan of the live root still requires root privileges.
+.TP
+.BI \-\-explain-sysctl " KEY"
+Print the effective persistent and runtime interpretation of one sysctl key
+instead of producing CCE reports.
+This option cannot be combined with
+.BR \-\-checks .
+.TP
+.B \-\-allow-unsupported
+Continue after warning that the detected platform is unsupported.
+This bypass does not make results authoritative for that platform.
+.TP
+.BR \-h ", " \-\-help
+Print command help and exit.
+.TP
+.B \-\-version
+Print the scanner version and exit.
+.PP
+Options that take values accept both
+.B "\-\-option VALUE"
+and
+.B "\-\-option=VALUE"
+forms.
+Positional arguments are rejected.
+.SH MODES
+.SS Live scan
+Scanning
+.B /
+requires effective UID 0, including when
+.B \-\-no-runtime
+is supplied.
+Runtime collection uses trusted native utilities from fixed system paths when
+available.
+.SS Offline scan
+An absolute
+.B \-\-root
+other than
+.B /
+maps logical system paths below that root and disables runtime collection.
+Root privileges are not required, but the invoking user needs read and
+directory-search permission for the image.
+.PP
+Offline results cannot establish active services, listeners, loaded kernel
+values, or other live state.
+Affected criteria may return
+.BR MANUAL ,
+.BR NOT_APPLICABLE ,
+or
+.BR ERROR .
+.SS Sysctl explanation
+The diagnostic output distinguishes the filesystem configuration model, active
+loader model where available, runtime value, and detected drift.
+It follows standard
+.I sysctl.d
+directory precedence, equal-basename replacement, lexical ordering, masks,
+glob assignments, and exclusions.
+It does not change kernel parameters or create CCE report files.
+.SH REPORTS
+When
+.B \-\-output-dir
+is omitted, a root invocation uses
+.IR /var/log/kisa-cce-scanner .
+A non-root offline invocation uses
+.IR /tmp/kisa-cce-scanner-UID .
+.PP
+The scanner creates an owner-only temporary workspace and two randomized
+mode-0600 files:
+.TP
+.I kisa-cce-HOST-TIMESTAMP.txt.RANDOM
+Human-readable scanner metadata, criterion sections, evidence, and summary
+counts.
+.TP
+.I kisa-cce-HOST-TIMESTAMP.jsonl.RANDOM
+One JSON object per selected criterion followed by one summary object.
+.PP
+The hostname identifies the machine running the scanner, including during
+offline analysis.
+The command prints
+.B text_report=
+and
+.B jsonl_report=
+paths only after final integrity checks succeed.
+An interrupted scan may leave incomplete report files whose paths were not
+printed.
+.PP
+The JSONL file does not repeat the scanner, platform, root, runtime-mode, or
+timestamp header from the text report.
+Retain both files when those provenance fields are required.
+.SH RESULT STATES
+.TP
+.B GOOD
+Collected evidence conclusively satisfies the implemented criterion.
+.TP
+.B VULNERABLE
+Collected evidence conclusively violates the implemented criterion.
+.TP
+.B MANUAL
+Policy, intent, an approved exception, external state, or unavailable context
+requires review.
+.TP
+.B NOT_APPLICABLE
+Absence of the relevant service or feature was established.
+.TP
+.B ERROR
+Required evidence could not be collected or parsed reliably.
+.PP
+A
+.B GOOD
+result is not a certification of the entire host.
+.SH EXIT STATUS
+.TP
+.B 0
+No
+.B VULNERABLE
+or
+.B ERROR
+result was recorded.
+.TP
+.B 1
+At least one
+.B VULNERABLE
+result and no
+.B ERROR
+result were recorded.
+.TP
+.B 2
+Invocation, platform detection, collection, report writing, report integrity,
+or at least one criterion produced an error.
+.TP
+.B 130
+The process received SIGINT.
+.TP
+.B 143
+The process received SIGTERM.
+.PP
+.B ERROR
+takes precedence over
+.BR VULNERABLE .
+.B MANUAL
+and
+.B NOT_APPLICABLE
+do not change the exit status by themselves.
+.SH SECURITY
+Run the scanner only from a trusted, root-owned installation or a protected
+source checkout.
+The public launcher clears the caller environment before loading private Bash
+code.
+Live native commands are restricted to fixed system paths and are subject to
+ownership and write-permission checks.
+.PP
+Reports can contain sensitive host configuration.
+Targeted redaction is defense in depth and does not replace review before
+storage or transfer.
+.PP
+When
+.B \-\-output-dir
+points below an offline root, report files are written into that image.
+.SH FILES
+The following paths describe a package installed with
+.BR prefix=/usr .
+.TP
+.I /usr/bin/kisa-cce-scan
+Installed public command.
+.TP
+.I /usr/lib/kisa-cce-linux-scanner/
+Default private Bash implementation directory.
+.TP
+.I /usr/share/kisa-cce-linux-scanner/criteria.tsv
+Ordered criterion catalog.
+.TP
+.I /usr/share/kisa-cce-linux-scanner/VERSION
+Scanner version.
+.TP
+.I /etc/os-release
+Platform identification inside the live or offline root.
+.TP
+.I /var/log/kisa-cce-scanner/
+Default live-root report directory.
+.SH EXAMPLES
+Run a complete live scan:
+.PP
+.EX
+sudo kisa-cce-scan
+.EE
+.PP
+Run selected criteria:
+.PP
+.EX
+sudo kisa-cce-scan --checks U-01,U-02,U-65
+.EE
+.PP
+Inspect an offline filesystem:
+.PP
+.EX
+kisa-cce-scan --root /srv/images/ubuntu-26.04 --no-runtime
+.EE
+.PP
+Explain one sysctl key:
+.PP
+.EX
+sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
+.EE
+.SH SEE ALSO
+.BR sysctl (8),
+.BR sysctl.d (5),
+.BR systemd-sysctl.service (8),
+.BR systemctl (1),
+.BR sshd_config (5),
+.BR os-release (5)
+.PP
+KISA CCE 2026 Unix criteria:
+.UR https://kreonet.github.io/kisa-cce-guide-web/unix/
+.UE

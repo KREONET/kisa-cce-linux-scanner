@@ -1,0 +1,68 @@
+code	category	severity	title
+U-01	account	high	root 계정 원격 접속 제한
+U-02	account	high	비밀번호 관리정책 설정
+U-03	account	high	계정 잠금 임계값 설정
+U-04	account	high	비밀번호 파일 보호
+U-05	account	high	root 이외의 UID가 ‘0’ 금지
+U-06	account	high	사용자 계정 su 기능 제한
+U-07	account	low	불필요한 계정 제거
+U-08	account	medium	관리자 그룹에 최소한의 계정 포함
+U-09	account	low	계정이 존재하지 않는 GID 금지
+U-10	account	medium	동일한 UID 금지
+U-11	account	low	사용자 shell 점검
+U-12	account	low	세션 종료 시간 설정
+U-13	account	medium	안전한 비밀번호 암호화 알고리즘 사용
+U-14	file	high	root 홈, 패스 디렉터리 권한 및 패스 설정
+U-15	file	high	파일 및 디렉터리 소유자 설정
+U-16	file	high	/etc/passwd 파일 소유자 및 권한 설정
+U-17	file	high	시스템 시작 스크립트 권한 설정
+U-18	file	high	/etc/shadow 파일 소유자 및 권한 설정
+U-19	file	high	/etc/hosts 파일 소유자 및 권한 설정
+U-20	file	high	/etc/(x)inetd.conf 파일 소유자 및 권한 설정
+U-21	file	high	/etc/(r)syslog.conf 파일 소유자 및 권한 설정
+U-22	file	high	/etc/services 파일 소유자 및 권한 설정
+U-23	file	high	SUID, SGID, Sticky bit 설정 파일 점검
+U-24	file	high	사용자, 시스템 환경변수 파일 소유자 및 권한 설정
+U-25	file	high	world writable 파일 점검
+U-26	file	high	/dev에 존재하지 않는 device 파일 점검
+U-27	file	high	$HOME/.rhosts, hosts.equiv 사용 금지
+U-28	file	high	접속 IP 및 포트 제한
+U-29	file	low	hosts.lpd 파일 소유자 및 권한 설정
+U-30	file	medium	UMASK 설정 관리
+U-31	file	medium	홈디렉토리 소유자 및 권한 설정
+U-32	file	medium	홈 디렉토리로 지정한 디렉토리의 존재 관리
+U-33	file	low	숨겨진 파일 및 디렉토리 검색 및 제거
+U-34	service	high	Finger 서비스 비활성화
+U-35	service	high	공유 서비스에 대한 익명 접근 제한 설정
+U-36	service	high	r 계열 서비스 비활성화
+U-37	service	high	crontab 설정파일 권한 설정 미흡
+U-38	service	high	DoS 공격에 취약한 서비스 비활성화
+U-39	service	high	불필요한 NFS 서비스 비활성화
+U-40	service	high	NFS 접근 통제
+U-41	service	high	불필요한 automountd 제거
+U-42	service	high	불필요한 RPC 서비스 비활성화
+U-43	service	high	NIS, NIS+ 점검
+U-44	service	high	tftp, talk 서비스 비활성화
+U-45	service	high	메일 서비스 버전 점검
+U-46	service	high	일반 사용자의 메일 서비스 실행 방지
+U-47	service	high	스팸 메일 릴레이 제한
+U-48	service	medium	expn, vrfy 명령어 제한
+U-49	service	high	DNS 보안 버전 패치
+U-50	service	high	DNS ZoneTransfer 설정
+U-51	service	medium	DNS 서비스의 취약한 동적 업데이트 설정 금지
+U-52	service	medium	Telnet 서비스 비활성화
+U-53	service	low	FTP 서비스 정보 노출 제한
+U-54	service	medium	암호화되지 않는 FTP 서비스 비활성화
+U-55	service	medium	FTP 계정 shell 제한
+U-56	service	low	FTP 서비스 접근 제어 설정
+U-57	service	medium	Ftpusers 파일 설정
+U-58	service	medium	불필요한 SNMP 서비스 구동 점검
+U-59	service	high	안전한 SNMP 버전 사용
+U-60	service	medium	SNMP Community String 복잡성 설정
+U-61	service	high	SNMP Access Control 설정
+U-62	service	low	로그인 시 경고 메시지 설정
+U-63	service	medium	sudo 명령어 접근 관리
+U-64	patch	high	주기적 보안 패치 및 벤더 권고사항 적용
+U-65	log	medium	NTP 및 시각 동기화 설정
+U-66	log	medium	정책에 따른 시스템 로깅 설정
+U-67	log	medium	로그 디렉터리 소유자 및 권한 설정
