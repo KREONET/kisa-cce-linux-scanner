@@ -1153,8 +1153,8 @@ msgstr "Some home directory paths could not be resolved safely."
 msgid "일부 홈 디렉터리의 메타데이터를 확인하지 못했습니다."
 msgstr "Metadata for some home directories could not be verified."
 
-msgid "일부 홈 환경 파일의 메타데이터를 확인하지 못했습니다."
-msgstr "Metadata for some home environment files could not be verified."
+msgid "일부 홈 환경 파일을 완전하게 검사하지 못했습니다."
+msgstr "Some home environment files could not be assessed completely."
 
 msgid "입력 경로의 호스트·포트 제한 후보가 확인됐으며 업무 허용 목록과 대조해야 합니다."
 msgstr "Candidate host and port restrictions for inbound traffic were found and must be compared with the business allowlist."

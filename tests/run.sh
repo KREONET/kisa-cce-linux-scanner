@@ -1452,6 +1452,53 @@ test_report_write_failures() (
     [ -s "$text_file" ] || fail "text summary was not written before JSONL summary failure"
 )
 
+test_process_security_context() (
+    local status_file="$TEST_TEMP/process-status"
+    local evidence=""
+    local capability_mask=""
+    local expected_override=""
+    local expected_read_search=""
+
+    SCAN_ROOT="$TEST_TEMP/offline-root"
+    RUNTIME_MODE="off"
+    # shellcheck source=../lib/core.sh
+    . "$PROJECT_DIR/lib/core.sh"
+    SCANNER_PROCESS_STATUS_FILE="$status_file"
+    SCANNER_PROCESS_EUID_OVERRIDE=0
+
+    for capability_mask in 0 2 4 6; do
+        printf 'CapEff:\t000000000000000%s\nCapBnd:\t0000000000000000\nNoNewPrivs:\t1\n' \
+            "$capability_mask" > "$status_file"
+        case "$capability_mask" in
+            0) expected_override=absent; expected_read_search=absent ;;
+            2) expected_override=present; expected_read_search=absent ;;
+            4) expected_override=absent; expected_read_search=present ;;
+            6) expected_override=present; expected_read_search=present ;;
+        esac
+        scanner_reset_process_security_context
+        scanner_collect_process_security_context
+        assert_equal "$expected_override" "$SCANNER_PROCESS_CAP_DAC_OVERRIDE" "CAP_DAC_OVERRIDE mask $capability_mask"
+        assert_equal "$expected_read_search" "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" "CAP_DAC_READ_SEARCH mask $capability_mask"
+    done
+
+    scanner_reset_process_security_context
+    scanner_collect_process_security_context
+    scanner_process_security_context_evidence_into evidence
+    assert_contains "$evidence" "executor_cap_bnd=0000000000000000" "capability bounding-set evidence"
+    assert_contains "$evidence" "executor_no_new_privs=1" "no-new-privileges evidence"
+
+    printf '%s\n' 'CapEff: malformed' > "$status_file"
+    scanner_reset_process_security_context
+    scanner_collect_process_security_context
+    assert_equal unknown "$SCANNER_PROCESS_CAP_DAC_OVERRIDE" "malformed capability status"
+    assert_equal unknown "$SCANNER_PROCESS_ACCESS_CONTEXT" "malformed root access context"
+
+    scanner_reset_process_security_context
+    SCANNER_PROCESS_STATUS_FILE="$TEST_TEMP/missing-process-status"
+    scanner_collect_process_security_context
+    assert_equal unknown "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" "missing capability status"
+)
+
 test_path_scratch_and_listener_cache_semantics() (
     local root_a="$TEST_TEMP/path-cache-root-a"
     local root_b="$TEST_TEMP/path-cache-root-b"
@@ -4871,6 +4918,36 @@ test_account_u20_u33_false_conclusive_paths() (
         ln -s -- /missing-fish-environment "$root/home/operator/.config/fish/conf.d/90-site.fish"
         check_u_24
         assert_equal ERROR "$RESULT_STATUS" "U-24 unsafe fish environment symlink"
+
+        rm -f -- "$root/home/operator/.config/fish/conf.d/90-site.fish"
+        mkdir -p -- "$root/var/lib/chrony" "$root/var/cache/pollinate"
+        printf 'chrony:x:%s:%s::/var/lib/chrony:/usr/sbin/nologin\n' "$current_uid" "$current_gid" > "$root/etc/passwd"
+        printf 'pollinate:x:%s:%s::/var/cache/pollinate:/usr/sbin/nologin\n' "$current_uid" "$current_gid" >> "$root/etc/passwd"
+        scanner_directory_searchable() {
+            case "$1" in
+                "$root/var/lib/chrony"|"$root/var/cache/pollinate") return 1 ;;
+                *) [ -x "$1" ] ;;
+            esac
+        }
+        printf '%s\n' \
+            $'CapEff:\t0000000000000000' \
+            $'CapBnd:\t0000000000000000' \
+            $'NoNewPrivs:\t1' > "$scratch/process-status"
+        scanner_reset_process_security_context
+        SCANNER_PROCESS_STATUS_FILE="$scratch/process-status"
+        SCANNER_PROCESS_EUID_OVERRIDE=0
+        scanner_collect_process_security_context
+        check_u_24
+        assert_equal ERROR "$RESULT_STATUS" "U-24 inaccessible service-account homes"
+        assert_contains "$RESULT_EVIDENCE" "path_errors=2" "U-24 inaccessible homes are counted once"
+        assert_contains "$RESULT_EVIDENCE" "metadata_errors=0" "U-24 path failures are not metadata failures"
+        assert_contains "$RESULT_EVIDENCE" "collection_errors=2" "U-24 aggregate collection errors"
+        assert_contains "$RESULT_EVIDENCE" "account=chrony,home=/var/lib/chrony,error=directory_search_permission_denied" "U-24 Chrony home evidence"
+        assert_contains "$RESULT_EVIDENCE" "account=pollinate,home=/var/cache/pollinate,error=directory_search_permission_denied" "U-24 Pollinate home evidence"
+        assert_contains "$RESULT_EVIDENCE" "executor_access_context=uid0_without_dac_read_capabilities" "U-24 capability context"
+        case "$RESULT_EVIDENCE" in
+            *"$root"*) fail "U-24 access evidence exposes the physical scan root" ;;
+        esac
     ) || exit 1
 
     (
@@ -5000,7 +5077,7 @@ test_shared_full_filesystem_collector() (
     local padded_gid=""
     local parser_file=""
     local parser_status=0
-    local find_calls=0
+    local find_count_file="$TEST_TEMP/shared-full-filesystem-find-count"
 
     mkdir -p -- "$root/etc" "$root/data" "$scratch"
     SCAN_ROOT="$root"
@@ -5014,6 +5091,11 @@ test_shared_full_filesystem_collector() (
     . "$PROJECT_DIR/lib/checks_account_file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
+    : > "$find_count_file"
+
+    find_call_count() {
+        awk 'END {print NR+0}' "$find_count_file"
+    }
 
     parser_file="$(new_scratch_file full-filesystem-parser-test)" || fail "collector parser scratch creation failed"
     : > "$parser_file"
@@ -5054,7 +5136,7 @@ test_shared_full_filesystem_collector() (
     ln -s -- "${world_path##*/}" "$valid_link"
 
     find() {
-        find_calls=$((find_calls + 1))
+        printf '%s\n' call >> "$find_count_file"
         /usr/bin/find "$@"
     }
 
@@ -5072,16 +5154,16 @@ test_shared_full_filesystem_collector() (
     assert_equal MANUAL "$RESULT_STATUS" "shared collector hidden-path result"
     assert_contains "$RESULT_EVIDENCE" "hidden_paths=2" "shared collector hidden-path count"
     assert_contains "$RESULT_EVIDENCE" "/data/.hidden?entry?%" "shared collector arbitrary hidden filename"
-    assert_equal 1 "$find_calls" "shared collector one traversal for four criteria"
+    assert_equal 1 "$(find_call_count)" "shared collector one traversal for four criteria"
 
     chmod 0644 -- "$world_path"
     check_u_25
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=1" "shared collector snapshot remains stable"
-    assert_equal 1 "$find_calls" "shared collector cache reuse"
+    assert_equal 1 "$(find_call_count)" "shared collector cache reuse"
     scanner_reset_full_filesystem_cache
     check_u_25
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=0" "shared collector reset observes mutation"
-    assert_equal 2 "$find_calls" "shared collector reset traversal"
+    assert_equal 2 "$(find_call_count)" "shared collector reset traversal"
 
     dangling_link="$root/data/dangling"$'\n'"link"$'\t'"%"
     ln -s -- /missing-target "$dangling_link"
@@ -5095,7 +5177,7 @@ test_shared_full_filesystem_collector() (
     assert_equal MANUAL "$RESULT_STATUS" "U-15 link error does not poison U-25 facts"
     check_u_33
     assert_equal MANUAL "$RESULT_STATUS" "U-15 link error does not poison U-33 facts"
-    assert_equal 3 "$find_calls" "shared collector dangling-link traversal"
+    assert_equal 3 "$(find_call_count)" "shared collector dangling-link traversal"
 
     rm -f -- "$dangling_link" "$second_valid_link"
     printf 'placeholder:x:4294967295:4294967295::/nonexistent:/bin/false' > "$root/etc/passwd"
@@ -5104,7 +5186,7 @@ test_shared_full_filesystem_collector() (
     check_u_15
     assert_equal VULNERABLE "$RESULT_STATUS" "shared collector offline unknown UID and GID"
     assert_contains "$RESULT_EVIDENCE" "external_nss_sources=0" "shared collector files-only NSS evidence"
-    assert_equal 4 "$find_calls" "shared collector owner-correlation traversal"
+    assert_equal 4 "$(find_call_count)" "shared collector owner-correlation traversal"
 
     rm -f -- "$root/etc/passwd" "$root/etc/group" "$root/etc/nsswitch.conf"
     mkdir -p -- "$root/etc/passwd" "$root/etc/group"
@@ -5115,14 +5197,14 @@ test_shared_full_filesystem_collector() (
     assert_equal MANUAL "$RESULT_STATUS" "selected U-25 ignores U-15 databases"
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=1" "selected U-25 still collects its fact"
     assert_equal "" "$SCANNER_FULL_FILESYSTEM_U15_SETUP_ERROR" "selected U-25 skips U-15 setup"
-    assert_equal 5 "$find_calls" "selected U-25 one traversal"
+    assert_equal 5 "$(find_call_count)" "selected U-25 one traversal"
 
     scanner_local_filesystem_roots() { return 0; }
     scanner_reset_full_filesystem_cache
     check_u_25
     assert_equal MANUAL "$RESULT_STATUS" "selected U-25 empty offline root inventory"
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=0" "empty offline root inventory yields no U-25 facts"
-    assert_equal 5 "$find_calls" "empty offline root inventory avoids traversal"
+    assert_equal 5 "$(find_call_count)" "empty offline root inventory avoids traversal"
     SELECTED_CHECKS=""
     scanner_reset_full_filesystem_cache
     check_u_15
@@ -5130,29 +5212,29 @@ test_shared_full_filesystem_collector() (
     check_u_25
     assert_equal MANUAL "$RESULT_STATUS" "empty offline inventory remains isolated after U-15 setup error"
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=0" "combined setup error does not populate U-25 facts"
-    assert_equal 5 "$find_calls" "combined setup and empty-root errors avoid traversal"
+    assert_equal 5 "$(find_call_count)" "combined setup and empty-root errors avoid traversal"
     SELECTED_CHECKS="U-25"
     scanner_local_filesystem_roots() { printf '%s\n' "${SCAN_ROOT%/}"; }
     scanner_reset_full_filesystem_cache
     check_u_25
     assert_contains "$RESULT_EVIDENCE" "world_writable_files=1" "restored offline root inventory"
-    assert_equal 6 "$find_calls" "restored offline root traversal"
+    assert_equal 6 "$(find_call_count)" "restored offline root traversal"
 
     RUNTIME_MODE="auto"
     check_u_25
-    assert_equal 7 "$find_calls" "runtime-mode cache-key invalidation"
+    assert_equal 7 "$(find_call_count)" "runtime-mode cache-key invalidation"
     mkdir -p -- "$second_scratch"
     SCRATCH_DIR="$second_scratch"
     check_u_25
-    assert_equal 8 "$find_calls" "scratch-workspace cache-key invalidation"
+    assert_equal 8 "$(find_call_count)" "scratch-workspace cache-key invalidation"
     SELECTED_CHECKS="U-33"
     check_u_33
-    assert_equal 9 "$find_calls" "selection cache-key invalidation"
+    assert_equal 9 "$(find_call_count)" "selection cache-key invalidation"
     mkdir -p -- "$second_root/.cache-key"
     SCAN_ROOT="$second_root"
     check_u_33
     assert_contains "$RESULT_EVIDENCE" "hidden_paths=1" "scan-root cache-key result"
-    assert_equal 10 "$find_calls" "scan-root cache-key invalidation"
+    assert_equal 10 "$(find_call_count)" "scan-root cache-key invalidation"
 
     SCAN_ROOT="$root"
     SCRATCH_DIR="$scratch"
@@ -5162,20 +5244,75 @@ test_shared_full_filesystem_collector() (
     printf 'owner:x:%s:' "$padded_gid" > "$root/etc/group"
     printf '%s\n' 'passwd: files' 'group: files' > "$root/etc/nsswitch.conf"
     SELECTED_CHECKS=""
+    printf '%s\n' \
+        $'CapEff:\t0000000000000000' \
+        $'CapBnd:\t0000000000000000' \
+        $'NoNewPrivs:\t1' > "$scratch/process-status"
+    scanner_reset_process_security_context
+    SCANNER_PROCESS_STATUS_FILE="$scratch/process-status"
+    SCANNER_PROCESS_EUID_OVERRIDE=0
+    scanner_collect_process_security_context
+    scanner_reset_full_filesystem_cache
+    check_u_25
+    assert_equal MANUAL "$RESULT_STATUS" "capability absence alone does not fail a readable scan"
+    assert_equal 11 "$(find_call_count)" "capability context readable traversal"
+
     scanner_reset_full_filesystem_cache
     find() {
-        find_calls=$((find_calls + 1))
-        return 2
+        printf '%s\n' call >> "$find_count_file"
+        printf "find: '%s/locked': Permission denied\n" "$SCAN_ROOT" >&2
+        return 1
     }
     check_u_15
     assert_equal ERROR "$RESULT_STATUS" "shared collector U-15 traversal failure"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_01=find: '/locked': Permission denied" "shared collector U-15 failure path"
+    assert_contains "$RESULT_EVIDENCE" "permission_denied_diagnostics=1" "shared collector U-15 failure reason"
+    assert_contains "$RESULT_EVIDENCE" "scope=$root,xdev=true" "shared collector offline scope"
+    assert_contains "$RESULT_EVIDENCE" "executor_access_context=uid0_without_dac_read_capabilities" "shared collector capability context"
     check_u_23
     assert_equal ERROR "$RESULT_STATUS" "shared collector U-23 traversal failure"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_01=find: '/locked': Permission denied" "shared collector U-23 shared evidence"
     check_u_25
     assert_equal ERROR "$RESULT_STATUS" "shared collector U-25 traversal failure"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_01=find: '/locked': Permission denied" "shared collector U-25 shared evidence"
     check_u_33
     assert_equal ERROR "$RESULT_STATUS" "shared collector U-33 traversal failure"
-    assert_equal 11 "$find_calls" "shared collector failure is cached"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_01=find: '/locked': Permission denied" "shared collector U-33 shared evidence"
+    assert_equal 12 "$(find_call_count)" "shared collector failure is cached"
+
+    scanner_reset_full_filesystem_cache
+    find() {
+        local diagnostic_index=0
+
+        printf '%s\n' call >> "$find_count_file"
+        for ((diagnostic_index = 1; diagnostic_index <= 25; diagnostic_index++)); do
+            printf "find: '%s/locked-%02d': Permission denied\n" "$SCAN_ROOT" "$diagnostic_index" >&2
+        done
+        return 1
+    }
+    check_u_25
+    assert_equal ERROR "$RESULT_STATUS" "shared collector bounded diagnostics failure"
+    assert_contains "$RESULT_EVIDENCE" "diagnostic_lines=25" "shared collector diagnostic total"
+    assert_contains "$RESULT_EVIDENCE" "diagnostics_truncated=true" "shared collector diagnostic truncation"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_20=find: '/locked-20': Permission denied" "shared collector twentieth diagnostic"
+    case "$RESULT_EVIDENCE" in
+        *scan_diagnostic_21=*) fail "shared collector retained more than 20 diagnostics" ;;
+    esac
+    assert_equal 13 "$(find_call_count)" "shared collector bounded diagnostic traversal"
+
+    scanner_reset_full_filesystem_cache
+    scanner_run_find_with_diagnostics() {
+        local stream_file="$1"
+        local diagnostic_file="$2"
+
+        printf 'M\0/path\0f\0invalid' > "$stream_file"
+        : > "$diagnostic_file"
+    }
+    check_u_25
+    assert_equal ERROR "$RESULT_STATUS" "shared collector malformed metadata stream"
+    assert_contains "$RESULT_EVIDENCE" "filesystem_scan_errors=1" "shared collector malformed stream error count"
+    assert_contains "$RESULT_EVIDENCE" "other_diagnostics=1" "shared collector malformed stream diagnostic class"
+    assert_contains "$RESULT_EVIDENCE" "scan_diagnostic_detail=invalid_traversal_record_stream" "shared collector malformed stream detail"
 )
 
 test_shared_collector_excludes_workspace() (
@@ -5919,6 +6056,7 @@ run_test "time and sysctl platform adapters" test_time_and_sysctl_platform_adapt
 run_test "core report counts and permissions" test_core_report_counts_and_permissions
 run_test "result normalization differential" test_result_normalization_differential
 run_test "report write failures" test_report_write_failures
+run_test "process security context" test_process_security_context
 run_test "path, scratch, and listener cache semantics" test_path_scratch_and_listener_cache_semantics
 run_test "existing output directory remains unchanged" test_existing_output_directory_is_not_mutated
 run_test "sysctl layering, masks, and drift" test_sysctl_layering_masks_and_drift

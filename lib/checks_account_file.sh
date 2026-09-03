@@ -166,6 +166,123 @@ scanner_evidence_path() {
     printf '%s' "$displayed_path" | LC_ALL=C tr '\n\r\t' '???' | LC_ALL=C tr -cd '[:print:]'
 }
 
+scanner_directory_searchable() {
+    [ -x "$1" ]
+}
+
+scanner_capture_bounded_find_diagnostics() {
+    local output_file="$1"
+    local diagnostic_line=""
+    local sanitized_diagnostic=""
+    local diagnostic_count=0
+    local permission_denied_count=0
+    local other_count=0
+    local truncated=0
+
+    : > "$output_file" || return 2
+    while IFS= read -r diagnostic_line || [ -n "$diagnostic_line" ]; do
+        diagnostic_count=$((diagnostic_count + 1))
+        case "$diagnostic_line" in
+            *"Permission denied"*) permission_denied_count=$((permission_denied_count + 1)) ;;
+            *) other_count=$((other_count + 1)) ;;
+        esac
+        if [ "$diagnostic_count" -le 20 ]; then
+            if [ "$SCAN_ROOT" != "/" ]; then
+                diagnostic_line="${diagnostic_line//"${SCAN_ROOT%/}"/}"
+            fi
+            if [ "${#diagnostic_line}" -gt 256 ]; then
+                diagnostic_line="${diagnostic_line:0:256}"
+                truncated=1
+            fi
+            console_sanitize_line_into "$diagnostic_line" sanitized_diagnostic
+            printf 'D\t%s\n' "$sanitized_diagnostic" >> "$output_file" || return 2
+        else
+            truncated=1
+        fi
+    done
+    printf 'M\t%s\t%s\t%s\t%s\n' \
+        "$diagnostic_count" "$permission_denied_count" "$other_count" "$truncated" >> "$output_file" || return 2
+}
+
+scanner_run_find_with_diagnostics() {
+    local stream_file="$1"
+    local diagnostic_file="$2"
+    local -a pipeline_status=()
+
+    shift 2
+    LC_ALL=C find "$@" 2>&1 > "$stream_file" |
+        scanner_capture_bounded_find_diagnostics "$diagnostic_file"
+    pipeline_status=("${PIPESTATUS[@]}")
+    [ "${pipeline_status[1]:-2}" -eq 0 ] || return 125
+    return "${pipeline_status[0]:-2}"
+}
+
+scanner_record_full_filesystem_scan_error() {
+    local diagnostic_file="$1"
+    local find_status="$2"
+    local record_type=""
+    local field_one=""
+    local field_two=""
+    local field_three=""
+    local field_four=""
+    local diagnostic_key=""
+    local saw_metadata=0
+    local current_diagnostic_lines=0
+
+    SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+    while IFS=$'\t' read -r record_type field_one field_two field_three field_four; do
+        case "$record_type" in
+            D)
+                SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_COUNT=$((SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_COUNT + 1))
+                if [ "$SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_COUNT" -le 20 ]; then
+                    printf -v diagnostic_key 'scan_diagnostic_%02d' "$SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_COUNT"
+                    scanner_append_evidence SCANNER_FULL_FILESYSTEM_ERROR_EVIDENCE "${diagnostic_key}=${field_one}"
+                else
+                    SCANNER_FULL_FILESYSTEM_DIAGNOSTICS_TRUNCATED=1
+                fi
+                ;;
+            M)
+                saw_metadata=1
+                current_diagnostic_lines="$field_one"
+                SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_LINES=$((SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_LINES + field_one))
+                SCANNER_FULL_FILESYSTEM_PERMISSION_DENIED_DIAGNOSTICS=$((SCANNER_FULL_FILESYSTEM_PERMISSION_DENIED_DIAGNOSTICS + field_two))
+                SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS=$((SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS + field_three))
+                [ "$field_four" -eq 0 ] || SCANNER_FULL_FILESYSTEM_DIAGNOSTICS_TRUNCATED=1
+                ;;
+        esac
+    done < "$diagnostic_file"
+    if [ "$saw_metadata" -eq 0 ] || [ "$current_diagnostic_lines" -eq 0 ]; then
+        SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS=$((SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS + 1))
+        scanner_append_evidence SCANNER_FULL_FILESYSTEM_ERROR_EVIDENCE "scan_diagnostic_detail=unavailable,find_status=${find_status}"
+    fi
+}
+
+scanner_record_full_filesystem_parse_error() {
+    SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+    SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS=$((SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS + 1))
+    scanner_append_evidence SCANNER_FULL_FILESYSTEM_ERROR_EVIDENCE "scan_diagnostic_detail=invalid_traversal_record_stream"
+}
+
+scanner_full_filesystem_error_evidence_into() {
+    local destination_name="$1"
+    local process_evidence=""
+    local evidence_value=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|destination_name|process_evidence|evidence_value) return 2 ;;
+    esac
+    scanner_process_security_context_evidence_into process_evidence || return 2
+    evidence_value="scope=${SCAN_ROOT},xdev=true
+filesystem_scan_errors=${SCANNER_FULL_FILESYSTEM_SCAN_ERRORS}
+diagnostic_lines=${SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_LINES}
+permission_denied_diagnostics=${SCANNER_FULL_FILESYSTEM_PERMISSION_DENIED_DIAGNOSTICS}
+other_diagnostics=${SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS}
+diagnostics_truncated=$([ "$SCANNER_FULL_FILESYSTEM_DIAGNOSTICS_TRUNCATED" -eq 1 ] && printf true || printf false)
+${process_evidence}
+${SCANNER_FULL_FILESYSTEM_ERROR_EVIDENCE}"
+    printf -v "$destination_name" '%s' "$evidence_value"
+}
+
 scanner_collect_profile_directory_files() {
     local logical_directory="$1"
     local output_file="$2"
@@ -208,6 +325,12 @@ scanner_reset_full_filesystem_cache() {
     SCANNER_FULL_FILESYSTEM_ROOT_STATUS=0
     SCANNER_FULL_FILESYSTEM_ROOT_COUNT=0
     SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=0
+    SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_COUNT=0
+    SCANNER_FULL_FILESYSTEM_DIAGNOSTIC_LINES=0
+    SCANNER_FULL_FILESYSTEM_PERMISSION_DENIED_DIAGNOSTICS=0
+    SCANNER_FULL_FILESYSTEM_OTHER_DIAGNOSTICS=0
+    SCANNER_FULL_FILESYSTEM_DIAGNOSTICS_TRUNCATED=0
+    SCANNER_FULL_FILESYSTEM_ERROR_EVIDENCE=""
     SCANNER_FULL_FILESYSTEM_U15_SETUP_ERROR=""
     SCANNER_FULL_FILESYSTEM_U15_EXTERNAL_NSS=1
     SCANNER_FULL_FILESYSTEM_U15_METADATA_ERRORS=0
@@ -301,6 +424,9 @@ scanner_full_filesystem_parse_selected_stream() {
 scanner_collect_full_filesystem_facts() {
     local roots_file=""
     local stream_file=""
+    local diagnostic_file=""
+    local find_status=0
+    local stream_parse_error=0
     local filesystem_root=""
     local nsswitch_file=""
     local passwd_file=""
@@ -412,6 +538,10 @@ scanner_collect_full_filesystem_facts() {
         SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
         return 0
     }
+    diagnostic_file="$(new_scratch_file full-filesystem-diagnostics)" || {
+        SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+        return 0
+    }
     for generated_path in "$SCRATCH_DIR" "$REPORT_TEXT" "$REPORT_JSONL"; do
         [ -n "$generated_path" ] || continue
         [ -e "$generated_path" ] || [ -L "$generated_path" ] || continue
@@ -462,62 +592,81 @@ scanner_collect_full_filesystem_facts() {
         }
 
         if [ "$SCAN_ROOT" = "/" ] && [ "$collect_u15" -eq 1 ]; then
-            if ! LC_ALL=C find -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
+            find_status=0
+            scanner_run_find_with_diagnostics "$stream_file" "$diagnostic_file" \
+                -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
                 \( \
                     \( \( -nouser -o -nogroup \) -printf 'O\0%p\0' \) , \
                     \( "$u23_find_gate" -type f -uid 0 \( -perm -04000 -o -perm -02000 \) -printf 'S\0%p\0%m\0' \) , \
                     \( "$u25_find_gate" -type f -perm -0002 -printf 'W\0%p\0' \) , \
                     \( "$u33_find_gate" -name '.*' -printf 'H\0%p\0' \) \
-                \) > "$stream_file" 2>/dev/null; then
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                \) || find_status=$?
+            if [ "$find_status" -eq 125 ]; then
+                SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                return 0
+            elif [ "$find_status" -ne 0 ]; then
+                scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
                 continue
             fi
             scanner_full_filesystem_parse_selected_stream "$stream_file" "$filesystem_root" ||
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                scanner_record_full_filesystem_parse_error
             continue
         fi
 
         if [ "$SCAN_ROOT" = "/" ] || [ "$collect_u15" -eq 0 ] ||
             [ -n "$SCANNER_FULL_FILESYSTEM_U15_SETUP_ERROR" ]; then
-            if ! LC_ALL=C find -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
+            find_status=0
+            scanner_run_find_with_diagnostics "$stream_file" "$diagnostic_file" \
+                -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
                 \( \
                     \( "$u23_find_gate" -type f -uid 0 \( -perm -04000 -o -perm -02000 \) -printf 'S\0%p\0%m\0' \) , \
                     \( "$u25_find_gate" -type f -perm -0002 -printf 'W\0%p\0' \) , \
                     \( "$u33_find_gate" -name '.*' -printf 'H\0%p\0' \) \
-                \) > "$stream_file" 2>/dev/null; then
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                \) || find_status=$?
+            if [ "$find_status" -eq 125 ]; then
+                SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                return 0
+            elif [ "$find_status" -ne 0 ]; then
+                scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
                 continue
             fi
             scanner_full_filesystem_parse_selected_stream "$stream_file" "$filesystem_root" ||
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                scanner_record_full_filesystem_parse_error
             continue
         fi
 
-        if ! LC_ALL=C find -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
-            -printf 'M\0%p\0%y\0%U\0%G\0%m\0' > "$stream_file" 2>/dev/null; then
-            SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+        find_status=0
+        scanner_run_find_with_diagnostics "$stream_file" "$diagnostic_file" \
+            -P "$filesystem_root" -xdev "${scan_prune_expression[@]}" \
+            -printf 'M\0%p\0%y\0%U\0%G\0%m\0' || find_status=$?
+        if [ "$find_status" -eq 125 ]; then
+            SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+            return 0
+        elif [ "$find_status" -ne 0 ]; then
+            scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
             continue
         fi
 
+        stream_parse_error=0
         while IFS= read -r -d '' file_type; do
             [ "$file_type" = "M" ] || {
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                stream_parse_error=1
                 break
             }
-            IFS= read -r -d '' path || { SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break; }
-            IFS= read -r -d '' file_type || { SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break; }
-            IFS= read -r -d '' file_uid || { SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break; }
-            IFS= read -r -d '' file_gid || { SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break; }
-            IFS= read -r -d '' file_mode || { SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break; }
+            IFS= read -r -d '' path || { stream_parse_error=1; break; }
+            IFS= read -r -d '' file_type || { stream_parse_error=1; break; }
+            IFS= read -r -d '' file_uid || { stream_parse_error=1; break; }
+            IFS= read -r -d '' file_gid || { stream_parse_error=1; break; }
+            IFS= read -r -d '' file_mode || { stream_parse_error=1; break; }
             case "$file_uid:$file_gid:$file_mode" in
                 *[!0-9:]*|*::*|:*|*:)
-                    SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                    stream_parse_error=1
                     break
                     ;;
             esac
-            case "$file_mode" in *[!0-7]*) SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1)); break ;; esac
+            case "$file_mode" in *[!0-7]*) stream_parse_error=1; break ;; esac
             if [ "${#file_uid}" -gt 10 ] || [ "${#file_gid}" -gt 10 ] || [ "${#file_mode}" -gt 4 ]; then
-                SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+                stream_parse_error=1
                 break
             fi
 
@@ -547,8 +696,8 @@ scanner_collect_full_filesystem_facts() {
                 esac
             fi
         done < "$stream_file"
-        if [ -n "$file_type" ]; then
-            SCANNER_FULL_FILESYSTEM_SCAN_ERRORS=$((SCANNER_FULL_FILESYSTEM_SCAN_ERRORS + 1))
+        if [ "$stream_parse_error" -eq 1 ] || [ -n "$file_type" ]; then
+            scanner_record_full_filesystem_parse_error
         fi
     done < "$roots_file"
 }
@@ -3382,10 +3531,12 @@ check_u_15() {
         return
     fi
     if [ "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS" -gt 0 ]; then
+        scanner_full_filesystem_error_evidence_into evidence
+        scanner_note_offline_access_context
         if [ "$SCAN_ROOT" = "/" ]; then
-            set_result ERROR "루트 파일시스템의 소유자 없는 파일 검색을 완료하지 못했습니다." "scope=/,xdev=true"
+            set_result ERROR "루트 파일시스템의 소유자 없는 파일 검색을 완료하지 못했습니다." "$evidence"
         else
-            set_result ERROR "오프라인 루트의 전체 파일 목록을 수집하지 못했습니다." "scope=$SCAN_ROOT"
+            set_result ERROR "오프라인 루트의 전체 파일 목록을 수집하지 못했습니다." "$evidence"
         fi
         return
     fi
@@ -3806,7 +3957,9 @@ check_u_23() {
         return
     fi
     if [ "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS" -gt 0 ]; then
-        set_result ERROR "루트 파일시스템의 SUID·SGID 검색을 완료하지 못했습니다." "scope=/,xdev=true"
+        scanner_full_filesystem_error_evidence_into evidence
+        scanner_note_offline_access_context
+        set_result ERROR "루트 파일시스템의 SUID·SGID 검색을 완료하지 못했습니다." "$evidence"
         return
     fi
     evidence="special_permission_files=${SCANNER_FULL_FILESYSTEM_U23_COUNT}
@@ -3825,8 +3978,11 @@ ${SCANNER_FULL_FILESYSTEM_U23_EVIDENCE}"
 check_u_24() {
     local passwd_file=""
     local user_name=""
+    local evidence_user_name=""
     local user_uid=""
     local home_path=""
+    local home_physical_path=""
+    local evidence_home_path=""
     local shell_path=""
     local logical_file=""
     local path=""
@@ -3836,7 +3992,12 @@ check_u_24() {
     local scanned=0
     local violations=0
     local errors=0
+    local path_errors=0
+    local metadata_errors=0
+    local enumeration_errors=0
+    local access_errors=0
     local evidence=""
+    local process_evidence=""
     local database_status=0
     local path_status=0
     local directory_spec=""
@@ -3858,25 +4019,56 @@ check_u_24() {
         return
     fi
     while IFS=: read -r user_name _ user_uid _ _ home_path _; do
+        console_sanitize_line_into "$user_name" evidence_user_name
+        evidence_home_path="$(scanner_evidence_path "$home_path")"
         case "$home_path" in
             /*) ;;
             *)
                 errors=$((errors + 1))
-                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${user_name},home=${home_path:-unset},path_error=true"
+                path_errors=$((path_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},home=${evidence_home_path:-unset},error=nonabsolute_home_path"
                 continue
                 ;;
         esac
+        path_status=0
+        home_physical_path="$(fs_path "$home_path" 2>/dev/null)" || path_status=$?
+        if [ "$path_status" -ne 0 ]; then
+            errors=$((errors + 1))
+            path_errors=$((path_errors + 1))
+            [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},home=${evidence_home_path},error=home_path_resolution_failed"
+            continue
+        fi
+        if [ ! -e "$home_physical_path" ] && [ ! -L "$home_physical_path" ]; then
+            continue
+        fi
+        if [ ! -d "$home_physical_path" ]; then
+            if [ -L "$home_physical_path" ]; then
+                errors=$((errors + 1))
+                path_errors=$((path_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},home=${evidence_home_path},error=dangling_or_unsafe_symlink"
+            fi
+            continue
+        fi
+        if ! scanner_directory_searchable "$home_physical_path"; then
+            errors=$((errors + 1))
+            path_errors=$((path_errors + 1))
+            access_errors=$((access_errors + 1))
+            [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},home=${evidence_home_path},error=directory_search_permission_denied"
+            continue
+        fi
         for logical_file in .profile .bash_profile .bash_login .bashrc .kshrc .cshrc .tcshrc .login .exrc .netrc .zprofile .zshenv .zshrc .zlogin .pam_environment .xprofile .xsessionrc .config/fish/config.fish; do
             path_status=0
             path="$(fs_path "${home_path%/}/$logical_file" 2>/dev/null)" || path_status=$?
             if [ "$path_status" -ne 0 ]; then
                 errors=$((errors + 1))
-                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${user_name},path=${home_path%/}/$logical_file,path_error=true"
+                path_errors=$((path_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=${evidence_home_path%/}/$logical_file,error=path_resolution_failed"
                 continue
             fi
             if [ ! -e "$path" ]; then
                 if [ -L "$path" ]; then
                     errors=$((errors + 1))
+                    path_errors=$((path_errors + 1))
                     [ "$errors" -le 20 ] && scanner_append_evidence evidence "$(scanner_evidence_path "$path"):dangling_or_unsafe_symlink"
                 fi
                 continue
@@ -3887,6 +4079,8 @@ check_u_24() {
             decimal_mode="$(mode_to_decimal "$mode" 2>/dev/null || true)"
             if [ -z "$file_uid" ] || [ -z "$decimal_mode" ]; then
                 errors=$((errors + 1))
+                metadata_errors=$((metadata_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$path"),error=metadata_read_failed"
             elif { [ "$file_uid" != "0" ] && [ "$file_uid" != "$user_uid" ]; } || [ $((decimal_mode & 0022)) -ne 0 ]; then
                 violations=$((violations + 1))
                 [ "$violations" -le 20 ] && scanner_append_evidence evidence "$(scanner_evidence_path "$path"):owner_uid=${file_uid},expected_uid=${user_uid},mode=${mode}"
@@ -3898,19 +4092,35 @@ check_u_24() {
             path="$(fs_path "${home_path%/}/$relative_directory" 2>/dev/null)" || path_status=$?
             if [ "$path_status" -ne 0 ]; then
                 errors=$((errors + 1))
-                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${user_name},path=${home_path%/}/$relative_directory,path_error=true"
+                path_errors=$((path_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=${evidence_home_path%/}/$relative_directory,error=path_resolution_failed"
                 continue
             fi
             [ -d "$path" ] || {
-                [ -L "$path" ] && errors=$((errors + 1))
+                if [ -L "$path" ]; then
+                    errors=$((errors + 1))
+                    path_errors=$((path_errors + 1))
+                    [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$path"),error=dangling_or_unsafe_symlink"
+                fi
                 continue
             }
+            if [ ! -r "$path" ] || [ ! -x "$path" ]; then
+                errors=$((errors + 1))
+                enumeration_errors=$((enumeration_errors + 1))
+                access_errors=$((access_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$path"),error=directory_enumeration_permission_denied"
+                continue
+            fi
             candidate_file="$(new_scratch_file u24-environment)" || {
                 errors=$((errors + 1))
+                enumeration_errors=$((enumeration_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$path"),error=scratch_file_unavailable"
                 continue
             }
             if ! find -P "$path" -maxdepth 1 \( -type f -o -type l \) -name "$name_pattern" -print0 > "$candidate_file" 2>/dev/null; then
                 errors=$((errors + 1))
+                enumeration_errors=$((enumeration_errors + 1))
+                [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$path"),error=directory_enumeration_failed"
                 continue
             fi
             while IFS= read -r -d '' candidate; do
@@ -3918,6 +4128,7 @@ check_u_24() {
                 if [ -L "$candidate" ]; then
                     resolved_candidate="$(resolve_rooted_read_path "$candidate" 2>/dev/null)" || {
                         errors=$((errors + 1))
+                        path_errors=$((path_errors + 1))
                         [ "$errors" -le 20 ] && scanner_append_evidence evidence "$(scanner_evidence_path "$candidate"):dangling_or_unsafe_symlink"
                         continue
                     }
@@ -3928,6 +4139,8 @@ check_u_24() {
                 decimal_mode="$(mode_to_decimal "$mode" 2>/dev/null || true)"
                 if [ -z "$file_uid" ] || [ -z "$decimal_mode" ]; then
                     errors=$((errors + 1))
+                    metadata_errors=$((metadata_errors + 1))
+                    [ "$errors" -le 20 ] && scanner_append_evidence evidence "account=${evidence_user_name},path=$(scanner_evidence_path "$candidate"),error=metadata_read_failed"
                 elif { [ "$file_uid" != "0" ] && [ "$file_uid" != "$user_uid" ]; } || [ $((decimal_mode & 0022)) -ne 0 ]; then
                     violations=$((violations + 1))
                     [ "$violations" -le 20 ] && scanner_append_evidence evidence "$(scanner_evidence_path "$candidate"):owner_uid=${file_uid},expected_uid=${user_uid},mode=${mode}"
@@ -3937,10 +4150,19 @@ check_u_24() {
     done < "$passwd_file"
     evidence="scanned_files=${scanned}
 violations=${violations}
-metadata_errors=${errors}
+path_errors=${path_errors}
+metadata_errors=${metadata_errors}
+enumeration_errors=${enumeration_errors}
+collection_errors=${errors}
 ${evidence}"
     if [ "$errors" -gt 0 ]; then
-        set_result ERROR "일부 홈 환경 파일의 메타데이터를 확인하지 못했습니다." "$evidence"
+        if [ "$access_errors" -gt 0 ]; then
+            scanner_process_security_context_evidence_into process_evidence
+            evidence="${process_evidence}
+${evidence}"
+            scanner_note_offline_access_context
+        fi
+        set_result ERROR "일부 홈 환경 파일을 완전하게 검사하지 못했습니다." "$evidence"
     elif [ "$violations" -gt 0 ]; then
         set_result VULNERABLE "홈 환경 파일의 소유자 또는 쓰기 권한이 기준을 벗어납니다." "$evidence"
     else
@@ -3961,7 +4183,9 @@ check_u_25() {
         return
     fi
     if [ "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS" -gt 0 ]; then
-        set_result ERROR "루트 파일시스템의 world writable 파일 검색을 완료하지 못했습니다." "scope=/,xdev=true"
+        scanner_full_filesystem_error_evidence_into evidence
+        scanner_note_offline_access_context
+        set_result ERROR "루트 파일시스템의 world writable 파일 검색을 완료하지 못했습니다." "$evidence"
         return
     fi
     evidence="world_writable_files=${SCANNER_FULL_FILESYSTEM_U25_COUNT}
@@ -6864,7 +7088,9 @@ check_u_33() {
         return
     fi
     if [ "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS" -gt 0 ]; then
-        set_result ERROR "루트 파일시스템의 숨김 경로 검색을 완료하지 못했습니다." "scope=/,xdev=true"
+        scanner_full_filesystem_error_evidence_into evidence
+        scanner_note_offline_access_context
+        set_result ERROR "루트 파일시스템의 숨김 경로 검색을 완료하지 못했습니다." "$evidence"
         return
     fi
     evidence="hidden_paths=${SCANNER_FULL_FILESYSTEM_U33_COUNT}

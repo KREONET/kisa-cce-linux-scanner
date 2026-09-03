@@ -95,6 +95,17 @@ CANONICAL_SCAN_ROOT_VALUE=""
 CANONICAL_SCAN_ROOT_READY=0
 LISTENER_SNAPSHOT_CACHE_ENABLED=0
 LISTENER_SNAPSHOT_GENERATION=0
+SCANNER_PROCESS_SECURITY_CONTEXT_READY=0
+SCANNER_PROCESS_SECURITY_CONTEXT_WARNING_EMITTED=0
+SCANNER_PROCESS_STATUS_FILE="/proc/self/status"
+SCANNER_PROCESS_EUID_OVERRIDE=""
+SCANNER_PROCESS_EUID=""
+SCANNER_PROCESS_CAP_EFF=""
+SCANNER_PROCESS_CAP_BND=""
+SCANNER_PROCESS_NO_NEW_PRIVS=""
+SCANNER_PROCESS_CAP_DAC_OVERRIDE="unknown"
+SCANNER_PROCESS_CAP_DAC_READ_SEARCH="unknown"
+SCANNER_PROCESS_ACCESS_CONTEXT="unknown"
 
 export LC_ALL=C
 export LANG=C
@@ -197,6 +208,104 @@ warn() {
 verbose() {
     [ "$VERBOSE" -eq 1 ] || return 0
     console_emit "$*" >&2
+}
+
+scanner_reset_process_security_context() {
+    SCANNER_PROCESS_SECURITY_CONTEXT_READY=0
+    SCANNER_PROCESS_SECURITY_CONTEXT_WARNING_EMITTED=0
+    SCANNER_PROCESS_EUID=""
+    SCANNER_PROCESS_CAP_EFF=""
+    SCANNER_PROCESS_CAP_BND=""
+    SCANNER_PROCESS_NO_NEW_PRIVS=""
+    SCANNER_PROCESS_CAP_DAC_OVERRIDE="unknown"
+    SCANNER_PROCESS_CAP_DAC_READ_SEARCH="unknown"
+    SCANNER_PROCESS_ACCESS_CONTEXT="unknown"
+}
+
+scanner_collect_process_security_context() {
+    local status_file="$SCANNER_PROCESS_STATUS_FILE"
+    local effective_uid="${SCANNER_PROCESS_EUID_OVERRIDE:-${EUID:-}}"
+    local field_name=""
+    local field_value=""
+    local low_nibble=""
+    local low_bits=0
+
+    [ "$SCANNER_PROCESS_SECURITY_CONTEXT_READY" -eq 0 ] || return 0
+    SCANNER_PROCESS_SECURITY_CONTEXT_READY=1
+    SCANNER_PROCESS_EUID="$effective_uid"
+
+    if [ -r "$status_file" ]; then
+        while IFS=: read -r field_name field_value; do
+            case "$field_name" in
+                CapEff)
+                    read -r SCANNER_PROCESS_CAP_EFF _ <<< "$field_value"
+                    ;;
+                CapBnd)
+                    read -r SCANNER_PROCESS_CAP_BND _ <<< "$field_value"
+                    ;;
+                NoNewPrivs)
+                    read -r SCANNER_PROCESS_NO_NEW_PRIVS _ <<< "$field_value"
+                    ;;
+            esac
+        done < "$status_file"
+    fi
+
+    if [ -n "$SCANNER_PROCESS_CAP_EFF" ] &&
+        [[ "$SCANNER_PROCESS_CAP_EFF" != *[!0-9A-Fa-f]* ]]; then
+        low_nibble="${SCANNER_PROCESS_CAP_EFF: -1}"
+        low_bits=$((16#$low_nibble))
+        if [ $((low_bits & 2)) -ne 0 ]; then
+            SCANNER_PROCESS_CAP_DAC_OVERRIDE="present"
+        else
+            SCANNER_PROCESS_CAP_DAC_OVERRIDE="absent"
+        fi
+        if [ $((low_bits & 4)) -ne 0 ]; then
+            SCANNER_PROCESS_CAP_DAC_READ_SEARCH="present"
+        else
+            SCANNER_PROCESS_CAP_DAC_READ_SEARCH="absent"
+        fi
+    fi
+
+    case "$SCANNER_PROCESS_EUID" in
+        0)
+            if [ "$SCANNER_PROCESS_CAP_DAC_OVERRIDE" = "absent" ] &&
+                [ "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" = "absent" ]; then
+                SCANNER_PROCESS_ACCESS_CONTEXT="uid0_without_dac_read_capabilities"
+            elif [ "$SCANNER_PROCESS_CAP_DAC_OVERRIDE" = "present" ] ||
+                [ "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" = "present" ]; then
+                SCANNER_PROCESS_ACCESS_CONTEXT="uid0_with_dac_read_capability"
+            fi
+            ;;
+        ''|*[!0-9]*) ;;
+        *) SCANNER_PROCESS_ACCESS_CONTEXT="non_root" ;;
+    esac
+}
+
+scanner_process_security_context_evidence_into() {
+    local destination_name="$1"
+    local evidence_value=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|destination_name|evidence_value) return 2 ;;
+    esac
+    scanner_collect_process_security_context
+    evidence_value="executor_euid=${SCANNER_PROCESS_EUID:-unavailable}
+executor_access_context=${SCANNER_PROCESS_ACCESS_CONTEXT}
+executor_cap_eff=${SCANNER_PROCESS_CAP_EFF:-unavailable}
+executor_cap_bnd=${SCANNER_PROCESS_CAP_BND:-unavailable}
+executor_cap_dac_override=${SCANNER_PROCESS_CAP_DAC_OVERRIDE}
+executor_cap_dac_read_search=${SCANNER_PROCESS_CAP_DAC_READ_SEARCH}
+executor_no_new_privs=${SCANNER_PROCESS_NO_NEW_PRIVS:-unavailable}"
+    printf -v "$destination_name" '%s' "$evidence_value"
+}
+
+scanner_note_offline_access_context() {
+    [ "$SCAN_ROOT" != "/" ] || return 0
+    scanner_collect_process_security_context
+    [ "$SCANNER_PROCESS_ACCESS_CONTEXT" = "uid0_without_dac_read_capabilities" ] || return 0
+    [ "$SCANNER_PROCESS_SECURITY_CONTEXT_WARNING_EMITTED" -eq 0 ] || return 0
+    SCANNER_PROCESS_SECURITY_CONTEXT_WARNING_EMITTED=1
+    verbose "access_context=uid0_without_dac_read_capabilities cap_eff=${SCANNER_PROCESS_CAP_EFF:-unavailable} no_new_privs=${SCANNER_PROCESS_NO_NEW_PRIVS:-unavailable} warning=restricted paths may make offline results incomplete"
 }
 
 initialize_report_labels() {
