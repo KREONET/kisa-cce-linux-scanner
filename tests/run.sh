@@ -143,13 +143,27 @@ test_sha256_file() {
     fi
 }
 
+write_evidence_checksums() {
+    local bundle="$1"
+    local relative_path=""
+
+    : > "$bundle/checksums.sha256"
+    for relative_path in \
+        manifest.tsv \
+        identity/os-release identity/machine-id identity/boot-id identity/kernel-release \
+        runtime/systemd-units.tsv runtime/systemd-unit-files.tsv runtime/listeners.tsv \
+        runtime/mountinfo runtime/firewall.txt runtime/time-sync.txt; do
+        printf '%s  %s\n' "$(test_sha256_file "$bundle/$relative_path")" "$relative_path" >> "$bundle/checksums.sha256"
+    done
+    chmod 0600 -- "$bundle/checksums.sha256"
+}
+
 write_evidence_bundle() {
     local bundle="$1"
     local root="$2"
     local machine_id="0123456789abcdef0123456789abcdef"
     local boot_id="01234567-89ab-cdef-0123-456789abcdef"
     local captured_at=""
-    local relative_path=""
 
     captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     mkdir -p -- "$root/etc" "$bundle/identity" "$bundle/runtime"
@@ -167,6 +181,7 @@ write_evidence_bundle() {
         printf 'chronyd.service\tloaded\tactive\trunning\tenabled\n'
         printf 'rsyslog.service\tloaded\tactive\trunning\tenabled\n'
         printf 'getty@.service\tloaded\tinactive\tdead\tdisabled\n'
+        printf '%s\tloaded\tactive\trunning\tenabled\n' 'backup@customer\x20one.service'
     } > "$bundle/runtime/systemd-units.tsv"
     {
         printf 'unit\tunit_file_state\tpreset\n'
@@ -175,6 +190,7 @@ write_evidence_bundle() {
         printf 'chronyd.service\tenabled\tenabled\n'
         printf 'rsyslog.service\tenabled\tenabled\n'
         printf 'getty@.service\tdisabled\tdisabled\n'
+        printf '%s\tenabled\tenabled\n' 'backup@customer\x20one.service'
     } > "$bundle/runtime/systemd-unit-files.tsv"
     {
         printf 'transport\tlocal_address\tport\tprocess\n'
@@ -203,14 +219,7 @@ runtime_mountinfo_status	collected
 runtime_firewall_status	collected
 runtime_time_sync_status	collected
 EOF
-    : > "$bundle/checksums.sha256"
-    for relative_path in \
-        manifest.tsv \
-        identity/os-release identity/machine-id identity/boot-id identity/kernel-release \
-        runtime/systemd-units.tsv runtime/systemd-unit-files.tsv runtime/listeners.tsv \
-        runtime/mountinfo runtime/firewall.txt runtime/time-sync.txt; do
-        printf '%s  %s\n' "$(test_sha256_file "$bundle/$relative_path")" "$relative_path" >> "$bundle/checksums.sha256"
-    done
+    write_evidence_checksums "$bundle"
     chmod 0600 -- "$bundle/manifest.tsv" "$bundle/checksums.sha256" \
         "$bundle"/identity/* "$bundle"/runtime/*
 }
@@ -282,6 +291,8 @@ test_policy_and_evidence_contracts() (
     local review_id=""
     local listener_facts=""
     local mount_roots=""
+    local systemd_units_backup="$TEST_TEMP/systemd-units.valid"
+    local systemd_unit_files_backup="$TEST_TEMP/systemd-unit-files.valid"
 
     write_os_release "$root" ubuntu 26.04 "Ubuntu 26.04 LTS"
     mkdir -p -- "$root/var/log" "$scratch" "$policy_directory"
@@ -306,6 +317,8 @@ test_policy_and_evidence_contracts() (
     evidence_service_state ssh.service || fail "active bundled service was not resolved"
     evidence_service_state telnet.service
     assert_equal 1 "$?" "inactive bundled service state"
+    evidence_service_state 'backup@customer\x20one.service' ||
+        fail "escaped systemd service name was not resolved"
     evidence_service_activation_state ssh.service || fail "enabled bundled service was not resolved"
     evidence_listener_state tcp 22 || fail "bundled TCP listener was not resolved"
     evidence_listener_state tcp 23
@@ -315,6 +328,34 @@ test_policy_and_evidence_contracts() (
     mount_roots="$(evidence_mount_roots)" || fail "bundled mount roots were not resolved"
     assert_contains "$mount_roots" $'/var/log\text4' "bundled /var/log mount"
     [ -n "$(evidence_capture_age_seconds)" ] || fail "evidence age was not calculated"
+
+    cp -- "$bundle/runtime/systemd-units.tsv" "$systemd_units_backup"
+    printf '%s\tloaded\tactive\trunning\tenabled\n' 'backup@invalid\qname.service' >> "$bundle/runtime/systemd-units.tsv"
+    write_evidence_checksums "$bundle"
+    if validate_evidence_bundle "$bundle" "$root"; then
+        fail "malformed systemd unit escape passed evidence validation"
+    fi
+    assert_equal "invalid systemd-units.tsv data" "$EVIDENCE_VALIDATION_ERROR" \
+        "malformed systemd unit escape error"
+    cp -- "$systemd_units_backup" "$bundle/runtime/systemd-units.tsv"
+    chmod 0600 -- "$bundle/runtime/systemd-units.tsv"
+    write_evidence_checksums "$bundle"
+    validate_evidence_bundle "$bundle" "$root" ||
+        fail "restored evidence bundle was rejected: $EVIDENCE_VALIDATION_ERROR"
+
+    cp -- "$bundle/runtime/systemd-unit-files.tsv" "$systemd_unit_files_backup"
+    printf '%s\tenabled\tenabled\n' 'backup@invalid/name.service' >> "$bundle/runtime/systemd-unit-files.tsv"
+    write_evidence_checksums "$bundle"
+    if validate_evidence_bundle "$bundle" "$root"; then
+        fail "systemd unit name containing a slash passed evidence validation"
+    fi
+    assert_equal "invalid systemd-unit-files.tsv data" "$EVIDENCE_VALIDATION_ERROR" \
+        "invalid systemd unit-file name error"
+    cp -- "$systemd_unit_files_backup" "$bundle/runtime/systemd-unit-files.tsv"
+    chmod 0600 -- "$bundle/runtime/systemd-unit-files.tsv"
+    write_evidence_checksums "$bundle"
+    validate_evidence_bundle "$bundle" "$root" ||
+        fail "second restored evidence bundle was rejected: $EVIDENCE_VALIDATION_ERROR"
 
     : > "$audit_markdown"
     : > "$audit_json"

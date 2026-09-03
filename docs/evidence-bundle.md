@@ -74,6 +74,11 @@ The remaining manifest keys record `collected`, `partial`, or `unavailable` for 
 | `firewall.txt` | Effective nftables or iptables rules, with rule comments removed | Firewall counters and rule comments |
 | `time-sync.txt` | Synchronization state and selected or candidate time sources from available native clients | Authentication keys and daemon configuration files |
 
+Systemd unit names retain systemd's canonical `\xHH` escape sequences. The
+validator accepts only complete hexadecimal escapes and continues to reject
+literal whitespace, path separators, control characters, and malformed escape
+sequences.
+
 Collection is local. The collector does not refresh packages, contact an assessment server, probe listening services, or read authentication secrets. Network addresses, mount paths, unit names, and executable names remain sensitive infrastructure metadata. Store and transfer the directory as security assessment data.
 
 ## Validation and identity binding

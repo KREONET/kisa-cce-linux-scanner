@@ -474,7 +474,8 @@ validate_evidence_bundle() {
     }
     awk -F '\t' '
         NR == 1 {next}
-        NF != 5 || $1 == "" || $1 !~ /^[0-9A-Za-z_.@:+~-]+\.(service|socket)$/ ||
+        NF != 5 || $1 == "" ||
+            $1 !~ /^([0-9A-Za-z_.@:+~-]|\\x[0-9A-Fa-f][0-9A-Fa-f])+\.(service|socket)$/ ||
             $2 !~ /^[0-9A-Za-z_.:+~-]+$/ || $3 !~ /^[0-9A-Za-z_.:+~-]+$/ ||
             $4 !~ /^[0-9A-Za-z_.:+~-]+$/ || $5 !~ /^[0-9A-Za-z_.:+~-]+$/ {exit 1}
     ' "$EVIDENCE_RUNTIME_SYSTEMD_UNITS_PATH" || {
@@ -483,7 +484,8 @@ validate_evidence_bundle() {
     }
     awk -F '\t' '
         NR == 1 {next}
-        NF != 3 || $1 == "" || $1 !~ /^[0-9A-Za-z_.@:+~-]+\.(service|socket)$/ ||
+        NF != 3 || $1 == "" ||
+            $1 !~ /^([0-9A-Za-z_.@:+~-]|\\x[0-9A-Fa-f][0-9A-Fa-f])+\.(service|socket)$/ ||
             $2 !~ /^[0-9A-Za-z_.:+~-]+$/ || $3 !~ /^[-0-9A-Za-z_.:+~]+$/ {exit 1}
     ' "$EVIDENCE_RUNTIME_SYSTEMD_UNIT_FILES_PATH" || {
         evidence_fail "invalid systemd-unit-files.tsv data"
