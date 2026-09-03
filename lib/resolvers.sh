@@ -39,6 +39,12 @@ LISTENER_CACHE_NAMESPACE=""
 LISTENER_CACHE_COMMAND_STATUS=2
 LISTENER_CACHE_FACTS_FILE=""
 
+resolver_debug_emit() {
+    [ "${DEBUG:-0}" = "1" ] || return 0
+    declare -F debug_emit >/dev/null 2>&1 || return 0
+    debug_emit "$@" || :
+}
+
 resolver_reset_epoch_caches() {
     SYSCTL_SNAPSHOT_READY=()
     SYSCTL_SNAPSHOT_STATUS=()
@@ -759,18 +765,21 @@ pam_parse_file_once() {
     if [ -n "${PAM_FILE_STATE[$pam_file_key]+present}" ]; then
         PAM_FILE_LAST_STATE="${PAM_FILE_STATE[$pam_file_key]}"
         PAM_FILE_LAST_REASON="${PAM_FILE_REASON[$pam_file_key]}"
+        resolver_debug_emit pam_file mode "$source_mode" cache hit status "$PAM_FILE_LAST_STATE"
         if [ "$PAM_FILE_LAST_STATE" = "ready" ]; then
             printf -v "$destination_name" '%s' "${PAM_FILE_INTERMEDIATE_PATH[$pam_file_key]}"
             return 0
         fi
         return 2
     fi
+    resolver_debug_emit pam_file mode "$source_mode" cache miss
 
     pam_intermediate_file="$(new_scratch_file pam-file-intermediate)" || {
         PAM_FILE_STATE["$pam_file_key"]="error"
         PAM_FILE_REASON["$pam_file_key"]="scratch"
         PAM_FILE_LAST_STATE="error"
         PAM_FILE_LAST_REASON="scratch"
+        resolver_debug_emit pam_file mode "$source_mode" cache build status error
         return 2
     }
     pam_displayed_source="$(display_path "$service_file" 2>/dev/null)" || {
@@ -778,6 +787,7 @@ pam_parse_file_once() {
         PAM_FILE_REASON["$pam_file_key"]="display-path"
         PAM_FILE_LAST_STATE="error"
         PAM_FILE_LAST_REASON="display-path"
+        resolver_debug_emit pam_file mode "$source_mode" cache build status error
         return 2
     }
     PAM_FILE_PARSE_COUNT=$((PAM_FILE_PARSE_COUNT + 1))
@@ -884,6 +894,7 @@ pam_parse_file_once() {
             PAM_FILE_REASON["$pam_file_key"]=""
             PAM_FILE_LAST_STATE="ready"
             printf -v "$destination_name" '%s' "$pam_intermediate_file"
+            resolver_debug_emit pam_file mode "$source_mode" cache build status ready
             return 0
             ;;
         2)
@@ -891,6 +902,7 @@ pam_parse_file_once() {
             PAM_FILE_REASON["$pam_file_key"]="dangling-continuation"
             PAM_FILE_LAST_STATE="ambiguous"
             PAM_FILE_LAST_REASON="dangling-continuation"
+            resolver_debug_emit pam_file mode "$source_mode" cache build status ambiguous
             return 2
             ;;
         *)
@@ -898,6 +910,7 @@ pam_parse_file_once() {
             PAM_FILE_REASON["$pam_file_key"]="parser"
             PAM_FILE_LAST_STATE="error"
             PAM_FILE_LAST_REASON="parser"
+            resolver_debug_emit pam_file mode "$source_mode" cache build status error
             return 2
             ;;
     esac
@@ -1184,14 +1197,19 @@ pam_expand_service() {
     pam_ensure_epoch_cache || return 2
     pam_pair_key_into "$service" "$pam_type" effective_key || return 2
     if [ -n "${PAM_EFFECTIVE_STATE[$effective_key]+present}" ]; then
+        resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache hit \
+            status "${PAM_EFFECTIVE_STATE[$effective_key]}"
         pam_emit_effective_cache "$effective_key"
         return $?
     fi
+    resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache miss
 
     PAM_EXPANSION_BUILD_COUNT=$((PAM_EXPANSION_BUILD_COUNT + 1))
     effective_output="$(new_scratch_file pam-effective-output)" || {
         PAM_EFFECTIVE_STATE["$effective_key"]="error"
         PAM_EFFECTIVE_REASON["$effective_key"]="scratch"
+        resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+            status error
         return 2
     }
     pam_expand_node "$service" "$pam_type" 0 || expansion_status=$?
@@ -1199,18 +1217,24 @@ pam_expand_service() {
     if [ "$expansion_status" -eq 2 ]; then
         PAM_EFFECTIVE_STATE["$effective_key"]="${PAM_NODE_LAST_CLASS:-error}"
         PAM_EFFECTIVE_REASON["$effective_key"]="${PAM_NODE_LAST_REASON:-expansion}"
+        resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+            status "${PAM_EFFECTIVE_STATE[$effective_key]}"
         return 2
     fi
     if [ "$expansion_status" -eq 0 ] && [ -s "${PAM_NODE_OUTPUT_PATH[$node_key]}" ]; then
         cat "${PAM_NODE_OUTPUT_PATH[$node_key]}" > "$effective_output" || return 2
         PAM_EFFECTIVE_STATE["$effective_key"]="ready"
         PAM_EFFECTIVE_OUTPUT_PATH["$effective_key"]="$effective_output"
+        resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+            status ready
         pam_emit_effective_cache "$effective_key"
         return $?
     fi
     if [ "$service" = "other" ]; then
         PAM_EFFECTIVE_STATE["$effective_key"]="absent"
         PAM_EFFECTIVE_REASON["$effective_key"]="empty-other"
+        resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+            status absent
         return 1
     fi
 
@@ -1222,16 +1246,22 @@ pam_expand_service() {
             cat "${PAM_NODE_OUTPUT_PATH[$other_key]}" > "$effective_output" || return 2
             PAM_EFFECTIVE_STATE["$effective_key"]="ready"
             PAM_EFFECTIVE_OUTPUT_PATH["$effective_key"]="$effective_output"
+            resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+                status ready
             pam_emit_effective_cache "$effective_key"
             ;;
         1)
             PAM_EFFECTIVE_STATE["$effective_key"]="absent"
             PAM_EFFECTIVE_REASON["$effective_key"]="service-and-other-absent"
+            resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+                status absent
             return 1
             ;;
         *)
             PAM_EFFECTIVE_STATE["$effective_key"]="${PAM_NODE_LAST_CLASS:-error}"
             PAM_EFFECTIVE_REASON["$effective_key"]="${PAM_NODE_LAST_REASON:-other-expansion}"
+            resolver_debug_emit pam_expansion service "$service" facility "$pam_type" cache build \
+                status "${PAM_EFFECTIVE_STATE[$effective_key]}"
             return 2
             ;;
     esac
@@ -1630,14 +1660,19 @@ _sysctl_prepare_static_snapshot() {
     local directive_value=""
     local cache_key=""
     local files_status=0
+    local file_count=0
+    local directive_count=0
 
     resolver_ensure_epoch_cache || return 2
     case "$namespace" in
         ''|*[!A-Za-z0-9_.-]*) return 2 ;;
     esac
     if [ "${SYSCTL_SNAPSHOT_READY[$namespace]+present}" = "present" ]; then
+        resolver_debug_emit sysctl_snapshot namespace "$namespace" cache hit \
+            status "${SYSCTL_SNAPSHOT_STATUS[$namespace]}"
         return "${SYSCTL_SNAPSHOT_STATUS[$namespace]}"
     fi
+    resolver_debug_emit sysctl_snapshot namespace "$namespace" cache miss
     SYSCTL_SNAPSHOT_READY["$namespace"]=1
     SYSCTL_SNAPSHOT_STATUS["$namespace"]=2
 
@@ -1646,12 +1681,20 @@ _sysctl_prepare_static_snapshot() {
         0) ;;
         1)
             SYSCTL_SNAPSHOT_STATUS["$namespace"]=1
+            resolver_debug_emit sysctl_snapshot namespace "$namespace" cache build \
+                status 1 files 0 directives 0
             return 1
             ;;
-        *) return 2 ;;
+        *)
+            resolver_debug_emit sysctl_snapshot namespace "$namespace" cache build \
+                status 2 files 0 directives 0
+            return 2
+            ;;
     esac
     if [ -z "$files" ]; then
         SYSCTL_SNAPSHOT_STATUS["$namespace"]=1
+        resolver_debug_emit sysctl_snapshot namespace "$namespace" cache build \
+            status 1 files 0 directives 0
         return 1
     fi
     glob_file="$(new_scratch_file "sysctl-${namespace}-globs")" || return 2
@@ -1659,6 +1702,7 @@ _sysctl_prepare_static_snapshot() {
 
     while IFS= read -r file; do
         [ -n "$file" ] || continue
+        file_count=$((file_count + 1))
         read_path="$(resolve_sysctl_read_path "$file" 2>/dev/null)" || {
             sysctl_file_is_masked "$file" && continue
             return 2
@@ -1705,6 +1749,7 @@ _sysctl_prepare_static_snapshot() {
             IFS= read -r -d '' directive_type &&
             IFS= read -r -d '' line_number &&
             IFS= read -r -d '' directive_value; do
+            directive_count=$((directive_count + 1))
             case "$directive_name" in
                 *'*'*|*'?'*|*'['*)
                     [ "$directive_type" = "assignment" ] || continue
@@ -1724,6 +1769,8 @@ $files
 EOF
 
     SYSCTL_SNAPSHOT_STATUS["$namespace"]=0
+    resolver_debug_emit sysctl_snapshot namespace "$namespace" cache build \
+        status 0 files "$file_count" directives "$directive_count"
     return 0
 }
 
@@ -1774,6 +1821,7 @@ sysctl_static_value_into() {
     local snapshot_status=0
     local dependency_source=""
     local resolver_id=""
+    local match_kind="none"
 
     case "$destination_name" in
         ''|[0-9]*|*[!A-Za-z0-9_]*|key|destination_name|namespace|normalized_target|cache_key|exact_type|glob_file|directive_name|directive_value|directive_source|line_number|result_value|snapshot_status|dependency_source|resolver_id)
@@ -1797,8 +1845,11 @@ sysctl_static_value_into() {
 
     if [ "${SYSCTL_QUERY_READY[$cache_key]+present}" = "present" ]; then
         printf -v "$destination_name" '%s' "${SYSCTL_QUERY_VALUE[$cache_key]}"
+        resolver_debug_emit sysctl_query source static namespace "$namespace" cache hit \
+            status "${SYSCTL_QUERY_STATUS[$cache_key]}"
         return "${SYSCTL_QUERY_STATUS[$cache_key]}"
     fi
+    resolver_debug_emit sysctl_query source static namespace "$namespace" cache miss
 
     _sysctl_prepare_static_snapshot "$namespace" || snapshot_status=$?
     if [ "$snapshot_status" -ne 0 ]; then
@@ -1806,10 +1857,13 @@ sysctl_static_value_into() {
         SYSCTL_QUERY_STATUS["$cache_key"]="$snapshot_status"
         SYSCTL_QUERY_VALUE["$cache_key"]=""
         sysctl_commit_query_result "$resolver_id" "$snapshot_status" "" || return 2
+        resolver_debug_emit sysctl_query source static namespace "$namespace" cache build \
+            status "$snapshot_status" match unavailable
         return "$snapshot_status"
     fi
 
     if [ "${SYSCTL_EXACT_TYPE[$cache_key]+present}" = "present" ]; then
+        match_kind="exact"
         exact_type="${SYSCTL_EXACT_TYPE[$cache_key]}"
         if [ "$exact_type" = "assignment" ]; then
             result_value="${SYSCTL_EXACT_VALUE[$cache_key]}"$'\t'"${SYSCTL_EXACT_SOURCE[$cache_key]}"
@@ -1831,6 +1885,7 @@ sysctl_static_value_into() {
         done < "$glob_file"
         if [ -n "$result_value" ]; then
             SYSCTL_QUERY_STATUS["$cache_key"]=0
+            match_kind="glob"
         else
             SYSCTL_QUERY_STATUS["$cache_key"]=1
         fi
@@ -1840,6 +1895,8 @@ sysctl_static_value_into() {
     SYSCTL_QUERY_VALUE["$cache_key"]="$result_value"
     printf -v "$destination_name" '%s' "$result_value"
     sysctl_commit_query_result "$resolver_id" "${SYSCTL_QUERY_STATUS[$cache_key]}" "$result_value" || return 2
+    resolver_debug_emit sysctl_query source static namespace "$namespace" cache build \
+        status "${SYSCTL_QUERY_STATUS[$cache_key]}" match "$match_kind"
     return "${SYSCTL_QUERY_STATUS[$cache_key]}"
 }
 
@@ -1880,8 +1937,11 @@ sysctl_runtime_value_into() {
     fi
     if [ "${SYSCTL_RUNTIME_READY[$cache_key]+present}" = "present" ]; then
         printf -v "$destination_name" '%s' "${SYSCTL_RUNTIME_VALUE[$cache_key]}"
+        resolver_debug_emit sysctl_query source runtime namespace runtime cache hit \
+            status "${SYSCTL_RUNTIME_STATUS[$cache_key]}"
         return "${SYSCTL_RUNTIME_STATUS[$cache_key]}"
     fi
+    resolver_debug_emit sysctl_query source runtime namespace runtime cache miss
 
     runtime_file="$(new_scratch_file sysctl-runtime)" || return 2
     capture_command sysctl -n "$key" > "$runtime_file" 2>/dev/null || runtime_status=$?
@@ -1899,6 +1959,8 @@ sysctl_runtime_value_into() {
     SYSCTL_RUNTIME_VALUE["$cache_key"]="$runtime_value"
     printf -v "$destination_name" '%s' "$runtime_value"
     sysctl_commit_query_result "$resolver_id" "$runtime_status" "$runtime_value" || return 2
+    resolver_debug_emit sysctl_query source runtime namespace runtime cache build \
+        status "$runtime_status"
     return "$runtime_status"
 }
 
@@ -2313,6 +2375,7 @@ systemd_prepare_bulk_cache() {
     local alias_temp_file=""
     local systemctl_path=""
     local command_status=0
+    local command_availability="available"
 
     systemd_ensure_epoch_cache || return 2
     bulk_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.facts"
@@ -2322,8 +2385,10 @@ systemd_prepare_bulk_cache() {
     if [ -f "$bulk_status_file" ] && [ ! -L "$bulk_status_file" ]; then
         systemd_cache_read_status "$bulk_status_file" || return 2
         SYSTEMD_BULK_STATUS="$SYSTEMD_CACHE_COMMAND_STATUS"
+        resolver_debug_emit systemd_bulk cache hit status "$SYSTEMD_BULK_STATUS"
         return 0
     fi
+    resolver_debug_emit systemd_bulk cache miss
     [ ! -e "$bulk_file" ] && [ ! -L "$bulk_file" ] || return 2
     [ ! -e "$bulk_status_file" ] && [ ! -L "$bulk_status_file" ] || return 2
     [ ! -e "$alias_file" ] && [ ! -L "$alias_file" ] || return 2
@@ -2331,6 +2396,7 @@ systemd_prepare_bulk_cache() {
     temp_file="$(new_scratch_file systemd-bulk)" || return 2
     systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
     if [ -z "$systemctl_path" ]; then
+        command_availability="unavailable"
         command_status=2
         : > "$temp_file" || return 2
     else
@@ -2382,6 +2448,8 @@ systemd_prepare_bulk_cache() {
     systemd_cache_install_facts "$alias_temp_file" "$alias_file" || return 2
     systemd_cache_write_status "$bulk_status_file" "$command_status" || return 2
     SYSTEMD_BULK_STATUS="$command_status"
+    resolver_debug_emit systemd_bulk cache build status "$SYSTEMD_BULK_STATUS" \
+        command "$command_availability"
 }
 
 systemd_bulk_identifier_for_unit() {
@@ -2438,6 +2506,7 @@ systemd_cached_unit_facts() {
     local identifier_status=0
     local systemctl_path=""
     local command_status=0
+    local resolution_method="single"
 
     SYSTEMD_CACHE_FACTS=""
     SYSTEMD_CACHE_COMMAND_STATUS=2
@@ -2450,6 +2519,8 @@ systemd_cached_unit_facts() {
             systemd_show_one_unit "$systemctl_path" "$unit" > "$temp_file" 2>/dev/null || command_status=$?
             SYSTEMD_CACHE_COMMAND_STATUS="$command_status"
             SYSTEMD_CACHE_FACTS="$(< "$temp_file")"
+            resolver_debug_emit systemd_unit unit "$unit" cache bypass method single \
+                status "$command_status"
             return 0
             ;;
         1) ;;
@@ -2467,8 +2538,11 @@ systemd_cached_unit_facts() {
         systemd_cache_read_status "$status_file" || return 2
         SYSTEMD_CACHE_FACTS="$(< "$facts_file")"
         systemd_commit_cached_unit "$unit" || return 2
+        resolver_debug_emit systemd_unit unit "$unit" cache hit \
+            status "$SYSTEMD_CACHE_COMMAND_STATUS"
         return 0
     fi
+    resolver_debug_emit systemd_unit unit "$unit" cache miss
     [ ! -e "$facts_file" ] && [ ! -L "$facts_file" ] || return 2
     [ ! -e "$status_file" ] && [ ! -L "$status_file" ] || return 2
 
@@ -2478,6 +2552,7 @@ systemd_cached_unit_facts() {
         identifier="$(systemd_bulk_identifier_for_unit "$unit")" || identifier_status=$?
         if [ "$identifier_status" -eq 0 ] && systemd_extract_bulk_record "$identifier" "$temp_file"; then
             command_status=0
+            resolution_method="bulk"
         else
             identifier_status=1
         fi
@@ -2500,6 +2575,8 @@ systemd_cached_unit_facts() {
     SYSTEMD_CACHE_COMMAND_STATUS="$command_status"
     SYSTEMD_CACHE_FACTS="$(< "$facts_file")"
     systemd_commit_cached_unit "$unit" || return 2
+    resolver_debug_emit systemd_unit unit "$unit" cache build method "$resolution_method" \
+        status "$command_status"
 }
 
 systemd_epoch_properties_into() {
@@ -2638,8 +2715,10 @@ listener_prepare_epoch_snapshot() {
         [ "$command_status" -le 255 ] || return 2
         LISTENER_CACHE_COMMAND_STATUS="$command_status"
         listener_commit_epoch_snapshot || return 2
+        resolver_debug_emit listener_snapshot transport mixed cache hit status "$command_status"
         return 0
     fi
+    resolver_debug_emit listener_snapshot transport mixed cache miss
     [ ! -e "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
     [ ! -e "$status_file" ] && [ ! -L "$status_file" ] || return 2
 
@@ -2649,6 +2728,7 @@ listener_prepare_epoch_snapshot() {
     systemd_cache_write_status "$status_file" "$command_status" || return 2
     LISTENER_CACHE_COMMAND_STATUS="$command_status"
     listener_commit_epoch_snapshot || return 2
+    resolver_debug_emit listener_snapshot transport mixed cache build status "$command_status"
 }
 
 listener_epoch_facts_for_port() {
@@ -2760,12 +2840,17 @@ port_listener_facts() {
                 ''|*[!0-9]*) return 2 ;;
             esac
             [ "$snapshot_status" -le 255 ] || return 2
+            resolver_debug_emit listener_snapshot transport "$transport" cache hit \
+                status "$snapshot_status"
         else
+            resolver_debug_emit listener_snapshot transport "$transport" cache miss
             [ ! -e "$snapshot_status_file" ] && [ ! -L "$snapshot_status_file" ] || return 2
             [ ! -e "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
             capture_command ss "${ss_arguments[@]}" > "$snapshot_file" 2>/dev/null
             snapshot_status=$?
             printf '%s\n' "$snapshot_status" > "$snapshot_status_file" || return 2
+            resolver_debug_emit listener_snapshot transport "$transport" cache build \
+                status "$snapshot_status"
         fi
         [ "$snapshot_status" -eq 0 ] || return "$snapshot_status"
         awk -v field="$local_endpoint_field" -v port=":$port" \

@@ -1116,6 +1116,8 @@ EOF
             \) >> "$list_file" 2>/dev/null || scan_errors=$((scan_errors + 1))
     done < <(LC_ALL=C sort -u "$roots_file")
     if [ "$scan_errors" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status error \
+            errors "$scan_errors" excluded_mounts "$excluded_mounts"
         set_result ERROR "로그 파일 전체 목록을 수집하지 못했습니다." "path=/var/log"
         return
     fi
@@ -1161,6 +1163,8 @@ EOF
         scan_errors=$((scan_errors + 1))
     fi
     if [ "$scan_errors" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status error \
+            errors "$scan_errors" excluded_mounts "$excluded_mounts"
         set_result ERROR "로그 파일 전체 목록을 수집하지 못했습니다." "path=/var/log"
         return
     fi
@@ -1220,16 +1224,27 @@ EOF
 
     evidence="logging_root=/var/log\nscanned_files=${scanned}\nviolations=${violations}\nscanned_directories=${scanned_directories}\ndirectory_write_violations=${directory_violations}\nsymlinks=${symlinks}\nsymlink_targets_scanned=${symlink_targets_scanned}\nexternal_symlink_targets=${external_symlink_targets}\nsymlink_directories_unscanned=${symlink_directories}\nunresolved_symlinks=${unresolved_symlinks}\nexpected_profile_logs_present=${expected_logs_present}\nexpected_profile_logs_absent=${expected_logs_absent}\nexcluded_network_mounts=${excluded_mounts}\nbundle_mount_inventory=${bundle_mount_inventory}\nstat_errors=${stat_errors}\n${evidence}"
     if [ "$stat_errors" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status error \
+            files "$scanned" directories "$scanned_directories" errors "$stat_errors"
         set_result ERROR "일부 로그 파일 또는 디렉터리의 메타데이터를 수집하지 못했습니다." "$evidence"
     elif [ "$violations" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status vulnerable \
+            files "$scanned" directories "$scanned_directories" violations "$violations"
         set_result VULNERABLE "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일을 확인했습니다." "$evidence"
     elif [ "$scanned" -eq 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status ambiguous files 0 directories "$scanned_directories"
         set_result MANUAL "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다." "$evidence"
     elif [ "$SCAN_ROOT" != "/" ] && [ "$bundle_mount_inventory" -ne 1 ]; then
+        debug_emit filesystem_snapshot phase result name log status ambiguous \
+            files "$scanned" directories "$scanned_directories" mount_inventory unavailable
         set_result MANUAL "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다." "$evidence"
     elif [ "$directory_violations" -gt 0 ] || [ "$excluded_mounts" -gt 0 ] || [ "$external_symlink_targets" -gt 0 ] || [ "$symlink_directories" -gt 0 ] || [ "$unresolved_symlinks" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name log status ambiguous \
+            files "$scanned" directories "$scanned_directories" excluded_mounts "$excluded_mounts"
         set_result MANUAL "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다." "$evidence"
     else
+        debug_emit filesystem_snapshot phase result name log status ready \
+            files "$scanned" directories "$scanned_directories" errors 0
         set_result GOOD "/var/log의 모든 일반 파일이 root 소유이며 0644 이하입니다." "$evidence"
     fi
 }

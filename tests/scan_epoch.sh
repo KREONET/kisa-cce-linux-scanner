@@ -7,6 +7,7 @@
 set -u
 
 test_directory="$(mktemp -d "${TMPDIR:-/tmp}/kisa-cce-scan-epoch.XXXXXXXX")" || exit 2
+debug_file="$test_directory/debug-events"
 trap 'rm -rf -- "$test_directory"' EXIT
 
 fail() {
@@ -31,6 +32,7 @@ EVIDENCE_BUNDLE_DIGEST=sha256:evidence-a
 reset_count=0
 
 resolver_reset_epoch_caches() { reset_count=$((reset_count + 1)); }
+debug_emit() { printf '%s\n' "$*" >> "$debug_file"; }
 
 # shellcheck source=../lib/scan_epoch.sh
 . "$project_directory/lib/scan_epoch.sh"
@@ -66,5 +68,9 @@ PLATFORM_VERSION=24.04
 scan_epoch_begin || fail "context-change epoch failed"
 [ "${SCAN_RESOLVER_DIRTY[pam:sshd:auth]-0}" -eq 1 ] || fail "platform context did not dirty resolver"
 [ "$reset_count" -eq 5 ] || fail "epoch reset hook count"
+scan_epoch_end
+grep -Fq -- "scan_epoch phase begin epoch 1 resolver_schema 1 incremental 1 policy active evidence inactive" "$debug_file" ||
+    fail "scan epoch begin debug event"
+grep -Fq -- "scan_epoch phase end epoch 5" "$debug_file" || fail "scan epoch end debug event"
 
 printf 'PASS: scan epoch dependency graph\n'

@@ -344,6 +344,24 @@ scanner_reset_full_filesystem_cache() {
     SCANNER_FULL_FILESYSTEM_U33_EVIDENCE=""
 }
 
+scanner_full_filesystem_cache_status_into() {
+    local destination_name="$1"
+    local cache_status="ready"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|destination_name|cache_status) return 2 ;;
+    esac
+    if [ "$SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR" -gt 0 ] ||
+        [ "$SCANNER_FULL_FILESYSTEM_ROOT_STATUS" -ne 0 ] ||
+        [ "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS" -gt 0 ] ||
+        [ -n "$SCANNER_FULL_FILESYSTEM_U15_SETUP_ERROR" ]; then
+        cache_status="error"
+    elif [ "$SCANNER_FULL_FILESYSTEM_ROOT_COUNT" -eq 0 ]; then
+        cache_status="absent"
+    fi
+    printf -v "$destination_name" '%s' "$cache_status"
+}
+
 scanner_full_filesystem_record_u15() {
     local path="$1"
 
@@ -427,6 +445,7 @@ scanner_collect_full_filesystem_facts() {
     local diagnostic_file=""
     local find_status=0
     local stream_parse_error=0
+    local cache_status="ready"
     local filesystem_root=""
     local nsswitch_file=""
     local passwd_file=""
@@ -461,10 +480,14 @@ scanner_collect_full_filesystem_facts() {
         [ "$SCANNER_FULL_FILESYSTEM_CACHE_RUNTIME" = "$RUNTIME_MODE" ] &&
         [ "$SCANNER_FULL_FILESYSTEM_CACHE_SCRATCH" = "$SCRATCH_DIR" ] &&
         [ "$SCANNER_FULL_FILESYSTEM_CACHE_SELECTION" = "$SELECTED_CHECKS" ]; then
+        scanner_full_filesystem_cache_status_into cache_status
+        debug_emit filesystem_snapshot phase reuse cache hit status "$cache_status" \
+            roots "$SCANNER_FULL_FILESYSTEM_ROOT_COUNT" errors "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS"
         return 0
     fi
 
     scanner_reset_full_filesystem_cache
+    debug_emit filesystem_snapshot phase begin cache miss status collecting
     SCANNER_FULL_FILESYSTEM_CACHE_ROOT="$SCAN_ROOT"
     SCANNER_FULL_FILESYSTEM_CACHE_RUNTIME="$RUNTIME_MODE"
     SCANNER_FULL_FILESYSTEM_CACHE_SCRATCH="$SCRATCH_DIR"
@@ -532,14 +555,17 @@ scanner_collect_full_filesystem_facts() {
 
     roots_file="$(new_scratch_file full-filesystem-roots)" || {
         SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+        debug_emit filesystem_snapshot phase result cache miss status error reason scratch
         return 0
     }
     stream_file="$(new_scratch_file full-filesystem-stream)" || {
         SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+        debug_emit filesystem_snapshot phase result cache miss status error reason scratch
         return 0
     }
     diagnostic_file="$(new_scratch_file full-filesystem-diagnostics)" || {
         SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+        debug_emit filesystem_snapshot phase result cache miss status error reason scratch
         return 0
     }
     for generated_path in "$SCRATCH_DIR" "$REPORT_TEXT" "$REPORT_JSONL"; do
@@ -550,7 +576,10 @@ scanner_collect_full_filesystem_facts() {
     scan_prune_expression+=(")" -prune -o)
     scanner_local_filesystem_roots > "$roots_file" || SCANNER_FULL_FILESYSTEM_ROOT_STATUS=$?
     if [ "$SCAN_ROOT" = "/" ]; then
-        [ "$SCANNER_FULL_FILESYSTEM_ROOT_STATUS" -eq 0 ] || return 0
+        if [ "$SCANNER_FULL_FILESYSTEM_ROOT_STATUS" -ne 0 ]; then
+            debug_emit filesystem_snapshot phase result cache miss status error reason mount_inventory
+            return 0
+        fi
     else
         if [ "$SCANNER_FULL_FILESYSTEM_ROOT_STATUS" -eq 0 ]; then
             while IFS= read -r filesystem_root; do
@@ -566,16 +595,19 @@ scanner_collect_full_filesystem_facts() {
             u33_find_gate="-false"
         fi
         if [ "$collect_u15" -eq 0 ] && [ "$collect_offline_other_facts" -eq 0 ]; then
+            debug_emit filesystem_snapshot phase result cache miss status absent reason no_roots
             return 0
         fi
         if [ -n "$SCANNER_FULL_FILESYSTEM_U15_SETUP_ERROR" ] &&
             [ "$collect_offline_other_facts" -eq 0 ]; then
+            debug_emit filesystem_snapshot phase result cache miss status error reason account_database
             return 0
         fi
         if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -ne 1 ]; then
             # Without a mount snapshot, offline U-15 is limited to the supplied root.
             printf '%s\n' "${SCAN_ROOT%/}" > "$roots_file" || {
                 SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                debug_emit filesystem_snapshot phase result cache miss status error reason scratch
                 return 0
             }
         fi
@@ -588,6 +620,7 @@ scanner_collect_full_filesystem_facts() {
         fi
         : > "$stream_file" || {
             SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+            debug_emit filesystem_snapshot phase result cache miss status error reason scratch
             return 0
         }
 
@@ -603,6 +636,7 @@ scanner_collect_full_filesystem_facts() {
                 \) || find_status=$?
             if [ "$find_status" -eq 125 ]; then
                 SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                debug_emit filesystem_snapshot phase result cache miss status error reason diagnostic_capture
                 return 0
             elif [ "$find_status" -ne 0 ]; then
                 scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
@@ -625,6 +659,7 @@ scanner_collect_full_filesystem_facts() {
                 \) || find_status=$?
             if [ "$find_status" -eq 125 ]; then
                 SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                debug_emit filesystem_snapshot phase result cache miss status error reason diagnostic_capture
                 return 0
             elif [ "$find_status" -ne 0 ]; then
                 scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
@@ -641,6 +676,7 @@ scanner_collect_full_filesystem_facts() {
             -printf 'M\0%p\0%y\0%U\0%G\0%m\0' || find_status=$?
         if [ "$find_status" -eq 125 ]; then
             SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+            debug_emit filesystem_snapshot phase result cache miss status error reason diagnostic_capture
             return 0
         elif [ "$find_status" -ne 0 ]; then
             scanner_record_full_filesystem_scan_error "$diagnostic_file" "$find_status"
@@ -700,6 +736,9 @@ scanner_collect_full_filesystem_facts() {
             scanner_record_full_filesystem_parse_error
         fi
     done < "$roots_file"
+    scanner_full_filesystem_cache_status_into cache_status
+    debug_emit filesystem_snapshot phase result cache miss status "$cache_status" \
+        roots "$SCANNER_FULL_FILESYSTEM_ROOT_COUNT" errors "$SCANNER_FULL_FILESYSTEM_SCAN_ERRORS"
 }
 
 scanner_reset_full_filesystem_cache
@@ -3676,12 +3715,18 @@ metadata_errors=${errors}
 masks=${masks}
 ${evidence}"
     if [ "$errors" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name startup status error \
+            paths "$scanned" errors "$errors" masks "$masks"
         set_result ERROR "일부 시스템 시작 스크립트의 메타데이터를 확인하지 못했습니다." "$evidence"
     elif [ "$violations" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name startup status vulnerable \
+            paths "$scanned" violations "$violations" masks "$masks"
         set_result VULNERABLE "root 소유가 아니거나 일반 사용자 쓰기가 허용된 시작 스크립트가 있습니다." "$evidence"
     elif [ "$scanned" -eq 0 ]; then
+        debug_emit filesystem_snapshot phase result name startup status absent paths 0 masks "$masks"
         set_result NOT_APPLICABLE "로컬 시스템 시작 스크립트를 찾지 못했습니다." "$evidence" false
     else
+        debug_emit filesystem_snapshot phase result name startup status ready paths "$scanned" masks "$masks"
         set_result GOOD "시스템 시작 스크립트가 root 소유이며 일반 사용자 쓰기가 차단되어 있습니다." "$evidence"
     fi
 }

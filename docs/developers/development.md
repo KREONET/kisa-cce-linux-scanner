@@ -40,7 +40,7 @@ make lint
 
 `make check` runs the named regression groups in `tests/run.sh` and focused epoch-cache tests for sysctl, PAM, systemd, listeners, and dependency propagation. The suite creates all fixtures under a protected temporary directory and removes them at exit.
 
-Performance measurements are separate from correctness gates because they need Linux `strace`, GNU `time`, and a baseline source tree. See [Scan performance architecture](performance.md).
+Performance measurements are separate from correctness gates because they need Linux `strace`, GNU `time`, and a baseline source tree. See [Scan performance architecture](../design/performance.md).
 
 ## Implementing or changing a criterion
 
@@ -122,6 +122,14 @@ Evidence must be concise, reviewable, and free of raw secrets. Prefer counts, mo
 
 Do not emit password hashes, private keys, TSIG material, tokens, SNMP credentials, complete access-control files, or full command output. The shared redactor is defense in depth, not authorization to collect excessive data.
 
+### Debug event contract
+
+Use `debug_emit` for internal diagnostics. Do not use `set -x`, `BASH_XTRACEFD`, direct writes to file descriptor 2, or ad hoc debug files. The function accepts one event name followed by unique key and value pairs. Event and key identifiers must match `[a-z][a-z0-9_]*`; `schema`, `event`, and `truncated` are reserved envelope keys. Keep the schema stable and use enum-like values for state.
+
+Pass only bounded operational metadata. Allowed examples include a criterion code, subsystem name, cache action, normalized collection status, count, and exit status. Do not pass command arguments, raw stdout or stderr, configuration lines, result summaries, evidence, policy data, review IDs, bundle digests, credentials, or report paths. Treat logical paths as sensitive and include one only when it is necessary to identify a failed source. The encoder percent-escapes bytes outside `[A-Za-z0-9._~:/@+-]`, limits each rendered `key=value` field to 256 bytes, and limits each event to 2048 bytes. These limits are a final boundary, not permission to submit arbitrary data.
+
+Every new debug event requires a regression that verifies its exact schema and state transition. Also verify that debug-disabled execution emits no debug events, debug output stays on standard error with dmesg framing, hostile values cannot create fields or terminal lines, and debug mode does not alter reports or exit status.
+
 ## Adding a resolver
 
 Place reusable precedence and path logic in `lib/resolvers.sh`. Keep criterion-specific policy in the relevant check module. A resolver should return distinct statuses for:
@@ -146,7 +154,8 @@ Changes to collection or reporting should preserve these invariants:
 - shared filesystem checks retain their counts, evidence order, and error precedence when collected together or selected individually;
 - offline absolute symlinks remain within the selected root;
 - installed `/usr/lib` and optional libexec layouts both run from a `DESTDIR` tree;
-- hostile `BASH_ENV` and `ENV` values are not loaded.
+- hostile `BASH_ENV` and `ENV` values are not loaded;
+- debug mode preserves report content and exit status, emits only framed English diagnostics on standard error, and does not expose raw assessed content;
 - complete mode records 67 final results with no `MANUAL` status;
 - policy review IDs change when the complete redacted technical basis changes;
 - evidence bundle identity, checksum, freshness, service, listener, and mount contracts remain enforced.
@@ -163,7 +172,7 @@ make install DESTDIR="$stage_directory" prefix=/usr
 
 Do not embed `DESTDIR` into installed files. The staged launcher must resolve private modules and data relative to its staged prefix.
 
-See [Packaging](packaging/README.md) for the filesystem contract and pending metadata.
+See [Packaging](../packaging/README.md) for the filesystem contract and pending metadata.
 
 ## Documentation maintenance
 
@@ -171,13 +180,13 @@ Update documentation in the same change when modifying:
 
 | Change | Required document |
 |---|---|
-| CLI option, mode, output, or exit behavior | `docs/usage.md` |
+| CLI option, mode, output, or exit behavior | `docs/operators/usage.md` |
 | Installed CLI syntax or operator behavior | `man/kisa-cce-scan.8` |
-| Component boundary or resolver semantics | `docs/architecture.md` |
-| Trust assumption, privileged behavior, or sensitive evidence | `docs/security-model.md` |
+| Component boundary or resolver semantics | `docs/design/architecture.md` |
+| Trust assumption, privileged behavior, or sensitive evidence | `docs/design/security-model.md` |
 | Install path or package build interface | `docs/packaging/README.md` |
-| Supported platform or criterion scope | Root `README.md`, `docs/README.md`, and `docs/platform-support.md` |
-| Rendered-guide family branch or versioned native behavior | `docs/kisa-platform-semantics.md` |
+| Supported platform or criterion scope | Root `README.md`, `docs/README.md`, and `docs/reference/platform-support.md` |
+| Rendered-guide family branch or versioned native behavior | `docs/reference/kisa-platform-semantics.md` |
 
 ## Release gates
 

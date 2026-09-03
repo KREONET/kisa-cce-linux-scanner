@@ -259,6 +259,7 @@ test_manpage_contract() (
         '\-\-allow-unsupported' \
         '\-v' \
         '\-\-verbose' \
+        '\-\-debug' \
         '\-\-help' \
         '\-\-version'; do
         grep -Fq -- "$option" "$manpage" || fail "manual page is missing option: $option"
@@ -1499,6 +1500,97 @@ test_process_security_context() (
     assert_equal unknown "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" "missing capability status"
 )
 
+test_debug_event_encoding() (
+    local debug_file="$TEST_TEMP/debug-events.stderr"
+    local fallback_file="$TEST_TEMP/debug-fallback.stderr"
+    local debug_fd=""
+    local debug_output=""
+    local event_bound_line=""
+    local event_bound_payload=""
+    local long_value=""
+    local index_value=0
+    local line_count=""
+
+    # shellcheck source=../lib/core.sh
+    . "$PROJECT_DIR/lib/core.sh"
+    DEBUG=1
+    exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
+    DEBUG_OUTPUT_FD="$debug_fd"
+
+    debug_emit encoder value $'space equals=\tline\npercent%\033\177\200\303\251' || fail "debug encoder event failed"
+    { debug_emit suppressed state visible; } 2>/dev/null
+    while [ "$index_value" -lt 600 ]; do
+        long_value+="x"
+        index_value=$((index_value + 1))
+    done
+    debug_emit bounded first "$long_value" second "$long_value" || fail "bounded debug event failed"
+    debug_emit event_bound \
+        field_a "$long_value" field_b "$long_value" field_c "$long_value" field_d "$long_value" \
+        field_e "$long_value" field_f "$long_value" field_g "$long_value" field_h "$long_value" \
+        field_i "$long_value" field_j "$long_value" || fail "event-bounded debug event failed"
+    debug_emit Invalid key value || fail "invalid debug event must be ignored"
+    debug_emit incomplete key || fail "incomplete debug event must be ignored"
+    debug_emit reserved schema 2 || fail "reserved debug field must be ignored"
+    debug_emit duplicate key first key second || fail "duplicate debug field must be ignored"
+    DEBUG_SCAN_STARTED=1
+    DEBUG_SCAN_ENDED=0
+    debug_emit_scan_end 130
+    debug_emit_scan_end 143
+    debug_emit_signal_exit TERM 143
+    exec {debug_fd}>&-
+    DEBUG_OUTPUT_FD=""
+
+    debug_output="$(< "$debug_file")"
+    assert_contains "$debug_output" \
+        "DEBUG: schema=1 event=encoder value=space%20equals%3D%09line%0Apercent%25%1B%7F%80%C3%A9" \
+        "debug percent encoding"
+    assert_contains "$debug_output" "DEBUG: schema=1 event=suppressed state=visible" \
+        "debug event survives local stderr suppression"
+    assert_contains "$debug_output" "DEBUG: schema=1 event=bounded" "bounded debug event"
+    assert_contains "$debug_output" "truncated=1" "bounded debug truncation marker"
+    assert_contains "$debug_output" "DEBUG: schema=1 event=event_bound" "event-bounded debug event"
+    if printf '%s\n' "$debug_output" | grep -F "event=event_bound" | grep -Fq -- "field_j="; then
+        fail "event-bounded debug record exceeded its payload limit"
+    fi
+    event_bound_line="$(printf '%s\n' "$debug_output" | grep -F "event=event_bound")"
+    event_bound_payload="${event_bound_line#*kisa-cce-scan: }"
+    [ "${#event_bound_payload}" -le 2048 ] || fail "debug event payload exceeded 2048 bytes"
+    assert_contains "$debug_output" "event=scan_end exit_status=130" "debug signal exit event"
+    if printf '%s\n' "$debug_output" | grep -Fq -- "event=scan_end exit_status=143"; then
+        fail "debug scan-end event was emitted more than once"
+    fi
+    assert_contains "$debug_output" "event=termination_signal signal=TERM exit_status=143" \
+        "debug termination override event"
+    if printf '%s\n' "$debug_output" | grep -Fq -- "event=Invalid"; then
+        fail "invalid debug event was emitted"
+    fi
+    line_count="$(wc -l < "$debug_file" | tr -d '[:space:]')"
+    assert_equal 6 "$line_count" "invalid debug calls do not emit records"
+    if grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: DEBUG: schema=1 event=[a-z][a-z0-9_]*( [a-z][a-z0-9_]*=[^ ]*)*$' \
+        "$debug_file" >/dev/null; then
+        fail "debug helper emitted an invalid or unframed record"
+    fi
+
+    (
+        DEBUG=1
+        DEBUG_OUTPUT_FD=""
+        DEBUG_OUTPUT_FD_OWNED=0
+        DEBUG_SCAN_STARTED=0
+        debug_activate_stderr_fallback
+        [ "$DEBUG_OUTPUT_FD" = 2 ] || exit 1
+        [ "$DEBUG_OUTPUT_FD_OWNED" -eq 0 ] || exit 1
+        debug_emit fallback status active
+        cleanup_workspace
+        printf '%s\n' fallback-stderr-open >&2
+    ) 2> "$fallback_file" || fail "debug descriptor fallback failed"
+    assert_file_contains "$fallback_file" "locally suppressed events may be unavailable" \
+        "debug descriptor fallback warning"
+    assert_file_contains "$fallback_file" "DEBUG: schema=1 event=fallback status=active" \
+        "debug descriptor fallback event"
+    assert_file_contains "$fallback_file" "fallback-stderr-open" \
+        "debug descriptor fallback keeps standard error open"
+)
+
 test_trusted_command_scope_policy() (
     local offline_root="$TEST_TEMP/trusted-command-offline-root"
     local resolved_path=""
@@ -2098,6 +2190,20 @@ test_cli_platform_selection_and_reports() (
     local short_verbose_output=""
     local short_verbose_stdout="$TEST_TEMP/cli-short-verbose.stdout"
     local short_verbose_stderr="$TEST_TEMP/cli-short-verbose.stderr"
+    local normal_debug_comparison_output="$TEST_TEMP/cli-debug-comparison-normal"
+    local debug_output_dir="$TEST_TEMP/cli-debug-comparison-debug"
+    local normal_debug_comparison_stdout="$TEST_TEMP/cli-debug-comparison-normal.stdout"
+    local normal_debug_comparison_stderr="$TEST_TEMP/cli-debug-comparison-normal.stderr"
+    local debug_stdout="$TEST_TEMP/cli-debug-comparison-debug.stdout"
+    local debug_stderr="$TEST_TEMP/cli-debug-comparison-debug.stderr"
+    local normal_text_report=""
+    local normal_jsonl_report=""
+    local debug_text_report=""
+    local debug_jsonl_report=""
+    local normalized_normal_report="$TEST_TEMP/cli-debug-comparison-normal.md"
+    local normalized_debug_report="$TEST_TEMP/cli-debug-comparison-debug.md"
+    local debug_event_count=""
+    local debug_secret="debug-evidence-secret-7b31e1"
     local matrix_id=""
     local matrix_version=""
     local matrix_name=""
@@ -2144,7 +2250,7 @@ test_cli_platform_selection_and_reports() (
         "$scanner_copy/share/kisa-cce-linux-scanner/locale/"
     {
         printf '%s\n' '#!/bin/bash'
-        printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "fixture=true"; }'
+        printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "fixture=true password=debug-evidence-secret-7b31e1"; }'
     } > "$scanner_copy/lib/checks_fixture.sh"
     chmod 0755 -- "$scanner_copy/bin/kisa-cce-scan"
 
@@ -2155,12 +2261,20 @@ test_cli_platform_selection_and_reports() (
 
     help_output="$("$scanner_copy/bin/kisa-cce-scan" --help)" || fail "CLI help failed"
     assert_contains "$help_output" "--root / keeps live collection" "live root help contract"
+    assert_contains "$help_output" "--debug" "debug help contract"
     assert_contains "$help_output" "validated but unused with --explain-sysctl" "explain output help contract"
     assert_contains "$help_output" "errors take precedence" "scanner error exit precedence help contract"
     if printf '%s\n' "$help_output" |
         grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
         fail "CLI help contains a line without the console prefix"
     fi
+
+    command_output="$("$scanner_copy/bin/kisa-cce-scan" --debug --help 2>&1)" ||
+        fail "debug help invocation failed"
+    case "$command_output" in *"DEBUG:"*) fail "debug help emitted runtime diagnostics" ;; esac
+    command_output="$("$scanner_copy/bin/kisa-cce-scan" --debug --version 2>&1)" ||
+        fail "debug version invocation failed"
+    case "$command_output" in *"DEBUG:"*) fail "debug version emitted runtime diagnostics" ;; esac
 
     for empty_option in --root --output-dir --checks --explain-sysctl; do
         command_status=0
@@ -2173,6 +2287,23 @@ test_cli_platform_selection_and_reports() (
         assert_equal 2 "$command_status" "$empty_option attached empty value rejection"
         assert_contains "$command_output" "$empty_option requires a value" "$empty_option attached empty value message"
     done
+
+    command_status=0
+    command_output="$("$scanner_copy/bin/kisa-cce-scan" --debug=1 2>&1)" || command_status=$?
+    assert_equal 2 "$command_status" "debug attached-value rejection"
+    assert_contains "$command_output" "unknown option: --debug=1" "debug attached-value message"
+    case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "rejected debug value produced report paths" ;; esac
+
+    command_status=0
+    command_output="$("$scanner_copy/bin/kisa-cce-scan" --debug --mode invalid 2>&1)" || command_status=$?
+    assert_equal 2 "$command_status" "debug early validation failure"
+    assert_contains "$command_output" "DEBUG: schema=1 event=fatal criterion=none status=error" \
+        "debug early fatal event"
+    assert_contains "$command_output" "DEBUG: schema=1 event=scan_end exit_status=2 total=0" \
+        "debug early scan-end event"
+    debug_event_count="$(printf '%s\n' "$command_output" | grep -Fc -- "event=scan_end")"
+    assert_equal 1 "$debug_event_count" "debug early scan-end exactly once"
+    case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "debug validation failure produced report paths" ;; esac
 
     command_status=0
     command_output="$("$scanner_copy/bin/kisa-cce-scan" --root $'relative\nforged-line' 2>&1)" || command_status=$?
@@ -2268,7 +2399,7 @@ test_cli_platform_selection_and_reports() (
     [ -f "$text_report" ] || fail "normal nested output report was not created"
 
     command_status=0
-    "$scanner_copy/bin/kisa-cce-scan" \
+    DEBUG=1 PS4='debug-xtrace-secret' "$scanner_copy/bin/kisa-cce-scan" \
         --root "$supported_root" \
         --output-dir "$TEST_TEMP/cli-short-verbose-output" \
         --checks U-01 \
@@ -2281,7 +2412,89 @@ test_cli_platform_selection_and_reports() (
     if grep -Fq -- "kisa-cce-scan: check=" "$short_verbose_stdout"; then
         fail "verbose diagnostics were written to standard output"
     fi
+    if grep -Fq -- "debug-xtrace-secret" "$short_verbose_stdout" "$short_verbose_stderr"; then
+        fail "caller debug environment enabled shell tracing"
+    fi
     assert_file_contains "$short_verbose_stdout" "markdown_report=" "short verbose report path output"
+
+    command_status=0
+    "$scanner_copy/bin/kisa-cce-scan" \
+        --root "$supported_root" \
+        --output-dir "$normal_debug_comparison_output" \
+        --checks U-01 \
+        --no-runtime > "$normal_debug_comparison_stdout" 2> "$normal_debug_comparison_stderr" || command_status=$?
+    assert_equal 0 "$command_status" "normal debug-comparison exit status"
+    [ ! -s "$normal_debug_comparison_stderr" ] || fail "normal scan unexpectedly wrote debug diagnostics"
+    normal_text_report="$(scanner_console_value markdown_report "$(< "$normal_debug_comparison_stdout")")"
+    normal_jsonl_report="$(scanner_console_value jsonl_report "$(< "$normal_debug_comparison_stdout")")"
+
+    command_status=0
+    "$scanner_copy/bin/kisa-cce-scan" \
+        --root "$supported_root" \
+        --output-dir "$debug_output_dir" \
+        --checks U-01 \
+        --debug --debug \
+        --no-runtime > "$debug_stdout" 2> "$debug_stderr" || command_status=$?
+    assert_equal 0 "$command_status" "debug scan exit status"
+    debug_text_report="$(scanner_console_value markdown_report "$(< "$debug_stdout")")"
+    debug_jsonl_report="$(scanner_console_value jsonl_report "$(< "$debug_stdout")")"
+    [ -f "$normal_text_report" ] || fail "normal debug-comparison Markdown report was not created"
+    [ -f "$normal_jsonl_report" ] || fail "normal debug-comparison JSONL report was not created"
+    [ -f "$debug_text_report" ] || fail "debug Markdown report was not created"
+    [ -f "$debug_jsonl_report" ] || fail "debug JSONL report was not created"
+    cmp -s "$normal_jsonl_report" "$debug_jsonl_report" || fail "debug changed JSONL report content"
+    sed \
+        -e 's/^    started_at: .*$/    started_at: TIMESTAMP/' \
+        -e 's/: `....-..-..T..:..:..Z`$/: `TIMESTAMP`/' \
+        "$normal_text_report" > "$normalized_normal_report"
+    sed \
+        -e 's/^    started_at: .*$/    started_at: TIMESTAMP/' \
+        -e 's/: `....-..-..T..:..:..Z`$/: `TIMESTAMP`/' \
+        "$debug_text_report" > "$normalized_debug_report"
+    cmp -s "$normalized_normal_report" "$normalized_debug_report" ||
+        fail "debug changed normalized Markdown report content"
+
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=scan_start" \
+        "debug scan-start event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=workspace_ready scope=assessment" \
+        "debug workspace event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=criterion_start code=U-01" \
+        "debug criterion-start event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=criterion_technical code=U-01 status=GOOD applicable=true" \
+        "debug technical result event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=criterion_end code=U-01 status=GOOD decision_basis=technical" \
+        "debug final result event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=report_validation status=passed total=1" \
+        "debug report validation event"
+    assert_file_contains "$debug_stderr" "kisa-cce-scan: DEBUG: schema=1 event=scan_end exit_status=0 total=1" \
+        "debug scan-end event"
+    assert_file_contains "$debug_stderr" \
+        "kisa-cce-scan: check=U-01 status=GOOD title=Restrict remote login for the root account" \
+        "debug implies verbose progress"
+    if grep -Fq -- "DEBUG:" "$debug_stdout"; then
+        fail "debug diagnostics were written to standard output"
+    fi
+    if grep -Fq -- "DEBUG:" "$normal_debug_comparison_stdout" "$normal_debug_comparison_stderr" ||
+        grep -Fq -- "DEBUG:" "$short_verbose_stdout" "$short_verbose_stderr"; then
+        fail "debug-disabled execution emitted a debug event"
+    fi
+    if grep -Fq -- "$debug_secret" "$debug_stderr" ||
+        grep -Fq -- "fixture=true" "$debug_stderr" ||
+        grep -Fq -- "password=" "$debug_stderr"; then
+        fail "debug output exposed criterion evidence"
+    fi
+    if grep -Fq -- "markdown_report=" "$debug_stderr" || grep -Fq -- "jsonl_report=" "$debug_stderr"; then
+        fail "debug output exposed report paths on standard error"
+    fi
+    if grep -Eq 'kisa-cce-scan: \+' "$debug_stderr"; then
+        fail "debug mode enabled shell execution tracing"
+    fi
+    if grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' \
+        "$debug_stdout" "$debug_stderr" >/dev/null; then
+        fail "debug scan produced a terminal line without dmesg framing"
+    fi
+    debug_event_count="$(grep -Fc -- "DEBUG: schema=1 event=scan_start" "$debug_stderr")"
+    assert_equal 1 "$debug_event_count" "duplicate debug flags remain idempotent"
 
     write_os_release "$injection_root" ubuntu 26.04 "Ubuntu 26.04 LTS"
     mkdir -p -- "$injection_root/data"
@@ -2368,11 +2581,16 @@ EOF
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
         --root "$supported_root" \
         --output-dir "$explain_output_dir" \
+        --debug \
         --explain-sysctl net.ipv4.ip_forward 2>&1)"
     command_status="$?"
     assert_equal 0 "$command_status" "sysctl explanation exit status"
     assert_contains "$command_output" "persistent=0" "sysctl persistent explanation"
     assert_contains "$command_output" "runtime=unavailable" "offline sysctl runtime explanation"
+    assert_contains "$command_output" "DEBUG: schema=1 event=workspace_ready scope=explain" \
+        "sysctl explanation debug workspace"
+    assert_contains "$command_output" "DEBUG: schema=1 event=sysctl_query source=static" \
+        "sysctl explanation debug resolver"
     if printf '%s\n' "$command_output" |
         grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
         fail "sysctl explanation contains a line without the console prefix"
@@ -2486,8 +2704,11 @@ test_installed_layouts() (
             --root "$supported_root" \
             --output-dir "$output_dir" \
             --checks U-01 \
+            --debug \
             --no-runtime 2>&1)" || command_status=$?
         assert_equal 0 "$command_status" "$layout_name installed scan exit status"
+        assert_contains "$command_output" "DEBUG: schema=1 event=scan_start" \
+            "$layout_name installed debug mode"
         text_report="$(scanner_console_value markdown_report "$command_output")"
         [ -f "$text_report" ] || fail "$layout_name installed scan did not create a Markdown report"
         assert_file_contains "$text_report" "SSH의 root 직접 접속이 차단되어 있습니다." \
@@ -6158,6 +6379,7 @@ run_test "core report counts and permissions" test_core_report_counts_and_permis
 run_test "result normalization differential" test_result_normalization_differential
 run_test "report write failures" test_report_write_failures
 run_test "process security context" test_process_security_context
+run_test "debug event encoding and bounds" test_debug_event_encoding
 run_test "trusted command scope policy" test_trusted_command_scope_policy
 run_test "path, scratch, and listener cache semantics" test_path_scratch_and_listener_cache_semantics
 run_test "existing output directory remains unchanged" test_existing_output_directory_is_not_mutated

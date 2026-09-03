@@ -34,6 +34,7 @@ PROGRAM_FILES = bin/kisa-cce-collect bin/kisa-cce-scan
 MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-scan.8
 
 TEST_FILES = \
+	tests/documentation_links.sh \
 	tests/pam_cache.sh \
 	tests/performance_cache.sh \
 	tests/run.sh \
@@ -47,6 +48,7 @@ all:
 check:
 	/bin/sh -n $(PROGRAM_FILES)
 	/bin/bash -n $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh
+	./tests/documentation_links.sh
 	./tests/run.sh
 	./tests/performance_cache.sh
 	./tests/pam_cache.sh

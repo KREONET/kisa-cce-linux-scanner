@@ -122,6 +122,8 @@ scan_epoch_update_context_source() {
 
 scan_epoch_begin() {
     local context=""
+    local evidence_context="inactive"
+    local policy_context="inactive"
 
     [ -n "${SCRATCH_DIR:-}" ] && [ -d "$SCRATCH_DIR" ] && [ ! -L "$SCRATCH_DIR" ] || return 2
     SCAN_EPOCH_SEQUENCE=$((SCAN_EPOCH_SEQUENCE + 1))
@@ -161,10 +163,21 @@ scan_epoch_begin() {
     if declare -F systemd_reset_epoch_cache >/dev/null 2>&1; then systemd_reset_epoch_cache || return 2; fi
     if declare -F listener_reset_epoch_cache >/dev/null 2>&1; then listener_reset_epoch_cache || return 2; fi
     if declare -F scanner_reset_full_filesystem_cache >/dev/null 2>&1; then scanner_reset_full_filesystem_cache || return 2; fi
+    [ "${POLICY_SET_DIGEST:-none}" = "none" ] || policy_context="active"
+    case "${EVIDENCE_BUNDLE_ACTIVE:-0}" in 1) evidence_context="active" ;; esac
+    if declare -F debug_emit >/dev/null 2>&1; then
+        debug_emit scan_epoch phase begin epoch "$SCAN_EPOCH_ID" \
+            resolver_schema "$SCAN_RESOLVER_SCHEMA_VERSION" \
+            incremental "$SCAN_INCREMENTAL_REEVALUATION_ACTIVE" \
+            policy "$policy_context" evidence "$evidence_context" || :
+    fi
     return 0
 }
 
 scan_epoch_end() {
+    if declare -F debug_emit >/dev/null 2>&1; then
+        debug_emit scan_epoch phase end epoch "$SCAN_EPOCH_ID" || :
+    fi
     SCAN_ACTIVE_CRITERION=""
     SCAN_EPOCH_ACTIVE=0
 }

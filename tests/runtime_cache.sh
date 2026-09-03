@@ -22,6 +22,8 @@ listener_count_file="$test_directory/listener-count"
 systemd_active_file="$test_directory/systemd-active"
 listener_failure_file="$test_directory/listener-failure"
 dependency_file="$test_directory/dependencies"
+debug_file="$test_directory/debug-events"
+debug_fd=""
 
 cleanup() {
     rm -rf -- "$test_directory"
@@ -75,6 +77,9 @@ IFS= read -r KISA_CCE_VERSION < "$project_directory/data/VERSION" || exit 2
 # shellcheck source=../lib/checks_system.sh
 . "$project_directory/lib/checks_system.sh"
 SCRATCH_DIR="$scratch"
+DEBUG=1
+exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
+DEBUG_OUTPUT_FD="$debug_fd"
 
 cat > "$test_directory/systemctl" <<EOF
 #!/bin/sh
@@ -271,5 +276,24 @@ IFS= read -r count < "$systemctl_count_file"
 assert_equal 7 "$count" "evidence service state bypasses live systemd"
 IFS= read -r count < "$listener_count_file"
 assert_equal 6 "$count" "evidence listener facts bypass live ss"
+
+exec {debug_fd}>&-
+DEBUG_OUTPUT_FD=""
+grep -Fq -- "DEBUG: schema=1 event=systemd_bulk cache=miss" "$debug_file" ||
+    fail "systemd bulk cache-miss debug event"
+grep -Fq -- "DEBUG: schema=1 event=systemd_bulk cache=build status=0 command=available" "$debug_file" ||
+    fail "systemd bulk build debug event"
+grep -Fq -- "DEBUG: schema=1 event=systemd_unit unit=ssh.service cache=build method=bulk status=0" "$debug_file" ||
+    fail "systemd unit bulk debug event"
+grep -Fq -- "DEBUG: schema=1 event=systemd_unit unit=ssh.service cache=hit status=0" "$debug_file" ||
+    fail "systemd unit cache-hit debug event"
+grep -Fq -- "DEBUG: schema=1 event=systemd_unit unit=missing.service cache=hit status=1" "$debug_file" ||
+    fail "missing systemd unit cache-hit debug event"
+grep -Fq -- "DEBUG: schema=1 event=listener_snapshot transport=mixed cache=miss" "$debug_file" ||
+    fail "listener cache-miss debug event"
+grep -Fq -- "DEBUG: schema=1 event=listener_snapshot transport=mixed cache=build status=42" "$debug_file" ||
+    fail "failed listener build debug event"
+grep -Fq -- "DEBUG: schema=1 event=listener_snapshot transport=mixed cache=hit status=42" "$debug_file" ||
+    fail "failed listener cache-hit debug event"
 
 printf 'PASS: runtime epoch cache\n'

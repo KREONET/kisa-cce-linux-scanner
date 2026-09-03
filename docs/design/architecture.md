@@ -14,7 +14,7 @@ The implementation separates collection from policy interpretation wherever the 
 | `bin/kisa-cce-collect` | Public launcher for the live-runtime evidence collector. |
 | `lib/kisa-cce-scan-main.sh` | Resolves source/installed paths, parses options, validates the catalog, selects the platform, dispatches checks, and finalizes reports. |
 | `lib/kisa-cce-collect-main.sh` | Root-only live evidence collection and bundle finalization. |
-| `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, result normalization, report writing, and exit status. |
+| `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, structured debug output, result normalization, report writing, and exit status. |
 | `lib/policy.sh` | Strict policy-directory loader and review-ID-bound attestation lookup. |
 | `lib/evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
 | `lib/i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
@@ -68,13 +68,15 @@ The main file derives the data directory from its own private-library location. 
 8. Catalog rows are read in order. Each `U-NN` row dispatches to `check_u_nn` and produces exactly one result when selected.
 9. The scanner appends a summary, verifies report ownership, permissions, record counts, and the pinned output-directory binding, prints both report paths, and returns the aggregate exit status.
 
+When `--debug` is active, the main flow and subsystem resolvers emit schema-versioned events through the central debug API. The option also enables normal verbose progress. Debug records go only to the standard-error descriptor captured when `--debug` is accepted during option parsing; result reports and the standard-output report-path protocol are unchanged. The API percent-encodes dynamic field values and applies per-field and per-event limits before using the normal dmesg-framed console writer. It intentionally exposes normalized operational states rather than shell execution, assessed content, result evidence, or native-command output.
+
 In complete mode, `record_result` computes a SHA-256 review ID over the full redacted technical basis before the display-size limit. The review basis includes scanner and platform identity, bundle identity and digest, criterion metadata, technical summary, and evidence. A matching unexpired attestation can resolve only that exact `MANUAL` basis. Other technical states are never overridden.
 
 An offline evidence bundle is validated and bound to the root by exact `machine-id` and `os-release` matches. Central service, activation, listener, and mount helpers consume validated bundle state without enabling host command execution against the analysis machine.
 
 ## Platform profiles
 
-Platform authorization uses an explicit product and version allowlist. `ID_LIKE` is recorded but never authorizes an arbitrary derivative. Approved Ubuntu derivatives must also expose the expected `UBUNTU_CODENAME`; CentOS must identify itself as CentOS Stream. The exact lifecycle snapshot is documented in [Platform support](platform-support.md). The rendered-guide family branches and versioned native adapters are recorded in [KISA platform semantics](kisa-platform-semantics.md).
+Platform authorization uses an explicit product and version allowlist. `ID_LIKE` is recorded but never authorizes an arbitrary derivative. Approved Ubuntu derivatives must also expose the expected `UBUNTU_CODENAME`; CentOS must identify itself as CentOS Stream. The exact lifecycle snapshot is documented in [Platform support](../reference/platform-support.md). The rendered-guide family branches and versioned native adapters are recorded in [KISA platform semantics](../reference/kisa-platform-semantics.md).
 
 The detector assigns `PLATFORM_FAMILY`, `PLATFORM_BASE_ID`, and `PLATFORM_BASE_VERSION` independently from the product's own `ID` and `VERSION_ID`. Checks branch on the configuration family or a versioned capability instead of treating every non-Ubuntu target as RHEL.
 

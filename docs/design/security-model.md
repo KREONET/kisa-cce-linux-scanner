@@ -80,6 +80,16 @@ Evidence passes through control-character normalization, UTF-8 normalization whe
 
 Verbose mode writes only platform context, check identifiers, statuses, titles, and aggregate counters to standard error. It never writes result summaries or evidence to the terminal.
 
+### Debug diagnostics
+
+`--debug` extends verbose progress with structured scanner lifecycle, resolver, cache, collection, and report-validation events on standard error. It does not enable Bash execution tracing, preserve the scratch workspace, or create a separate debug file. Debug instrumentation uses a saved copy of the original standard-error descriptor so diagnostics remain visible when an internal operation suppresses its own standard error. If the process cannot allocate that descriptor, the scanner warns and falls back to the current standard error without changing assessment results or exit status; events inside locally suppressed operations may then be unavailable.
+
+Debug event names and field names are fixed implementation identifiers. Dynamic values are percent-encoded outside a small safe byte set, each rendered `key=value` field is limited to 256 bytes, and one event is limited to 2048 bytes. Events do not contain result summaries, evidence, configuration lines, command arguments, native-command output, policy contents, review identifiers, evidence-bundle digests, or report paths. The debug API is not a general-purpose logging function, and callers must pass only the minimum enumerated state needed to diagnose collection and cache behavior.
+
+The remaining event metadata is still sensitive assessment data. It identifies the selected root and platform, criteria being evaluated, subsystem availability, cache behavior, and failure state. Standard error is not opened or protected by the scanner. An operator who redirects it must create the destination under an owner-only `umask`, protect it like the reports, and review it before transfer.
+
+Bash 4.3 has no built-in interface for applying `FD_CLOEXEC` to the saved diagnostic descriptor. Child processes therefore inherit that descriptor, although its number is not passed through arguments or environment and scanner call sites write to it only through `debug_emit`. Debug mode relies on the same root-owned native-command trust boundary as normal live collection; it is not an isolation mechanism for a compromised native utility.
+
 ## Failure policy
 
 Security-relevant uncertainty is explicit:

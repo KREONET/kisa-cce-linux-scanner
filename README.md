@@ -13,7 +13,7 @@ groups:
 - Red Hat Enterprise Linux, AlmaLinux, Rocky Linux, Oracle Linux, and CentOS Stream
 - Explicitly listed Ubuntu derivatives
 
-See the dated [platform support matrix](docs/platform-support.md) for the exact
+See the dated [platform support matrix](docs/reference/platform-support.md) for the exact
 supported releases, lifecycle scope, and exclusions.
 
 ## Key properties
@@ -83,24 +83,17 @@ Explain one sysctl key without changing it:
 sudo ./bin/kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 ```
 
-See [Operator usage](docs/usage.md) for privileges, options, reports, result states, and exit codes.
+See [Operator usage](docs/operators/usage.md) for privileges, options, reports, result states, and exit codes.
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
 | [Documentation index](docs/README.md) | Documentation map, scope, and sources of truth. |
-| [Usage](docs/usage.md) | Live and offline operation, reports, statuses, and automation behavior. |
-| [Platform support](docs/platform-support.md) | Accepted releases, derivative mapping, and lifecycle sources. |
-| [KISA platform semantics](docs/kisa-platform-semantics.md) | Guide-explicit family branches, versioned native behavior, and validation boundary. |
-| [Architecture](docs/architecture.md) | Components, execution flow, resolvers, and reporting pipeline. |
-| [Security model](docs/security-model.md) | Trust boundaries, controls, residual risks, and deployment requirements. |
-| [Development](docs/development.md) | Check contracts, testing, and release workflow. |
+| [Operator usage](docs/operators/usage.md) | Live and offline operation, reports, statuses, and automation behavior. |
+| [Platform support](docs/reference/platform-support.md) | Accepted releases, derivative mapping, and lifecycle sources. |
+| [Contributor guide](docs/developers/README.md) | Contributor workflow, review checklist, and macOS container matrix testing. |
 | [Packaging](docs/packaging/README.md) | `DESTDIR` layout and Debian/RPM integration. |
-| [Policy format](docs/policy-format.md) | Review-bound organizational attestations used by complete mode. |
-| [Evidence bundle](docs/evidence-bundle.md) | Live runtime collector, directory schema, validation, and offline use. |
-| [Localization](docs/localization.md) | `LANG` selection, package-specific PO catalogs, and translator workflow. |
-| [Performance](docs/performance.md) | Scan epochs, subsystem snapshots, dependency invalidation, and benchmarks. |
 
 The installed command manuals are available as `kisa-cce-scan(8)` and `kisa-cce-collect(8)`.
 

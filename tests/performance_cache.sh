@@ -22,6 +22,8 @@ root="$test_directory/root"
 scratch="$test_directory/scratch"
 find_count_file="$test_directory/find-count"
 awk_count_file="$test_directory/awk-count"
+debug_file="$test_directory/debug-events"
+debug_fd=""
 
 cleanup() {
     rm -rf -- "$test_directory"
@@ -61,6 +63,9 @@ IFS= read -r KISA_CCE_VERSION < "$project_directory/data/VERSION" || exit 2
 # shellcheck source=../lib/resolvers.sh
 . "$project_directory/lib/resolvers.sh"
 SCRATCH_DIR="$scratch"
+DEBUG=1
+exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
+DEBUG_OUTPUT_FD="$debug_fd"
 
 find() {
     local count=0
@@ -174,5 +179,20 @@ status=0
 sysctl_runtime_value_into kernel.test value || status=$?
 assert_equal 42 "$status" "runtime failure memoization status"
 assert_equal 2 "$runtime_count" "runtime failure is collected once in its epoch"
+
+exec {debug_fd}>&-
+DEBUG_OUTPUT_FD=""
+grep -Fq -- "DEBUG: schema=1 event=sysctl_snapshot namespace=filesystem cache=miss" "$debug_file" ||
+    fail "sysctl snapshot cache-miss debug event"
+grep -Fq -- "DEBUG: schema=1 event=sysctl_snapshot namespace=filesystem cache=build status=0 files=2 directives=4" "$debug_file" ||
+    fail "sysctl snapshot build debug event"
+grep -Fq -- "DEBUG: schema=1 event=sysctl_snapshot namespace=filesystem cache=hit status=0" "$debug_file" ||
+    fail "sysctl snapshot cache-hit debug event"
+grep -Fq -- "DEBUG: schema=1 event=sysctl_query source=static namespace=filesystem cache=hit status=1" "$debug_file" ||
+    fail "absent sysctl query cache-hit debug event"
+grep -Fq -- "DEBUG: schema=1 event=sysctl_query source=runtime namespace=runtime cache=hit status=0" "$debug_file" ||
+    fail "runtime sysctl cache-hit debug event"
+grep -Fq -- "DEBUG: schema=1 event=sysctl_query source=runtime namespace=runtime cache=hit status=42" "$debug_file" ||
+    fail "failed runtime sysctl cache-hit debug event"
 
 printf 'PASS: sysctl epoch cache\n'

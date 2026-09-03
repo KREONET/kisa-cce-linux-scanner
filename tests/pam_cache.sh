@@ -21,6 +21,8 @@ TEST_TEMPORARY_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/kisa-cce-pam-cache.XXXXXX
 ROOT_DIRECTORY="$TEST_TEMPORARY_DIRECTORY/root"
 SCRATCH_DIR="$TEST_TEMPORARY_DIRECTORY/scratch"
 CAPTURE_FILE="$TEST_TEMPORARY_DIRECTORY/capture"
+DEBUG_FILE="$TEST_TEMPORARY_DIRECTORY/debug-events"
+DEBUG_FD=""
 
 cleanup() {
     rm -rf -- "$TEST_TEMPORARY_DIRECTORY"
@@ -70,6 +72,10 @@ KISA_CCE_VERSION="test"
 . "$PROJECT_DIRECTORY/lib/core.sh"
 # shellcheck source=../lib/resolvers.sh
 . "$PROJECT_DIRECTORY/lib/resolvers.sh"
+
+DEBUG=1
+exec {DEBUG_FD}> "$DEBUG_FILE" || fail "debug capture descriptor could not be opened"
+DEBUG_OUTPUT_FD="$DEBUG_FD"
 
 SCAN_ROOT="$ROOT_DIRECTORY"
 SCRATCH_DIR="$TEST_TEMPORARY_DIRECTORY/scratch"
@@ -220,5 +226,26 @@ capture_expansion mutable auth "$CAPTURE_FILE" || fail "uncached mutable expansi
 printf '%s\n' 'auth required pam_deny.so' > "$ROOT_DIRECTORY/etc/pam.d/mutable"
 capture_expansion mutable auth "$CAPTURE_FILE" || fail "uncached mutable re-expansion failed"
 assert_contains_file "$CAPTURE_FILE" "pam_deny.so" "inactive epoch cache bypass"
+
+exec {DEBUG_FD}>&-
+DEBUG_OUTPUT_FD=""
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_file mode=pamd cache=miss" \
+    "PAM file cache-miss debug event"
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_file mode=pamd cache=build status=ready" \
+    "PAM file build debug event"
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_expansion service=base facility=auth cache=hit status=ready" \
+    "PAM expansion cache-hit debug event"
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_expansion service=empty facility=auth cache=hit status=absent" \
+    "absent PAM expansion cache-hit debug event"
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_expansion service=malformed facility=auth cache=hit status=ambiguous" \
+    "ambiguous PAM expansion cache-hit debug event"
+assert_contains_file "$DEBUG_FILE" \
+    "DEBUG: schema=1 event=pam_expansion service=unsafe facility=auth cache=hit status=error" \
+    "failed PAM expansion cache-hit debug event"
 
 printf 'PASS pam cache tests\n'

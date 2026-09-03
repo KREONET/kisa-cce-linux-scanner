@@ -179,6 +179,7 @@ OUTPUT_PARENT=""
 SELECTED_CHECKS=""
 ALLOW_UNSUPPORTED=0
 VERBOSE=0
+DEBUG=0
 EXPLAIN_SYSCTL_KEY=""
 SCAN_MODE="audit"
 POLICY_DIRECTORY=""
@@ -212,6 +213,7 @@ Options:
   --explain-sysctl KEY     Explain the effective persistent and runtime value.
   --allow-unsupported      Continue when the detected platform is unsupported.
   -v, --verbose            Print platform, per-check status, and summary progress.
+  --debug                  Print structured internal diagnostics; implies --verbose.
   -h, --help               Show this help text.
   --version                Show the scanner version.
 
@@ -326,6 +328,12 @@ while [ "$#" -gt 0 ]; do
             VERBOSE=1
             shift
             ;;
+        --debug)
+            DEBUG=1
+            VERBOSE=1
+            debug_initialize
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -346,6 +354,10 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+debug_initialize
+trap 'debug_emit_signal_exit INT 130; exit 130' INT
+trap 'debug_emit_signal_exit TERM 143; exit 143' TERM
 
 case "$SCAN_MODE" in
     audit|complete) ;;
@@ -495,23 +507,56 @@ if ! detect_platform; then
     fi
 fi
 
+debug_selected_count=67
+if [ -n "$SELECTED_CHECKS" ]; then
+    debug_selected_count=1
+    debug_selected_remaining="$SELECTED_CHECKS"
+    while [[ "$debug_selected_remaining" == *,* ]]; do
+        debug_selected_remaining="${debug_selected_remaining#*,}"
+        debug_selected_count=$((debug_selected_count + 1))
+    done
+fi
+if [ -n "$POLICY_DIRECTORY" ]; then
+    debug_policy_state=active
+else
+    debug_policy_state=inactive
+fi
+if [ "$EVIDENCE_BUNDLE_ACTIVE" -eq 1 ]; then
+    debug_evidence_state=active
+else
+    debug_evidence_state=inactive
+fi
+debug_emit scan_start \
+    platform_id "${PLATFORM_ID:-unknown}" \
+    platform_version "${PLATFORM_VERSION:-unknown}" \
+    platform_family "${PLATFORM_FAMILY:-unknown}" \
+    runtime "$RUNTIME_MODE" \
+    mode "$SCAN_MODE" \
+    selected_count "$debug_selected_count" \
+    policy "$debug_policy_state" \
+    evidence "$debug_evidence_state"
+DEBUG_SCAN_STARTED=1
+unset debug_selected_count debug_selected_remaining debug_policy_state debug_evidence_state
+
 verbose "platform=${PLATFORM_ID:-unknown} version=${PLATFORM_VERSION:-unknown} family=${PLATFORM_FAMILY:-unknown} root=${SCAN_ROOT} runtime=${RUNTIME_MODE} mode=${SCAN_MODE}"
 
 trap cleanup_workspace EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 if [ -n "$EXPLAIN_SYSCTL_KEY" ]; then
     SCRATCH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kisa-cce-explain.XXXXXXXX")" || die "cannot create a secure temporary directory"
     chmod 0700 "$SCRATCH_DIR" || die "cannot set temporary directory permissions"
+    debug_emit workspace_ready scope explain
     scan_epoch_begin || die "cannot initialize the scan epoch"
     sysctl_explanation="$(sysctl_explain "$EXPLAIN_SYSCTL_KEY")" ||
         die "cannot determine the sysctl configuration or runtime value reliably"
     console_emit_lines "$sysctl_explanation"
+    scan_epoch_end
+    debug_emit_scan_end 0
     exit 0
 fi
 
 initialize_workspace
+debug_emit workspace_ready scope assessment
 scan_epoch_begin || die "cannot initialize the scan epoch"
 write_report_header || die "cannot write the report header"
 
@@ -522,14 +567,21 @@ done < "$CRITERIA_FILE"
 
 write_report_summary || die "cannot write the report summary"
 verbose "summary total=${COUNT_TOTAL} good=${COUNT_GOOD} vulnerable=${COUNT_VULNERABLE} manual=${COUNT_MANUAL} not_applicable=${COUNT_NOT_APPLICABLE} error=${COUNT_ERROR}"
-validate_reports || die "completed report integrity validation failed"
+if ! validate_reports; then
+    debug_emit report_validation status failed component content total "$COUNT_TOTAL"
+    die "completed report integrity validation failed"
+fi
 if ! report_output_paths_are_current; then
     REPORT_WRITE_ERROR=1
+    debug_emit report_validation status failed component path_binding total "$COUNT_TOTAL"
     die "output directory path changed during the scan: $OUTPUT_PARENT"
 fi
+debug_emit report_validation status passed total "$COUNT_TOTAL"
 console_emit "markdown_report=$REPORT_MARKDOWN_OUTPUT_PATH"
 console_emit "jsonl_report=$REPORT_JSONL_OUTPUT_PATH"
 
 scan_epoch_end
 scanner_exit_code
-exit "$?"
+scanner_status=$?
+debug_emit_scan_end "$scanner_status"
+exit "$scanner_status"

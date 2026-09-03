@@ -10,7 +10,7 @@ The scanner accepts these directly identified base distributions from the target
 | Ubuntu LTS | `ubuntu` | `22.04`, `24.04`, `26.04` |
 | Red Hat Enterprise Linux | `rhel` | `8.10`, `9.8`, `10.2` |
 
-The explicit derivative allowlist covers current AlmaLinux, Rocky Linux, Oracle Linux, CentOS Stream, Linux Mint, Pop!_OS, Zorin OS, elementary OS, and KDE neon User Edition releases. See [Platform support](platform-support.md) for exact product versions, required Ubuntu base codenames, lifecycle sources, and subscription-only exclusions.
+The explicit derivative allowlist covers current AlmaLinux, Rocky Linux, Oracle Linux, CentOS Stream, Linux Mint, Pop!_OS, Zorin OS, elementary OS, and KDE neon User Edition releases. See [Platform support](../reference/platform-support.md) for exact product versions, required Ubuntu base codenames, lifecycle sources, and subscription-only exclusions.
 
 Other platforms are rejected unless `--allow-unsupported` is supplied. That option only bypasses platform rejection; it does not make the collected result authoritative for another distribution. Arbitrary `ID_LIKE` values never authorize an unlisted product.
 
@@ -51,7 +51,7 @@ Read the installed command manual with:
 man 8 kisa-cce-scan
 ```
 
-The installation layout and package staging interface are documented in [Packaging](packaging/README.md).
+The installation layout and package staging interface are documented in [Packaging](../packaging/README.md).
 
 ## Command options
 
@@ -68,6 +68,7 @@ The installation layout and package staging interface are documented in [Packagi
 | `--explain-sysctl KEY` | Prints the effective persistent and runtime interpretation for one sysctl key instead of producing a CCE report. |
 | `--allow-unsupported` | Continues after an unsupported platform warning. |
 | `-v`, `--verbose` | Writes platform context, each check code, status, and catalog title, and final counters to standard error. |
+| `--debug` | Enables verbose progress and writes structured internal lifecycle, resolver, cache, collection, and report-validation events to standard error. |
 | `-h`, `--help` | Prints command help. |
 | `--version` | Prints the version read from `data/VERSION` or the installed data directory. |
 
@@ -80,6 +81,17 @@ configuration snapshots and one runtime listener snapshot. A new invocation
 collects runtime state again; no cache persists across process runs.
 
 Every terminal line uses `[    12.345678] kisa-cce-scan: payload`, based on the scanner host's Linux uptime with six fractional digits. A safe process-time or zero fallback is used when `/proc/uptime` is unavailable. This framing applies to help, version, errors, warnings, verbose progress, sysctl explanations, and report paths. Automation keys such as `markdown_report`, `jsonl_report`, and the sysctl `key=value` fields remain unchanged inside the payload. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
+
+Debug events use `DEBUG: schema=1 event=NAME key=value` payloads. The mode is a diagnostic superset of `--verbose`: it reports scan and criterion lifecycle, scan-epoch state, resolver and collection state, cache decisions, and report validation. It does not enable shell execution tracing, retain temporary files, print result summaries or evidence, or change result states, reports, or exit status. Dynamic field values use percent encoding for bytes outside the documented safe character set and are bounded in length. Native-command output and assessed configuration content are not debug fields.
+
+Debug output is assessment data. It can expose the selected root, platform, criterion activity, subsystem availability, and error state even though raw evidence is excluded. Protect a redirected debug stream with an owner-only umask:
+
+```bash
+umask 077
+kisa-cce-scan --debug 2>./kisa-cce-debug.log
+```
+
+`--debug` is available only on `kisa-cce-scan`; `kisa-cce-collect` does not implement this option. The scanner creates no separate debug file.
 
 CLI help, progress, warning, and error output is always English. Reports are Korean by default. An explicit English `LANG`, such as `en_US.UTF-8`, selects English Markdown titles, summaries, and labels. See [Localization](localization.md).
 
@@ -118,7 +130,7 @@ Offline analysis can evaluate persistent files and metadata. It does not require
 
 Complete mode rejects partial selection, unsupported-platform overrides, live `--no-runtime`, stale bundles, and missing policy input. A technical `MANUAL` with a matching attestation becomes the approved final decision. Missing, expired, or mismatched attestations become `ERROR`. `NOT_APPLICABLE` remains a conclusive final state.
 
-See [Policy format](policy-format.md) and [Runtime evidence bundle](evidence-bundle.md).
+See [Policy format](../reference/policy-format.md) and [Runtime evidence bundle](evidence-bundle.md).
 
 ## Reports
 

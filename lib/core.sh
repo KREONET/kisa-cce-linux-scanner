@@ -11,6 +11,7 @@ RUNTIME_MODE="${RUNTIME_MODE:-auto}"
 OUTPUT_PARENT="${OUTPUT_PARENT:-}"
 SELECTED_CHECKS="${SELECTED_CHECKS:-}"
 VERBOSE="${VERBOSE:-0}"
+DEBUG="${DEBUG:-0}"
 SCAN_MODE="${SCAN_MODE:-audit}"
 POLICY_DIRECTORY="${POLICY_DIRECTORY:-}"
 EVIDENCE_BUNDLE_PATH="${EVIDENCE_BUNDLE_PATH:-}"
@@ -106,6 +107,10 @@ SCANNER_PROCESS_NO_NEW_PRIVS=""
 SCANNER_PROCESS_CAP_DAC_OVERRIDE="unknown"
 SCANNER_PROCESS_CAP_DAC_READ_SEARCH="unknown"
 SCANNER_PROCESS_ACCESS_CONTEXT="unknown"
+DEBUG_OUTPUT_FD=""
+DEBUG_OUTPUT_FD_OWNED=0
+DEBUG_SCAN_STARTED=0
+DEBUG_SCAN_ENDED=0
 
 export LC_ALL=C
 export LANG=C
@@ -198,6 +203,8 @@ console_emit_lines() {
 
 die() {
     console_emit "ERROR: $*" >&2
+    debug_emit fatal criterion "${SCAN_ACTIVE_CRITERION:-none}" status error
+    debug_emit_scan_end 2
     exit 2
 }
 
@@ -208,6 +215,150 @@ warn() {
 verbose() {
     [ "$VERBOSE" -eq 1 ] || return 0
     console_emit "$*" >&2
+}
+
+debug_initialize() {
+    local __kisa_debug_probe_fd=""
+
+    [ "$DEBUG" = "1" ] || return 0
+    [ -z "$DEBUG_OUTPUT_FD" ] || return 0
+
+    # The duplicate preserves the original diagnostic stream across locally suppressed stderr.
+    if ! (exec {__kisa_debug_probe_fd}>&2) 2>/dev/null; then
+        debug_activate_stderr_fallback
+    elif ! exec {DEBUG_OUTPUT_FD}>&2; then
+        debug_activate_stderr_fallback
+    else
+        DEBUG_OUTPUT_FD_OWNED=1
+        DEBUG_SCAN_STARTED=1
+    fi
+    return 0
+}
+
+debug_activate_stderr_fallback() {
+    DEBUG_OUTPUT_FD=2
+    DEBUG_OUTPUT_FD_OWNED=0
+    DEBUG_SCAN_STARTED=1
+    warn "debug diagnostics could not preserve the original standard error; locally suppressed events may be unavailable"
+}
+
+debug_percent_encode_into() {
+    local __kisa_debug_input="$1"
+    local __kisa_debug_maximum_length="$2"
+    local __kisa_debug_destination="$3"
+    local __kisa_debug_truncated_destination="$4"
+    local __kisa_debug_character=""
+    local __kisa_debug_piece=""
+    local __kisa_debug_encoded=""
+    local __kisa_debug_byte_value=0
+    local __kisa_debug_index=0
+    local __kisa_debug_was_truncated=0
+
+    case "$__kisa_debug_destination:$__kisa_debug_truncated_destination" in
+        *[!A-Za-z0-9_:]*|:*|*:|__kisa_debug_*|*:__kisa_debug_*) return 0 ;;
+    esac
+    case "$__kisa_debug_maximum_length" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+
+    # LC_ALL=C makes each substring operation consume exactly one input byte.
+    for ((__kisa_debug_index = 0; __kisa_debug_index < ${#__kisa_debug_input}; __kisa_debug_index++)); do
+        __kisa_debug_character="${__kisa_debug_input:__kisa_debug_index:1}"
+        case "$__kisa_debug_character" in
+            [A-Za-z0-9._~:/@+-])
+                __kisa_debug_piece="$__kisa_debug_character"
+                ;;
+            *)
+                printf -v __kisa_debug_byte_value '%d' "'$__kisa_debug_character"
+                printf -v __kisa_debug_piece '%%%02X' "$__kisa_debug_byte_value"
+                ;;
+        esac
+        if [ $((${#__kisa_debug_encoded} + ${#__kisa_debug_piece})) -gt "$__kisa_debug_maximum_length" ]; then
+            __kisa_debug_was_truncated=1
+            break
+        fi
+        __kisa_debug_encoded+="$__kisa_debug_piece"
+    done
+
+    printf -v "$__kisa_debug_destination" '%s' "$__kisa_debug_encoded"
+    printf -v "$__kisa_debug_truncated_destination" '%d' "$__kisa_debug_was_truncated"
+}
+
+debug_emit() {
+    local event_name="${1:-}"
+    local payload=""
+    local field_key=""
+    local field_value=""
+    local encoded_value=""
+    local field_value_limit=0
+    local field_truncated=0
+    local event_truncated=0
+    local event_content_limit=2036
+
+    [ "$DEBUG" = "1" ] || return 0
+    [ -n "$DEBUG_OUTPUT_FD" ] || return 0
+    local -A seen_field_keys=([schema]=1 [event]=1 [truncated]=1)
+    case "$event_name" in
+        ''|[!a-z]*|*[!a-z0-9_]*) return 0 ;;
+    esac
+    shift
+    [ $(( $# % 2 )) -eq 0 ] || return 0
+
+    payload="DEBUG: schema=1 event=$event_name"
+    [ "${#payload}" -le "$event_content_limit" ] || return 0
+    while [ "$#" -gt 0 ]; do
+        field_key="$1"
+        field_value="$2"
+        shift 2
+        case "$field_key" in
+            ''|[!a-z]*|*[!a-z0-9_]*) return 0 ;;
+        esac
+        [ -z "${seen_field_keys[$field_key]+present}" ] || return 0
+        seen_field_keys["$field_key"]=1
+        field_value_limit=$((255 - ${#field_key}))
+        [ "$field_value_limit" -ge 0 ] || return 0
+        encoded_value=""
+        field_truncated=0
+        debug_percent_encode_into "$field_value" "$field_value_limit" encoded_value field_truncated
+        if [ $((${#payload} + ${#field_key} + ${#encoded_value} + 2)) -gt "$event_content_limit" ]; then
+            event_truncated=1
+            break
+        fi
+        payload+=" $field_key=$encoded_value"
+        if [ "$field_truncated" -eq 1 ]; then
+            event_truncated=1
+        fi
+    done
+    if [ "$event_truncated" -eq 1 ]; then
+        payload+=" truncated=1"
+    fi
+
+    console_emit "$payload" 1>&"$DEBUG_OUTPUT_FD" 2>/dev/null || true
+    return 0
+}
+
+debug_emit_scan_end() {
+    local exit_status="${1:-2}"
+
+    [ "$DEBUG_SCAN_STARTED" -eq 1 ] || return 0
+    [ "$DEBUG_SCAN_ENDED" -eq 0 ] || return 0
+    DEBUG_SCAN_ENDED=1
+    debug_emit scan_end \
+        exit_status "$exit_status" \
+        total "$COUNT_TOTAL" \
+        good "$COUNT_GOOD" \
+        vulnerable "$COUNT_VULNERABLE" \
+        manual "$COUNT_MANUAL" \
+        not_applicable "$COUNT_NOT_APPLICABLE" \
+        error "$COUNT_ERROR"
+}
+
+debug_emit_signal_exit() {
+    local signal_name="${1:-unknown}"
+    local exit_status="${2:-2}"
+
+    debug_emit termination_signal signal "$signal_name" exit_status "$exit_status"
+    debug_emit_scan_end "$exit_status"
 }
 
 scanner_reset_process_security_context() {
@@ -556,6 +707,7 @@ resolve_trusted_command_path() {
         [ "${TRUSTED_COMMAND_CACHE[$command_name]+present}" = "present" ]; then
         cached_candidate="${TRUSTED_COMMAND_CACHE[$command_name]}"
         if [ -x "$cached_candidate" ]; then
+            debug_emit trusted_command command "$command_name" operation lookup cache memory status ready
             printf '%s\n' "$cached_candidate"
             return 0
         fi
@@ -570,6 +722,7 @@ resolve_trusted_command_path() {
             [ -n "$cached_candidate" ] || continue
             [ -x "$cached_candidate" ] || continue
             TRUSTED_COMMAND_CACHE["$command_name"]="$cached_candidate"
+            debug_emit trusted_command command "$command_name" operation lookup cache scratch status ready
             printf '%s\n' "$cached_candidate"
             return 0
         done < "$TRUSTED_COMMAND_CACHE_FILE"
@@ -598,15 +751,20 @@ resolve_trusted_command_path() {
                 printf '%s\t%s\n' "$command_name" "$resolved_candidate" >> "$TRUSTED_COMMAND_CACHE_FILE" 2>/dev/null || true
             fi
         fi
+        debug_emit trusted_command command "$command_name" operation lookup cache fixed_path status ready
         printf '%s\n' "$resolved_candidate"
         return 0
     done
 
+    debug_emit trusted_command command "$command_name" operation lookup cache none status unavailable
     return 1
 }
 
 trusted_command() {
-    runtime_enabled || return 1
+    if ! runtime_enabled; then
+        debug_emit trusted_command command "$1" operation lookup cache none status disabled
+        return 1
+    fi
     resolve_trusted_command_path "$1"
 }
 
@@ -637,9 +795,15 @@ capture_command() {
     local command_name="$1"
     shift
     local command_path=""
+    local command_status=0
 
-    command_path="$(trusted_command "$command_name")" || return 127
-    "$command_path" "$@"
+    command_path="$(trusted_command "$command_name")" || {
+        debug_emit trusted_command command "$command_name" operation execute status unavailable
+        return 127
+    }
+    "$command_path" "$@" || command_status=$?
+    debug_emit trusted_command command "$command_name" operation execute status "$command_status"
+    return "$command_status"
 }
 
 stat_owner() {
@@ -1494,6 +1658,7 @@ run_one_check() {
     check_selected "$code" || return 0
 
     SCAN_ACTIVE_CRITERION="$code"
+    debug_emit criterion_start code "$code"
     function_name="check_u_${code#U-}"
     RESULT_STATUS=""
     RESULT_TECHNICAL_STATUS=""
@@ -1515,12 +1680,15 @@ run_one_check() {
     if [ -z "$RESULT_STATUS" ]; then
         set_result ERROR "검사 함수가 결과를 반환하지 않았습니다." "function=$function_name"
     fi
+    debug_emit criterion_technical code "$code" status "$RESULT_TECHNICAL_STATUS" applicable "$RESULT_APPLICABLE"
 
     if ! record_result "$code" "$category" "$severity" "$title"; then
+        debug_emit criterion_end code "$code" status ERROR decision_basis report_write_error
         warn "failed to write report data for $code"
         SCAN_ACTIVE_CRITERION=""
         return 1
     fi
+    debug_emit criterion_end code "$code" status "$RESULT_STATUS" decision_basis "$RESULT_DECISION_BASIS"
     SCAN_ACTIVE_CRITERION=""
     return 0
 }
@@ -1720,6 +1888,8 @@ initialize_workspace() {
 
 cleanup_workspace() {
     local output_directory_fd="${OUTPUT_DIRECTORY_FD:-}"
+    local debug_output_fd="${DEBUG_OUTPUT_FD:-}"
+    local debug_output_fd_owned="${DEBUG_OUTPUT_FD_OWNED:-0}"
 
     if [ -n "$SCRATCH_DIR" ] && [ -d "$SCRATCH_DIR" ]; then
         rm -rf -- "$SCRATCH_DIR"
@@ -1731,6 +1901,11 @@ cleanup_workspace() {
     OUTPUT_DIRECTORY_FD=""
     OUTPUT_DIRECTORY_FD_PATH=""
     OUTPUT_DIRECTORY_DEVICE_INODE=""
+    if [ -n "$debug_output_fd" ] && [ "$debug_output_fd_owned" -eq 1 ]; then
+        exec {debug_output_fd}>&- || true
+    fi
+    DEBUG_OUTPUT_FD=""
+    DEBUG_OUTPUT_FD_OWNED=0
 }
 
 write_report_header() {

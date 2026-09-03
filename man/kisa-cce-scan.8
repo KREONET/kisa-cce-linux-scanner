@@ -132,6 +132,14 @@ Write platform context, each check code, status, and catalog title, and final
 counters to standard error.
 Verbose output does not include result summaries or evidence.
 .TP
+.B \-\-debug
+Enable verbose progress and write structured internal lifecycle, resolver,
+cache, collection, and report-validation events to standard error.
+Debug mode does not enable shell execution tracing, retain temporary files,
+create a separate debug file, or change reports, result states, or exit status.
+It does not print result summaries, evidence, assessed configuration content,
+or native-command output.
+.TP
 .BR \-h ", " \-\-help
 Print command help and exit.
 .TP
@@ -145,12 +153,23 @@ fractional uptime digits:
 [    12.345678] kisa-cce-scan: payload
 .EE
 .PP
-This contract applies to help, version, errors, warnings, verbose progress,
-sysctl explanations, and report paths. Automation keys and values remain in
-the payload. Report paths use standard output; warnings and verbose progress
-use standard error. The scanner uses a safe process-time or zero fallback when
+This contract applies to help, version, errors, warnings, verbose and debug
+progress, sysctl explanations, and report paths. Automation keys and values
+remain in the payload. Report paths use standard output; warnings, verbose
+progress, and debug events use standard error. The scanner uses a safe
+process-time or zero fallback when
 .I /proc/uptime
 is unavailable.
+.PP
+Debug records use
+.B "DEBUG: schema=1 event=NAME key=value"
+payloads. Dynamic field values are percent-encoded outside a restricted safe
+byte set and bounded in length. Debug output is sensitive assessment data even
+though it excludes raw evidence. Before redirecting standard error, set an
+owner-only umask and protect the resulting file like a report. The
+.B kisa-cce-collect
+command does not implement
+.BR \-\-debug .
 .PP
 Options that take values accept both
 .B "\-\-option VALUE"
@@ -330,6 +349,11 @@ Reports can contain sensitive host configuration.
 Targeted redaction is defense in depth and does not replace review before
 storage or transfer.
 .PP
+Debug output can expose the selected root, platform, criterion activity,
+subsystem availability, cache behavior, and failure state. Review it before
+storage or transfer. The scanner does not create or set permissions on a file
+used for shell-level standard-error redirection.
+.PP
 When
 .B \-\-output-dir
 points below an offline root, report files are written into that image.
@@ -391,6 +415,13 @@ Explain one sysctl key:
 .PP
 .EX
 sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
+.EE
+.PP
+Capture protected debug diagnostics:
+.PP
+.EX
+umask 077
+kisa-cce-scan --debug 2>./kisa-cce-debug.log
 .EE
 .SH SEE ALSO
 .BR kisa-cce-collect (8),
