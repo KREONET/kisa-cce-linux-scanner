@@ -33,7 +33,7 @@ The public `#!/bin/sh` launcher locates only known relative module layouts. It s
 
 Regression tests set hostile `BASH_ENV` and `ENV` values and verify that the private main file does not load them.
 
-### Trusted live commands
+### Trusted host commands
 
 Runtime collection does not use arbitrary caller `PATH` entries. `trusted_command` searches fixed system directories, resolves the candidate where supported, and requires:
 
@@ -43,6 +43,8 @@ Runtime collection does not use arbitrary caller `PATH` entries. `trusted_comman
 - no group or other write permission on the parent chain.
 
 Unavailable or untrusted native tools produce conservative collection states instead of invoking another executable with the same name.
+
+Static-only live-root scans retain one narrower host query: `trusted_findmnt_command` resolves only `findmnt` through the same ownership, mode, and parent-chain checks. Mount topology defines the scope of `find -xdev` filesystem evidence and does not enable service, listener, kernel-value, or native-validator collection. Offline roots never use this host command.
 
 The sysctl loader adapter is a narrower special case. It accepts the distribution paths `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` only after validating root ownership, write mode, and the complete parent chain.
 

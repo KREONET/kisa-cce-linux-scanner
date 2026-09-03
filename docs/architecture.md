@@ -110,7 +110,7 @@ A check may return `GOOD` only when the evidence required by that criterion is c
 
 ## Shared filesystem collection
 
-U-15, U-23, U-25, and U-33 share one lazy filesystem snapshot for each scan root, runtime mode, scratch workspace, and criterion selection. The collector resolves the local filesystem roots once and runs one `find -xdev` traversal per root. It prunes the current scratch directory and the two report-file inodes so scanner-created artifacts cannot become findings in the same run. Subsequent checks consume cached counts and the first 20 evidence paths without repeating the traversal.
+U-15, U-23, U-25, and U-33 share one lazy filesystem snapshot for each scan root, runtime mode, scratch workspace, and criterion selection. The collector resolves the local filesystem roots once and runs one `find -xdev` traversal per root. Live-root scans retain the trusted `findmnt` topology query in static-only mode because mount boundaries define the filesystem evidence scope rather than service or kernel security state. It prunes the current scratch directory and the two report-file inodes so scanner-created artifacts cannot become findings in the same run. Subsequent checks consume cached counts and the first 20 evidence paths without repeating the traversal.
 
 Live collection retains host NSS behavior for U-15 by evaluating `-nouser` and `-nogroup` inside GNU `find`. Offline collection reads numeric UID, GID, type, and mode fields from a NUL-delimited GNU `find -P` metadata stream and compares them with the selected root's validated account databases. Symbolic-link records therefore use the link's own metadata instead of dereferencing the target, and a dangling target does not make the shared inventory incomplete.
 

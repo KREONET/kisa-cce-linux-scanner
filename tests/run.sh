@@ -1499,6 +1499,44 @@ test_process_security_context() (
     assert_equal unknown "$SCANNER_PROCESS_CAP_DAC_READ_SEARCH" "missing capability status"
 )
 
+test_trusted_command_scope_policy() (
+    local offline_root="$TEST_TEMP/trusted-command-offline-root"
+    local resolved_path=""
+    local resolver_calls=0
+    local command_status=0
+
+    mkdir -p -- "$offline_root"
+    SCAN_ROOT="/"
+    RUNTIME_MODE="off"
+    # shellcheck source=../lib/core.sh
+    . "$PROJECT_DIR/lib/core.sh"
+
+    resolve_trusted_command_path() {
+        resolver_calls=$((resolver_calls + 1))
+        [ "$1" = findmnt ] || return 1
+        printf '%s\n' /usr/bin/findmnt
+    }
+
+    trusted_command findmnt >/dev/null 2>&1 || command_status=$?
+    assert_equal 1 "$command_status" "generic trusted command remains disabled in static-only mode"
+    assert_equal 0 "$resolver_calls" "static-only generic command skips path resolution"
+
+    command_status=0
+    trusted_findmnt_command > "$TEST_TEMP/trusted-findmnt-path" || command_status=$?
+    assert_equal 0 "$command_status" "live static-only findmnt command"
+    resolved_path="$(< "$TEST_TEMP/trusted-findmnt-path")"
+    assert_equal /usr/bin/findmnt "$resolved_path" "live static-only findmnt path"
+    assert_equal 1 "$resolver_calls" "live static-only findmnt path resolution"
+
+    SCAN_ROOT="$offline_root"
+    for RUNTIME_MODE in off auto; do
+        command_status=0
+        trusted_findmnt_command >/dev/null 2>&1 || command_status=$?
+        assert_equal 1 "$command_status" "offline findmnt command with runtime mode $RUNTIME_MODE"
+    done
+    assert_equal 1 "$resolver_calls" "offline findmnt skips host command resolution"
+)
+
 test_path_scratch_and_listener_cache_semantics() (
     local root_a="$TEST_TEMP/path-cache-root-a"
     local root_b="$TEST_TEMP/path-cache-root-b"
@@ -4782,7 +4820,7 @@ test_account_u04_u19_false_conclusive_paths() (
     check_u_15
     assert_equal VULNERABLE "$RESULT_STATUS" "U-15 files-only orphan"
     SCAN_ROOT="/"
-    trusted_command() { return 1; }
+    trusted_findmnt_command() { return 1; }
     helper_status=0
     scanner_local_filesystem_roots >/dev/null 2>&1 || helper_status=$?
     assert_equal 2 "$helper_status" "U-15 incomplete live mount inventory"
@@ -4807,6 +4845,45 @@ test_account_u04_u19_false_conclusive_paths() (
     ln -s -- /outside.service "$startup_root/etc/systemd/system/escape.service"
     check_u_17
     assert_equal ERROR "$RESULT_STATUS" "U-17 offline absolute symlink confinement"
+
+    rm -f -- "$startup_root/etc/systemd/system/escape.service"
+    mkdir -p -- "$startup_root/etc/rc.d/init.d"
+    printf '%s\n' '#!/bin/sh' 'exit 0' > "$startup_root/etc/rc.d/init.d/example"
+    chmod 0755 -- "$startup_root/etc/rc.d/init.d/example"
+    ln -s -- rc.d/init.d "$startup_root/etc/init.d"
+    SCAN_ROOT="/"
+    RUNTIME_MODE="off"
+    fs_path() {
+        case "$1" in
+            /etc/init.d) printf '%s\n' "$startup_root/etc/init.d" ;;
+            /etc/rc.d/init.d) printf '%s\n' "$startup_root/etc/rc.d/init.d" ;;
+            *) printf '%s%s\n' "$startup_root/missing" "$1" ;;
+        esac
+    }
+    check_u_17
+    assert_equal GOOD "$RESULT_STATUS" "U-17 live directory symlink traversal"
+    assert_contains "$RESULT_EVIDENCE" "scanned_paths=1" "U-17 deduplicates resolved startup directories"
+
+    rm -rf -- "$startup_root/usr/lib/systemd/system"
+    mkdir -p -- "$startup_root/usr/lib/systemd/system"
+    printf '%s\n' '[Unit]' > "$startup_root/usr/lib/systemd/system/vendor.service"
+    ln -s -- usr/lib "$startup_root/lib"
+    set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
+    fs_path() {
+        case "$1" in
+            /lib/systemd/system) printf '%s\n' "$startup_root/lib/systemd/system" ;;
+            /usr/lib/systemd/system) printf '%s\n' "$startup_root/usr/lib/systemd/system" ;;
+            *) printf '%s%s\n' "$startup_root/missing" "$1" ;;
+        esac
+    }
+    check_u_17
+    assert_equal GOOD "$RESULT_STATUS" "U-17 Debian systemd directory symlink traversal"
+    assert_contains "$RESULT_EVIDENCE" "scanned_paths=1" "U-17 deduplicates Debian systemd directories"
+
+    ln -s -- missing.service "$startup_root/usr/lib/systemd/system/dangling.service"
+    check_u_17
+    assert_equal ERROR "$RESULT_STATUS" "U-17 preserves dangling startup alias errors"
+    assert_contains "$RESULT_EVIDENCE" "metadata_errors=1" "U-17 dangling startup alias count"
 )
 
 test_account_u20_u33_false_conclusive_paths() (
@@ -5953,18 +6030,22 @@ test_remaining_criterion_goldens() (
         local scratch="$base/mount-inventory-scratch"
         local findmnt_fixture="$scratch/findmnt"
         local helper_status=0
+        local roots_output=""
 
         mkdir -p -- "$root" "$scratch"
         load_check_stack "$root" "$scratch"
-        {
-            printf '%s\n' '#!/bin/sh'
-            printf '%s\n' "printf '%s\\n' '/mnt/encoded\\040target ext4'"
-        } > "$findmnt_fixture"
+        printf '%s\n' '#!/bin/sh' "printf '%s\\n' '/ ext4'" > "$findmnt_fixture"
         chmod 0755 -- "$findmnt_fixture"
         SCAN_ROOT="/"
-        trusted_command() {
-            [ "$1" = findmnt ] && printf '%s\n' "$findmnt_fixture"
-        }
+        trusted_findmnt_command() { printf '%s\n' "$findmnt_fixture"; }
+        roots_output="$(scanner_local_filesystem_roots)" || helper_status=$?
+        assert_equal 0 "$helper_status" "static-only live mount inventory"
+        if ! printf '%s\n' "$roots_output" | grep -Fxq -- /; then
+            fail "static-only live mount inventory omitted the root filesystem"
+        fi
+
+        printf '%s\n' '#!/bin/sh' "printf '%s\\n' '/mnt/encoded\\040target ext4'" > "$findmnt_fixture"
+        helper_status=0
         scanner_local_filesystem_roots >/dev/null 2>&1 || helper_status=$?
         assert_equal 2 "$helper_status" "encoded findmnt target collection failure"
     ) || exit 1
@@ -5974,7 +6055,6 @@ test_u67_single_pass_inventory() (
     local root="$TEST_TEMP/u67-single-pass-root"
     local scratch="$TEST_TEMP/u67-single-pass-scratch"
     local log_file=""
-    local findmnt_fixture="$scratch/findmnt"
     local find_behavior="normal"
     local find_calls=0
 
@@ -6019,18 +6099,39 @@ test_u67_single_pass_inventory() (
     check_u_67
     assert_equal ERROR "$RESULT_STATUS" "U-67 rejects trailing non-NUL inventory bytes"
 
-    find_behavior="normal"
-    {
-        printf '%s\n' '#!/bin/sh'
-        printf '%s\n' "printf '%s\\n' '/var/log/encoded\\040mount ext4'"
-    } > "$findmnt_fixture"
-    chmod 0755 -- "$findmnt_fixture"
-    runtime_enabled() { return 0; }
-    trusted_command() {
-        [ "$1" = findmnt ] && printf '%s\n' "$findmnt_fixture"
-    }
-    check_u_67
-    assert_equal ERROR "$RESULT_STATUS" "U-67 rejects encoded findmnt targets"
+    (
+        local live_root="$TEST_TEMP/u67-live-static-root"
+        local live_scratch="$TEST_TEMP/u67-live-static-scratch"
+        local live_findmnt_fixture="$live_scratch/findmnt"
+
+        mkdir -p -- "$live_root/var/log" "$live_scratch"
+        : > "$live_root/var/log/application.log"
+        SCAN_ROOT="/"
+        RUNTIME_MODE="off"
+        SELECTED_CHECKS=""
+        # shellcheck source=../lib/core.sh
+        . "$PROJECT_DIR/lib/core.sh"
+        # shellcheck source=../lib/resolvers.sh
+        . "$PROJECT_DIR/lib/resolvers.sh"
+        # shellcheck source=../lib/checks_system.sh
+        . "$PROJECT_DIR/lib/checks_system.sh"
+        SCRATCH_DIR="$live_scratch"
+        set_test_platform debian 13 "Debian GNU/Linux 13"
+        printf '%s\n' '#!/bin/sh' "printf '%s\\n' '/var/log/encoded\\040mount ext4'" > "$live_findmnt_fixture"
+        chmod 0755 -- "$live_findmnt_fixture"
+        fs_path() {
+            [ "$1" = /var/log ] || return 2
+            printf '%s\n' "$live_root/var/log"
+        }
+        resolve_rooted_directory() {
+            [ "$1" = "$live_root/var/log" ] || return 2
+            printf '%s\n' "$live_root/var/log"
+        }
+        trusted_findmnt_command() { printf '%s\n' "$live_findmnt_fixture"; }
+
+        check_u_67
+        assert_equal ERROR "$RESULT_STATUS" "U-67 static-only scan rejects encoded findmnt targets"
+    ) || exit 1
 )
 
 run_test() {
@@ -6057,6 +6158,7 @@ run_test "core report counts and permissions" test_core_report_counts_and_permis
 run_test "result normalization differential" test_result_normalization_differential
 run_test "report write failures" test_report_write_failures
 run_test "process security context" test_process_security_context
+run_test "trusted command scope policy" test_trusted_command_scope_policy
 run_test "path, scratch, and listener cache semantics" test_path_scratch_and_listener_cache_semantics
 run_test "existing output directory remains unchanged" test_existing_output_directory_is_not_mutated
 run_test "sysctl layering, masks, and drift" test_sysctl_layering_masks_and_drift

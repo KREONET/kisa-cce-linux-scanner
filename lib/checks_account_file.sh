@@ -128,7 +128,7 @@ scanner_local_filesystem_roots() {
 
     candidates_file="$(new_scratch_file mount-roots)" || return 1
     printf '/\n/usr\n/var\n/home\n/opt\n/srv\n/tmp\n' > "$candidates_file"
-    findmnt_path="$(trusted_command findmnt 2>/dev/null || true)"
+    findmnt_path="$(trusted_findmnt_command 2>/dev/null || true)"
     [ -n "$findmnt_path" ] || return 2
     mount_inventory_file="$(new_scratch_file mount-inventory)" || return 2
     "$findmnt_path" -rn -o TARGET,FSTYPE > "$mount_inventory_file" 2>/dev/null || return 2
@@ -3591,6 +3591,7 @@ check_u_17() {
     local list_file=""
     local logical_path=""
     local directory=""
+    local resolved_directory=""
     local path_status=0
     local path=""
     local resolved_path=""
@@ -3607,6 +3608,7 @@ check_u_17() {
         /run/systemd/generator.late /usr/local/lib/systemd/system /usr/lib/systemd/system
         /etc/init.d /etc/rc.local
     )
+    local -A scanned_directory_paths=()
 
     list_file="$(new_scratch_file u17-files)" || {
         set_result ERROR "시작 스크립트 목록을 저장할 임시 파일을 만들지 못했습니다."
@@ -3625,7 +3627,16 @@ check_u_17() {
             continue
         fi
         if [ -d "$directory" ]; then
-            if ! find -P "$directory" -xdev \( -type f -o -type l \) -print0 >> "$list_file" 2>/dev/null; then
+            resolved_directory=""
+            if ! resolve_rooted_directory_into "$directory" resolved_directory 2>/dev/null; then
+                errors=$((errors + 1))
+                continue
+            fi
+            if [ -n "${scanned_directory_paths[$resolved_directory]+present}" ]; then
+                continue
+            fi
+            scanned_directory_paths["$resolved_directory"]=1
+            if ! find -P "$resolved_directory" -xdev \( -type f -o -type l \) -print0 >> "$list_file" 2>/dev/null; then
                 errors=$((errors + 1))
             fi
         elif [ -e "$directory" ] || [ -L "$directory" ]; then

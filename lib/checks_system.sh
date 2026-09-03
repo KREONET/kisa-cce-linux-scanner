@@ -1080,8 +1080,8 @@ check_u_67() {
                 printf '%s\n' "$target" >> "$roots_file"
             done < "$mount_inventory_file"
         fi
-    elif runtime_enabled; then
-        findmnt_path="$(trusted_command findmnt 2>/dev/null || true)"
+    elif [ "$SCAN_ROOT" = "/" ]; then
+        findmnt_path="$(trusted_findmnt_command 2>/dev/null || true)"
         if [ -z "$findmnt_path" ]; then
             scan_errors=$((scan_errors + 1))
         else

@@ -1047,6 +1047,7 @@ pam_expand_node() {
     }
     requested_service_lower="${service,,}"
 
+    # shellcheck disable=SC2034
     while IFS= read -r -d '' record_kind &&
         IFS= read -r -d '' selector &&
         IFS= read -r -d '' record_type &&

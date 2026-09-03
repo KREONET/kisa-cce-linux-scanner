@@ -147,20 +147,20 @@ case "$KISA_CCE_VERSION" in
     ''|*[!0-9A-Za-z.+~-]*) bootstrap_die "invalid version file format: $VERSION_FILE" ;;
 esac
 
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/i18n.sh"
 i18n_load_catalog || bootstrap_die "cannot read the localization catalog: $I18N_LOCALE_DIRECTORY/$KISA_CCE_LANGUAGE"
 i18n_load_console_catalog || bootstrap_die "cannot read the English console catalog: $I18N_LOCALE_DIRECTORY/en"
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/core.sh"
 initialize_report_labels || bootstrap_die "cannot initialize localized report labels"
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/scan_epoch.sh"
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/policy.sh"
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/evidence.sh"
-# shellcheck disable=SC1091
+# shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/resolvers.sh"
 
 check_files=("$SCANNER_LIBRARY_DIR"/checks_*.sh)
@@ -208,7 +208,7 @@ Options:
   --policy-dir PATH        Load reviewed criterion attestations from PATH.
   --evidence-bundle PATH   Use a validated live-runtime bundle with an offline root.
   --evidence-max-age SEC   Reject evidence older than SEC; default: 3600.
-  --no-runtime             Do not query live services, listeners, or sysctls.
+  --no-runtime             Skip live security state; live-root scans retain mount topology.
   --explain-sysctl KEY     Explain the effective persistent and runtime value.
   --allow-unsupported      Continue when the detected platform is unsupported.
   -v, --verbose            Print platform, per-check status, and summary progress.

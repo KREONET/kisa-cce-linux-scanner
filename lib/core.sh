@@ -538,7 +538,7 @@ runtime_snapshot_available() {
     [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && [ -n "${EVIDENCE_BUNDLE_DIRECTORY:-}" ]
 }
 
-trusted_command() {
+resolve_trusted_command_path() {
     local command_name="$1"
     local candidate=""
     local candidate_owner=""
@@ -547,8 +547,6 @@ trusted_command() {
     local cached_name=""
     local cached_candidate=""
     local cacheable=0
-
-    runtime_enabled || return 1
 
     case "$command_name" in
         ''|*[!A-Za-z0-9._+-]*) ;;
@@ -605,6 +603,16 @@ trusted_command() {
     done
 
     return 1
+}
+
+trusted_command() {
+    runtime_enabled || return 1
+    resolve_trusted_command_path "$1"
+}
+
+trusted_findmnt_command() {
+    [ "$SCAN_ROOT" = "/" ] || return 1
+    resolve_trusted_command_path findmnt
 }
 
 trusted_parent_chain() {

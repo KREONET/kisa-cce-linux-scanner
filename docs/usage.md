@@ -64,7 +64,7 @@ The installation layout and package staging interface are documented in [Packagi
 | `--policy-dir PATH` | Loads strict review attestations from an absolute directory. Required by complete mode. |
 | `--evidence-bundle PATH` | Uses a validated live-runtime directory with an offline root. |
 | `--evidence-max-age SEC` | Rejects evidence older than `SEC`; default `3600`, maximum `604800`. |
-| `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. |
+| `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. For a live-root scan, local mount topology is still collected to define complete filesystem traversal boundaries. |
 | `--explain-sysctl KEY` | Prints the effective persistent and runtime interpretation for one sysctl key instead of producing a CCE report. |
 | `--allow-unsupported` | Continues after an unsupported platform warning. |
 | `-v`, `--verbose` | Writes platform context, each check code, status, and catalog title, and final counters to standard error. |

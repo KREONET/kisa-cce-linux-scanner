@@ -85,4 +85,7 @@ The repository currently contains deterministic generated fixtures, not retained
 | Product/version identity detection | Covered for every listed matrix row. |
 | Debian-family and Enterprise Linux semantic adapters | Covered by targeted synthetic fixtures, including guide-explicit platform branches and known version-specific configuration and service layouts. |
 | Full 67-result cardinality | Covered on representative generated roots. |
+| Containerized userspace regression | Passed on 2026-09-03 for Debian 12/13, Ubuntu 22.04/24.04/26.04, and Rocky Linux 8.10/9.8/10.2 on arm64. Each image passed `make check`; each distribution's packaged ShellCheck passed `make lint`; and each container-root smoke produced 67 results plus one valid JSONL summary. |
 | Booted-host package and runtime acceptance on every matrix row | Not performed in this repository. |
+
+The containerized run used Apple container 1.3.1 with read-only source mounts. Test-tool packages were added to locally prepared OCI images before execution. These tests cover the installed userspace, supported Bash range, configuration adapters, report integrity, and static-only mount-boundary collection. They do not represent a booted systemd host, SELinux enforcement, host storage topology, or live service and listener acceptance.
