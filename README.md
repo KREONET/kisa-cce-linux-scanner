@@ -52,10 +52,10 @@ sudo ./bin/kisa-cce-scan --checks U-01,U-02,U-65
 ```
 
 Show progress on standard error. Every terminal line, including help, errors,
-versions, progress, and result paths, uses
-`[    12.345678] command: payload`. Automation keys remain unchanged inside
-the payload. Treat verbose output as assessment data because it includes the
-scan root, criterion statuses, and aggregate counts:
+versions, progress, and result paths, uses a consistent dmesg-style prefix.
+Automation keys remain unchanged inside the payload. Treat verbose output as
+assessment data because it includes the scan root, criterion statuses, and
+aggregate counts:
 
 ```bash
 sudo ./bin/kisa-cce-scan --verbose
