@@ -22,7 +22,7 @@ This document describes controls implemented by the current code. It is not a cl
 | Process startup | Direct launcher path and fixed system interpreter paths. | Caller environment, exported functions, and caller `PATH`. |
 | Live command execution | Root-owned commands and parent directories without group/other write permission. | Commands found only through a mutable `PATH` or writable path. |
 | Offline scan | Canonical paths confined below `--root`. | Absolute symlinks, traversal, loops, and paths escaping the root. |
-| Reporting | Invoking-user-owned, non-symlink, owner-only output directory. | Shared, group-accessible, world-accessible, or redirected output paths. |
+| Reporting | Invoking-user-owned, no-symlink-component, owner-only output directory reached through trusted ancestors and pinned by file descriptor. | Shared, group-accessible, world-accessible, replaceable, or redirected output paths. |
 | Evidence | Minimal normalized summaries and selected values. | Raw files and command output that may contain secrets or control characters. |
 
 ## Implemented controls
@@ -44,7 +44,7 @@ Runtime collection does not use arbitrary caller `PATH` entries. `trusted_comman
 
 Unavailable or untrusted native tools produce conservative collection states instead of invoking another executable with the same name.
 
-The sysctl loader adapter is a narrower special case. It uses the fixed `/usr/lib/systemd/systemd-sysctl` path and validates the executable's root ownership and write mode, but it does not apply `trusted_command`'s complete parent-chain check.
+The sysctl loader adapter is a narrower special case. It accepts the distribution paths `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` only after validating root ownership, write mode, and the complete parent chain.
 
 ### Offline-root confinement
 
@@ -54,17 +54,21 @@ Drop-in directory symlinks are also confined. A `/dev/null` link is accepted onl
 
 ### Read-only assessment
 
-The scanner does not apply fixes, reload daemons, alter firewall rules, export NFS filesystems, refresh package indexes, or modify assessed configuration. Normal scans write only reports and temporary workspace files in the selected output location. If `--output-dir` is deliberately placed below an offline root, those report files are consequently written inside that root. Sysctl explanation mode creates a temporary workspace below `${TMPDIR:-/tmp}` and removes it at exit.
+The scanner does not apply fixes, reload daemons, alter firewall rules, export NFS filesystems, refresh package indexes, or modify assessed configuration. Normal scans write only reports and temporary workspace files in the selected output location. If `--output-dir` is deliberately placed below an offline root, those report files are consequently written inside that root. The public launcher clears caller environment variables, so sysctl explanation mode creates its temporary workspace below `/tmp` and removes it at exit.
 
 ### Report protection
 
-The output parent must not be a symlink. An existing parent must belong to the invoking UID and expose no group or other permissions. New directories and scratch directories use mode `0700`; reports use mode `0600` and randomized names.
+For a normal scan, the output path must be absolute and contain no symbolic-link component. The output directory must belong to the invoking UID, provide owner read/write/search access, and expose no group or other permissions. Existing ancestors may not be group- or other-writable unless they are trusted sticky directories; `/tmp` and `/var/tmp` are handled as the standard shared temporary roots. New directories and scratch directories use mode `0700`; reports use mode `0600` and randomized names.
+
+After validation, the scanner opens the output directory and creates its scratch directory and reports through `/proc/self/fd`. It records the directory device and inode, compares the pinned descriptor with the lexical path at finalization, and withholds report paths if that binding changed. Sysctl explanation mode validates only the absolute-path syntax and does not use the directory.
 
 Runtime finalization rejects empty reports, wrong ownership, wrong modes, and mismatched result counts.
 
 ### Evidence handling
 
-Evidence passes through control-character removal, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
+Evidence passes through control-character normalization, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. Text evidence maps tab and carriage return to visible escapes, replaces or removes remaining unsafe control bytes, and receives a fixed `| ` prefix so evidence cannot imitate result framing. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
+
+Verbose mode writes only platform context, check identifiers, statuses, titles, and aggregate counters to standard error. It never writes result summaries or evidence to the terminal.
 
 ## Failure policy
 
@@ -73,7 +77,7 @@ Security-relevant uncertainty is explicit:
 - `MANUAL` means collection produced useful evidence but intent, policy, an exception, or unavailable context requires a reviewer.
 - `ERROR` means required evidence was not collected or interpreted reliably.
 - Neither state may be converted to `GOOD` because a file or command was unavailable.
-- Any `ERROR` makes the process exit with status `2`, even when vulnerable results also exist.
+- On normal completion, any `ERROR` makes the process exit with status `2`, even when vulnerable results also exist. SIGINT and SIGTERM use their documented signal statuses instead.
 
 ## Residual risks and limitations
 
@@ -91,9 +95,15 @@ Targeted patterns cannot identify every possible secret format or sensitive orga
 
 The root requirement enables complete inspection but increases impact if scanner code or a trusted native utility is compromised. Install from a reviewed package or immutable deployment artifact. Do not add runtime plugins or caller-controlled module paths.
 
+Live U-15 collection evaluates GNU `find -nouser` and `-nogroup` with the host's NSS configuration. An NSS module such as SSS or LDAP can consult an external identity service even though the scanner itself does not run a network-fetch command.
+
 ### Native parser output remains an input
 
 Trusted commands can still fail, change output across versions, or parse hostile local configuration. The scanner limits command selection and output use, but distribution updates require regression and target-host testing.
+
+### Platform identity is declarative
+
+The target controls `/etc/os-release`. Explicit product, version, and base-codename checks prevent accidental authorization through `ID_LIKE`, but they do not attest that an image is genuine or still enrolled in a vendor support service. Validate image provenance and lifecycle status independently.
 
 ### Offline images are snapshots
 
@@ -106,6 +116,6 @@ An offline root may be incomplete, inconsistent, or captured while files were ch
 - Use a local owner-only output directory.
 - Review reports before sharing them.
 - Run full scans from a controlled administrative session.
-- Validate package installation and live behavior on both supported platforms.
+- Validate package installation and live behavior on every listed product and release.
 
 Package signature policy, target-host acceptance, and an independent security review remain outside the current fixture suite.

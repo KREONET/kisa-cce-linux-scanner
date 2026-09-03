@@ -2,14 +2,17 @@
 
 ## Supported targets
 
-The scanner accepts these values from the target root's `/etc/os-release`:
+The scanner accepts these directly identified base distributions from the target root's `/etc/os-release`:
 
 | Platform | Accepted `ID` | Accepted `VERSION_ID` |
 |---|---|---|
-| Ubuntu Server 26.04 LTS | `ubuntu` | `26.04` |
-| Red Hat Enterprise Linux 10 | `rhel` | `10` or `10.x` |
+| Debian | `debian` | `12`, `13` |
+| Ubuntu LTS | `ubuntu` | `22.04`, `24.04`, `26.04` |
+| Red Hat Enterprise Linux | `rhel` | `8.10`, `9.8`, `10.2` |
 
-Other platforms are rejected unless `--allow-unsupported` is supplied. That option only bypasses platform rejection; it does not make the collected result authoritative for another distribution.
+The explicit derivative allowlist covers current AlmaLinux, Rocky Linux, Oracle Linux, CentOS Stream, Linux Mint, Pop!_OS, Zorin OS, elementary OS, and KDE neon User Edition releases. See [Platform support](platform-support.md) for exact product versions, required Ubuntu base codenames, lifecycle sources, and subscription-only exclusions.
+
+Other platforms are rejected unless `--allow-unsupported` is supplied. That option only bypasses platform rejection; it does not make the collected result authoritative for another distribution. Arbitrary `ID_LIKE` values never authorize an unlisted product.
 
 ## Running from the source tree
 
@@ -32,7 +35,7 @@ sudo install -d -m 0700 /var/log/kisa-cce-scanner
 sudo ./bin/kisa-cce-scan --output-dir /var/log/kisa-cce-scanner
 ```
 
-The output directory must be an absolute path, must not be a symbolic link, must belong to the invoking user, and must not grant group or other permissions. The scanner creates a missing directory with mode `0700` and creates reports with mode `0600`.
+The output directory must be an absolute path with no symbolic-link component. It must belong to the invoking user, grant owner read/write/search access, and grant no group or other permissions. Existing ancestor directories must not be replaceable through an untrusted group- or other-writable path; trusted sticky directories such as `/tmp` and `/var/tmp` remain valid. The scanner creates a missing directory with mode `0700`, opens and pins that directory through a file descriptor, and creates reports with mode `0600` through the pinned directory. It refuses to print report paths if the lexical directory binding changes before finalization.
 
 ## Running an installed scanner
 
@@ -60,12 +63,15 @@ The installation layout and package staging interface are documented in [Packagi
 | `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. |
 | `--explain-sysctl KEY` | Prints the effective persistent and runtime interpretation for one sysctl key instead of producing a CCE report. |
 | `--allow-unsupported` | Continues after an unsupported platform warning. |
+| `-v`, `--verbose` | Writes platform context, each check code, status, and catalog title, and final counters to standard error. |
 | `-h`, `--help` | Prints command help. |
 | `--version` | Prints the version read from `data/VERSION` or the installed data directory. |
 
-Options that require values accept both `--option VALUE` and `--option=VALUE`. Positional arguments are rejected. `--checks` and `--explain-sysctl` cannot be combined.
+Options that require values accept both `--option VALUE` and `--option=VALUE`. Empty values are rejected. Positional arguments are rejected. `--checks` and `--explain-sysctl` cannot be combined.
 
 Selected results are always emitted in `data/criteria.tsv` order, not in the order supplied to `--checks`.
+
+Verbose output never includes result summaries or evidence. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
 
 ## Scan modes
 
@@ -106,7 +112,9 @@ Report paths are printed only after the final summary and integrity checks succe
 
 ### Text report
 
-The text report contains scanner and platform metadata, one delimited section for each selected criterion, and a final count summary. Each result includes its code, title, category, severity, status, applicability, summary, evidence, and criterion URL.
+The text report contains scanner and platform metadata, including the detected product, configuration family, and upstream base, followed by one delimited section for each selected criterion and a final count summary. Each result includes its code, title, category, severity, status, applicability, summary, and criterion URL. The evidence section is omitted when a check supplies no evidence.
+
+Evidence separators are expanded, tab and carriage-return bytes are rendered as visible escapes in text evidence, remaining unsafe control bytes are removed or replaced, UTF-8 is normalized when `iconv` is available, and targeted credential redaction is applied before an 8192-byte limit. Text-report evidence lines are prefixed with `| ` to distinguish them from report framing. JSONL retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string.
 
 ### JSONL report
 
@@ -136,13 +144,13 @@ The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or t
 
 | Status | Condition |
 |---:|---|
-| `0` | No `VULNERABLE` or `ERROR` result was recorded. |
-| `1` | At least one `VULNERABLE` result and no `ERROR` result were recorded. |
-| `2` | Invocation, platform detection, report integrity, or at least one criterion produced an error. |
+| `0` | The invocation completed without a process-level failure, and a normal scan recorded no `VULNERABLE` or `ERROR` result. Sysctl explanation mode also returns `0` when its diagnostic completes successfully. |
+| `1` | A normal scan completed without a process-level failure and recorded at least one `VULNERABLE` result but no `ERROR` result. |
+| `2` | Invocation, platform detection, sysctl diagnosis, collection, report creation or integrity, or at least one criterion produced an error. |
 
 `ERROR` takes precedence over `VULNERABLE`. `MANUAL` and `NOT_APPLICABLE` do not change the exit status by themselves.
 
-An interrupt exits with status `130`; termination exits with status `143`. These signal exits occur before the scanner prints validated report paths.
+An interrupt exits with status `130`; termination exits with status `143`. A signal can arrive before, during, or after the two report-path lines are printed. Paths printed before the signal refer to reports that already passed final integrity checks; unprinted partial reports may also remain after an earlier interruption.
 
 ## Explaining sysctl resolution
 
@@ -158,11 +166,13 @@ The standard drop-in path is `/etc/sysctl.d/*.conf`. Configuration ordering and 
 
 This mode does not change kernel parameters and does not create CCE report files.
 
-`--output-dir` has no effect in sysctl explanation mode. Its temporary workspace is created below `${TMPDIR:-/tmp}` and removed at exit.
+`--output-dir` must still be an absolute path in sysctl explanation mode, but the scanner does not create or write that directory. The public launcher clears the caller environment, so the diagnostic workspace is created below `/tmp` and removed at exit.
 
 ## Operational limitations
 
-- U-64 always requires review of organization policy, the approved baseline date, and vendor advisories. The scanner performs no network access or package metadata refresh.
+- U-64 always requires review of organization policy, the approved baseline date, and vendor advisories. That check performs no advisory fetch or package metadata refresh.
+- A live U-15 scan uses the host's configured NSS for owner lookup. External NSS backends may contact their identity service.
 - Business necessity, approved exceptions, external identity-provider policy, and retention policy remain manual evidence.
+- Stock Enterprise Linux units that defer daemon arguments to unresolved sysconfig variables can produce `MANUAL` for OpenSSH, BIND, or Net-SNMP checks; the scanner does not guess the expanded process arguments.
 - Containers do not reproduce all PID 1, socket activation, PAM, authselect, boot-time sysctl, firewall, and device behavior.
-- Complete acceptance on representative Ubuntu 26.04 and RHEL 10 virtual machines is outside the local fixture suite.
+- Complete acceptance on every listed product and release is outside the local fixture suite.

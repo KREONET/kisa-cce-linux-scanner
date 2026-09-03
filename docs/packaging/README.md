@@ -15,6 +15,7 @@ The source tree exposes one relocatable install interface for Debian-family and 
 The project deliberately uses the requested cross-distribution path `/usr/lib/kisa-cce-linux-scanner`. Debian permits this location, although its policy recommends `/usr/share` when a directory is entirely architecture-independent. An RPM spec must not substitute `%{_libdir}`, because that macro can select `/usr/lib64`; use the exact noarch private path instead. The launcher also supports `/usr/libexec/kisa-cce-linux-scanner` as an RPM packaging override:
 
 ```bash
+package_root="$(mktemp -d)" || exit 1
 make install \
   DESTDIR="$package_root" \
   prefix=/usr \
@@ -69,9 +70,9 @@ Do not publish Debian or RPM package metadata until all of the following values 
 
 - Project license and the copyright/license text required by each package format.
 - Package maintainer, vendor, source URL, and release ownership.
-- Exact mandatory and optional runtime dependency sets on Ubuntu 26.04 and RHEL 10.
+- Exact mandatory and optional runtime dependency sets for each supported platform group.
 - Package upgrade, removal, and report-retention policy.
-- Real-package installation and execution results on both target distributions.
+- Real-package installation and execution results on every listed product and release.
 
 The current tree provides the filesystem and build interface, but it does not yet claim a policy-complete `.deb` or `.rpm` package.
 

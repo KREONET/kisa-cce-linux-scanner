@@ -6,7 +6,30 @@
 
 new_scratch_file() {
     local name="$1"
-    mktemp "$SCRATCH_DIR/${name}.XXXXXXXX"
+    local candidate=""
+    local attempt=0
+    local noclobber_was_set=0
+
+    case "$name" in
+        ''|*/*|*$'\n'*|*$'\r'*|*$'\t'*) return 2 ;;
+    esac
+    [ -n "$SCRATCH_DIR" ] && [ -d "$SCRATCH_DIR" ] && [ ! -L "$SCRATCH_DIR" ] || return 2
+
+    case $- in
+        *C*) noclobber_was_set=1 ;;
+    esac
+    set -C
+    while [ "$attempt" -lt 64 ]; do
+        candidate="$SCRATCH_DIR/${name}.${BASHPID}.${RANDOM}.${attempt}"
+        if : 2>/dev/null > "$candidate"; then
+            [ "$noclobber_was_set" -eq 1 ] || set +C
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+    done
+    [ "$noclobber_was_set" -eq 1 ] || set +C
+    return 1
 }
 
 select_layered_files() {
@@ -123,27 +146,34 @@ login_defs_value() {
     local match=""
     local last_match=""
     local file_status=0
+    local econf_predecessor_present=0
 
     resolved_file="$(optional_rooted_read_path /etc/login.defs 2>/dev/null)" || file_status=$?
     if [ "$file_status" -eq 2 ]; then
         return 2
     elif [ "$file_status" -eq 0 ]; then
-        if [ "$PLATFORM_ID" = "rhel" ]; then
+        if platform_uses_login_defs_dropins; then
             match="$(login_defs_file_value "$key" "$resolved_file" first econf)"
+            econf_predecessor_present=1
         else
             match="$(login_defs_file_value "$key" "$resolved_file" last legacy)"
         fi
         [ -n "$match" ] && last_match="${match%%"$(printf '\t')"*}\t$(display_path "$resolved_file"):${match##*"$(printf '\t')"}"
     fi
 
-    if [ "$PLATFORM_ID" = "rhel" ]; then
+    if platform_uses_login_defs_dropins; then
         selected_files="$(select_layered_files .defs /etc/login.defs.d)" || selected_status=$?
         [ "$selected_status" -eq 0 ] || return "$selected_status"
         while IFS= read -r file; do
             [ -n "$file" ] || continue
             resolved_file="$(resolve_rooted_read_path "$file" 2>/dev/null)" || return 2
-            match="$(login_defs_file_value "$key" "$resolved_file" first econf)"
+            if [ "$econf_predecessor_present" -eq 1 ]; then
+                match="$(login_defs_file_value "$key" "$resolved_file" last econf)"
+            else
+                match="$(login_defs_file_value "$key" "$resolved_file" first econf)"
+            fi
             [ -n "$match" ] && last_match="${match%%"$(printf '\t')"*}\t$(display_path "$resolved_file"):${match##*"$(printf '\t')"}"
+            econf_predecessor_present=1
         done <<EOF
 $selected_files
 EOF
@@ -151,6 +181,162 @@ EOF
 
     [ -n "$last_match" ] || return 1
     printf '%b\n' "$last_match"
+}
+
+pam_login_defs_file_values() {
+    local key="$1"
+    local file="$2"
+    local key_mode="${3:-insensitive}"
+
+    awk -v target="$key" -v key_mode="$key_mode" '
+        {
+            raw=$0
+            sub(/^[[:space:]]+/, "", raw)
+            if (raw == "" || raw ~ /^#/) next
+            separator=match(raw, /[=[:space:]]/)
+            if (separator == 0) next
+            name=substr(raw, 1, separator - 1)
+            value=substr(raw, separator + 1)
+            sub(/^[=[:space:]]+/, "", value)
+            sub(/#.*/, "", value)
+            gsub(/[[:space:]]+$/, "", value)
+            if ((key_mode == "exact" && name == target) ||
+                (key_mode != "exact" && tolower(name) == tolower(target))) {
+                print value "\t" FNR
+            }
+        }
+    ' "$file"
+}
+
+pam_econf_login_defs_value() {
+    local key="$1"
+    shift
+    local main_file=""
+    local main_status=0
+    local selected_files=""
+    local selected_status=0
+    local file=""
+    local first_match=""
+    local selected_record=""
+    local matches=""
+    local root=""
+    local index_value=0
+    local roots=("$@")
+    local dropin_directories=()
+    local root_files=""
+    local basename_value=""
+    declare -A selected_dropins=()
+
+    # libeconf selects one file for each basename across all configuration
+    # roots.  Select the highest-priority main file before reading any key so
+    # that an administrator file also masks vendor keys it does not repeat.
+    for root in "${roots[@]}"; do
+        main_status=0
+        file="$(optional_rooted_read_path "$root/login.defs" 2>/dev/null)" || main_status=$?
+        [ "$main_status" -ne 2 ] || return 2
+        if [ "$main_status" -eq 0 ]; then
+            main_file="$file"
+        fi
+    done
+    if [ -n "$main_file" ]; then
+        matches="$(pam_login_defs_file_values "$key" "$main_file" exact)"
+        first_match="$(printf '%s\n' "$matches" | awk 'NF {print; exit}')"
+        if [ -n "$first_match" ]; then
+            selected_record="${first_match%%"$(printf '\t')"*}"$'\t'"$(display_path "$main_file"):${first_match##*"$(printf '\t')"}"
+        fi
+    fi
+
+    # select_layered_files expects directories from highest to lowest
+    # priority.  The caller supplies libeconf roots from vendor to local.
+    for ((index_value=${#roots[@]} - 1; index_value >= 0; index_value--)); do
+        dropin_directories+=("${roots[index_value]}/login.defs.d")
+    done
+    selected_status=0
+    selected_files="$(select_layered_files .defs "${dropin_directories[@]}")" || selected_status=$?
+    [ "$selected_status" -eq 0 ] || return "$selected_status"
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        selected_dropins["${file##*/}"]="$file"
+    done <<EOF
+$selected_files
+EOF
+
+    # libeconf applies vendor roots before administrator roots, while a file
+    # in a higher-priority root masks only the lower file with the same name.
+    for root in "${roots[@]}"; do
+        selected_status=0
+        root_files="$(select_layered_files .defs "$root/login.defs.d")" || selected_status=$?
+        [ "$selected_status" -eq 0 ] || return "$selected_status"
+        while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            basename_value="${file##*/}"
+            [ "${selected_dropins[$basename_value]:-}" = "$file" ] || continue
+            file="$(resolve_rooted_read_path "$file" 2>/dev/null)" || return 2
+            matches="$(pam_login_defs_file_values "$key" "$file" exact)"
+            first_match="$(printf '%s\n' "$matches" | awk 'NF {print; exit}')"
+            [ -n "$first_match" ] || continue
+            selected_record="${first_match%%"$(printf '\t')"*}"$'\t'"$(display_path "$file"):${first_match##*"$(printf '\t')"}"
+        done <<EOF
+$root_files
+EOF
+    done
+
+    [ -n "$selected_record" ] || return 1
+    printf '%s\n' "$selected_record"
+}
+
+pam_login_defs_value() {
+    local key="$1"
+    local main_file=""
+    local main_status=0
+    local first_match=""
+    local selected_record=""
+    local base_major=""
+    local matches=""
+
+    if platform_is_rhel_family; then
+        base_major="$(platform_base_major 2>/dev/null || true)"
+    fi
+
+    if [ "$base_major" = "9" ]; then
+        pam_econf_login_defs_value "$key" /usr/share /etc
+        return $?
+    elif [ -n "$base_major" ] && [ "$base_major" -ge 10 ]; then
+        pam_econf_login_defs_value "$key" /etc
+        return $?
+    fi
+
+    main_file="$(optional_rooted_read_path /etc/login.defs 2>/dev/null)" || main_status=$?
+    [ "$main_status" -ne 2 ] || return 2
+    if [ "$main_status" -eq 0 ]; then
+        matches="$(pam_login_defs_file_values "$key" "$main_file" insensitive)"
+        first_match="$(printf '%s\n' "$matches" | awk 'NF {print; exit}')"
+        if [ -n "$first_match" ]; then
+            selected_record="${first_match%%"$(printf '\t')"*}"$'\t'"$(display_path "$main_file"):${first_match##*"$(printf '\t')"}"
+        fi
+    fi
+
+    [ -n "$selected_record" ] || return 1
+    printf '%s\n' "$selected_record"
+}
+
+pam_default_login_value() {
+    local key="$1"
+    local file=""
+    local file_status=0
+    local first_match=""
+    local matches=""
+
+    file="$(optional_rooted_read_path /etc/default/login 2>/dev/null)" || file_status=$?
+    [ "$file_status" -ne 2 ] || return 2
+    [ "$file_status" -eq 0 ] || return 1
+    matches="$(pam_login_defs_file_values "$key" "$file")"
+    first_match="$(printf '%s\n' "$matches" | awk 'NF {print; exit}')"
+    [ -n "$first_match" ] || return 1
+    printf '%s\t%s:%s\n' \
+        "${first_match%%"$(printf '\t')"*}" \
+        "$(display_path "$file")" \
+        "${first_match##*"$(printf '\t')"}"
 }
 
 pwquality_files() {
@@ -238,12 +424,47 @@ EOF
     printf '%s\n' "$main_file"
 }
 
+pwhistory_file_value() {
+    local key="$1"
+    local file="$2"
+
+    [ -r "$file" ] || return 1
+    awk -v target="$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" -v source="$(display_path "$file")" '
+        {
+            raw=$0
+            sub(/^[[:space:]]+/, "", raw)
+            if (raw == "" || raw ~ /^#/) next
+            separator=index(raw, "=")
+            if (separator > 0) {
+                name=substr(raw, 1, separator - 1)
+                value=substr(raw, separator + 1)
+            } else {
+                split(raw, fields, /[[:space:]]+/)
+                name=fields[1]
+                value=substr(raw, length(name) + 1)
+            }
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+            sub(/#.*/, "", value)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            if (tolower(name) == target) {
+                found=1
+                print value "\t" source ":" FNR
+                exit
+            }
+        }
+        END {if (!found) exit 1}
+    ' "$file"
+}
+
 pwhistory_value() {
     local key="$1"
     local file=""
+    local file_status=0
 
-    file="$(fs_path /etc/security/pwhistory.conf)"
-    assignment_from_files_last_wins "$key" "$file"
+    platform_supports_pwhistory_configuration || return 1
+    file="$(optional_rooted_read_path /etc/security/pwhistory.conf 2>/dev/null)" || file_status=$?
+    [ "$file_status" -eq 0 ] || return "$file_status"
+    pwhistory_file_value "$key" "$file"
 }
 
 pam_service_file() {
@@ -251,53 +472,161 @@ pam_service_file() {
     local candidate=""
     local resolved_candidate=""
 
-    candidate="$(fs_path "/etc/pam.d/$service")"
-    resolved_candidate="$(resolve_rooted_read_path "$candidate" 2>/dev/null || true)"
-    if [ -n "$resolved_candidate" ]; then
+    if [ "${service#/}" != "$service" ]; then
+        candidate="$(fs_path "$service" 2>/dev/null)" || return 2
+        [ -e "$candidate" ] || [ -L "$candidate" ] || return 1
+        resolved_candidate="$(resolve_rooted_read_path "$candidate" 2>/dev/null)" || return 2
         printf '%s\n' "$resolved_candidate"
         return 0
     fi
 
-    candidate="$(fs_path "/usr/lib/pam.d/$service")"
-    resolved_candidate="$(resolve_rooted_read_path "$candidate" 2>/dev/null || true)"
-    if [ -n "$resolved_candidate" ]; then
+    for candidate in "/etc/pam.d/$service" "/usr/lib/pam.d/$service" "/usr/share/pam/pam.d/$service"; do
+        candidate="$(fs_path "$candidate" 2>/dev/null)" || return 2
+        [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+        resolved_candidate="$(resolve_rooted_read_path "$candidate" 2>/dev/null)" || return 2
         printf '%s\n' "$resolved_candidate"
         return 0
-    fi
+    done
 
     return 1
 }
 
-pam_expand_service() {
+pam_directory_configuration_present() {
+    local directory=""
+    local physical_directory=""
+
+    for directory in /etc/pam.d /usr/lib/pam.d /usr/share/pam/pam.d; do
+        physical_directory="$(fs_path "$directory" 2>/dev/null)" || return 2
+        [ -e "$physical_directory" ] || [ -L "$physical_directory" ] || continue
+        [ -d "$physical_directory" ] && [ -r "$physical_directory" ] && [ -x "$physical_directory" ] || return 2
+        return 0
+    done
+    return 1
+}
+
+pam_legacy_configuration_file() {
+    optional_rooted_read_path /etc/pam.conf
+}
+
+pam_expand_service_recursive() {
     local service="$1"
-    local depth="${2:-0}"
-    local visited_file="${3:-}"
+    local pam_type="$2"
+    local depth="$3"
+    local active_stack="$4"
+    local recursion_key="${service}:${pam_type}"
     local service_file=""
+    local logical_lines_file=""
     local line=""
+    local line_type=""
+    local control=""
     local include_service=""
+    local source_mode="pamd"
+    local configuration_status=0
+    local record_service=""
 
-    [ "$depth" -lt 24 ] || return 2
-    [ -n "$visited_file" ] || visited_file="$(new_scratch_file pam-visited)"
-    grep -Fqx -- "$service" "$visited_file" 2>/dev/null && return 2
-    printf '%s\n' "$service" >> "$visited_file"
+    [ "$depth" -lt 16 ] || return 2
+    case "$service" in
+        /*)
+            case "$service" in *$'\n'*|*$'\r'*|*$'\t'*|*/../*|*/..|*/./*|*/.) return 2 ;; esac
+            ;;
+        ''|*[!A-Za-z0-9_.+@-]*) return 2
+            ;;
+    esac
+    case "|$active_stack|" in *"|$recursion_key|"*) return 2 ;; esac
+    active_stack="${active_stack:+$active_stack|}${recursion_key}"
 
-    service_file="$(pam_service_file "$service")" || return 1
+    if [ "${service#/}" != "$service" ]; then
+        service_file="$(pam_service_file "$service")" || return $?
+    else
+        pam_directory_configuration_present || configuration_status=$?
+        case "$configuration_status" in
+            0)
+                service_file="$(pam_service_file "$service")" || return $?
+                ;;
+            1)
+                service_file="$(pam_legacy_configuration_file 2>/dev/null)" || return $?
+                source_mode="pam.conf"
+                ;;
+            *)
+                return 2
+                ;;
+        esac
+    fi
+    logical_lines_file="$(new_scratch_file pam-logical-lines)" || return 2
+    awk '
+        {
+            if (continued) record=record $0
+            else record=$0
+            if (record ~ /\\[[:space:]]*$/) {
+                sub(/\\[[:space:]]*$/, "", record)
+                record=record " "
+                continued=1
+                next
+            }
+            print record
+            record=""
+            continued=0
+        }
+        END {if (continued) exit 2}
+    ' "$service_file" > "$logical_lines_file" || return 2
     # The loop writes only to stdout and never modifies the PAM source file.
     # shellcheck disable=SC2094
     while IFS= read -r line || [ -n "$line" ]; do
-        case "$line" in
-            ''|'#'*) continue ;;
-        esac
-        include_service="$(printf '%s\n' "$line" | awk '
-            $1 == "@include" {print $2; exit}
-            $2 == "include" || $2 == "substack" {print $3; exit}
-        ')"
-        if [ -n "$include_service" ]; then
-            pam_expand_service "$include_service" $((depth + 1)) "$visited_file" || return $?
-        else
-            printf '%s\t%s\n' "$(display_path "$service_file")" "$line"
+        line="$(printf '%s\n' "$line" | sed 's/[[:space:]]#.*$//')"
+        printf '%s\n' "$line" | grep -Eq '^[[:space:]]*(#|$)' && continue
+        if [ "$source_mode" = "pam.conf" ]; then
+            record_service="$(printf '%s\n' "$line" | awk '{print tolower($1); exit}')"
+            [ "$record_service" = "$(printf '%s' "$service" | tr '[:upper:]' '[:lower:]')" ] || continue
+            line="$(printf '%s\n' "$line" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')"
+            [ -n "$line" ] || return 2
         fi
-    done < "$service_file"
+        line_type="$(printf '%s\n' "$line" | awk '{type=tolower($1); sub(/^-/, "", type); print type; exit}')"
+        if [ "$line_type" = "@include" ]; then
+            platform_is_debian_family || return 2
+            include_service="$(printf '%s\n' "$line" | awk '{print $2; exit}')"
+            [ -n "$include_service" ] || return 2
+            if [ "$source_mode" = "pam.conf" ] && [ "${include_service#/}" = "$include_service" ]; then
+                return 2
+            fi
+            pam_expand_service_recursive "$include_service" "$pam_type" $((depth + 1)) "$active_stack" || return 2
+            continue
+        fi
+        [ "$line_type" = "$pam_type" ] || continue
+        control="$(printf '%s\n' "$line" | awk '{print tolower($2); exit}')"
+        case "$control" in
+            include|substack)
+                include_service="$(printf '%s\n' "$line" | awk '{print $3; exit}')"
+                [ -n "$include_service" ] || return 2
+                if [ "$source_mode" = "pam.conf" ] && [ "${include_service#/}" = "$include_service" ]; then
+                    return 2
+                fi
+                pam_expand_service_recursive "$include_service" "$pam_type" $((depth + 1)) "$active_stack" || return 2
+                ;;
+            *)
+                printf '%s\t%s\n' "$(display_path "$service_file")" "$line"
+                ;;
+        esac
+    done < "$logical_lines_file"
+}
+
+pam_expand_service() {
+    local service="$1"
+    local pam_type="$2"
+    local expanded_file=""
+    local expansion_status=0
+
+    case "$pam_type" in auth|account|password|session) ;; *) return 2 ;; esac
+    case "$service" in ''|/*|*[!A-Za-z0-9_.+@-]*) return 2 ;; esac
+    service="$(printf '%s' "$service" | tr '[:upper:]' '[:lower:]')"
+    expanded_file="$(new_scratch_file pam-expanded)" || return 2
+    pam_expand_service_recursive "$service" "$pam_type" 0 "" > "$expanded_file" || expansion_status=$?
+    [ "$expansion_status" -ne 2 ] || return 2
+    if [ -s "$expanded_file" ]; then
+        cat "$expanded_file"
+        return 0
+    fi
+    [ "$service" != "other" ] || return 1
+    pam_expand_service_recursive other "$pam_type" 0 ""
 }
 
 sshd_effective_config() {
@@ -338,13 +667,66 @@ sshd_manager_has_custom_invocation() {
     return 1
 }
 
-systemd_sysctl_stream() {
-    local binary="/usr/lib/systemd/systemd-sysctl"
+systemd_sysctl_binary() {
+    local requested_candidate="${1:-}"
+    local candidate=""
+    local resolved_candidate=""
+    local candidates=()
 
     runtime_enabled || return 1
-    [ -x "$binary" ] || return 127
-    [ "$(stat_owner "$binary" 2>/dev/null || true)" = "root" ] || return 126
-    mode_has_untrusted_write "$(stat_mode "$binary" 2>/dev/null || true)" && return 126
+    if [ -n "$requested_candidate" ]; then
+        case "$requested_candidate" in
+            /usr/lib/systemd/systemd-sysctl|/lib/systemd/systemd-sysctl) ;;
+            *) return 126 ;;
+        esac
+        candidates+=("$requested_candidate")
+    else
+        candidates+=(/usr/lib/systemd/systemd-sysctl /lib/systemd/systemd-sysctl)
+    fi
+    for candidate in "${candidates[@]}"; do
+        [ -x "$candidate" ] || continue
+        resolved_candidate="$candidate"
+        if [ -x /usr/bin/readlink ]; then
+            resolved_candidate="$(/usr/bin/readlink -f -- "$candidate" 2>/dev/null || true)"
+        fi
+        [ -n "$resolved_candidate" ] && [ -x "$resolved_candidate" ] || continue
+        [ "$(stat_owner "$resolved_candidate" 2>/dev/null || true)" = "root" ] || continue
+        mode_has_untrusted_write "$(stat_mode "$resolved_candidate" 2>/dev/null || true)" && continue
+        trusted_parent_chain "$resolved_candidate" || continue
+        printf '%s\n' "$resolved_candidate"
+        return 0
+    done
+    return 127
+}
+
+systemd_sysctl_execstart_binary() {
+    local properties="$1"
+
+    [ "$(printf '%s\n' "$properties" | grep -c '^ExecStart=')" -eq 1 ] || return 2
+    if printf '%s\n' "$properties" | grep -Eq '^ExecStart=\{[[:space:]]*path=/usr/lib/systemd/systemd-sysctl[[:space:]]*;[[:space:]]*argv\[\]=/usr/lib/systemd/systemd-sysctl[[:space:]]*;'; then
+        printf '/usr/lib/systemd/systemd-sysctl\n'
+    elif printf '%s\n' "$properties" | grep -Eq '^ExecStart=\{[[:space:]]*path=/lib/systemd/systemd-sysctl[[:space:]]*;[[:space:]]*argv\[\]=/lib/systemd/systemd-sysctl[[:space:]]*;'; then
+        printf '/lib/systemd/systemd-sysctl\n'
+    else
+        return 2
+    fi
+}
+
+systemd_sysctl_unit_binary() {
+    local systemctl_path=""
+    local properties=""
+    local unit_binary=""
+
+    systemctl_path="$(trusted_command systemctl)" || return 2
+    properties="$($systemctl_path show systemd-sysctl.service -p ExecStart --no-pager 2>/dev/null)" || return 2
+    unit_binary="$(systemd_sysctl_execstart_binary "$properties")" || return 2
+    systemd_sysctl_binary "$unit_binary"
+}
+
+systemd_sysctl_stream() {
+    local binary=""
+
+    binary="$(systemd_sysctl_unit_binary)" || return $?
     "$binary" --cat-config --no-pager 2>/dev/null
 }
 
@@ -368,75 +750,129 @@ sysctl_static_files() {
     select_layered_files .conf /etc/sysctl.d /run/sysctl.d /usr/local/lib/sysctl.d /usr/lib/sysctl.d
 }
 
-resolve_rooted_path() {
-    local candidate="$1"
-    local expected_type="${2:-file}"
-    local current="$candidate"
-    local target=""
-    local parent=""
-    local leaf=""
-    local canonical_parent=""
-    local canonical_path=""
-    local canonical_scan_root=""
-    local depth=0
+resolve_rooted_path_into() {
+    local __kisa_resolve_candidate="$1"
+    local __kisa_resolve_expected_type="${2:-file}"
+    local __kisa_resolve_destination="$3"
+    local __kisa_resolve_current="$__kisa_resolve_candidate"
+    local __kisa_resolve_target=""
+    local __kisa_resolve_parent=""
+    local __kisa_resolve_leaf=""
+    local __kisa_resolve_canonical_parent=""
+    local __kisa_resolve_canonical_path=""
+    local __kisa_resolve_canonical_root=""
+    local __kisa_resolve_depth=0
 
-    while [ -L "$current" ]; do
-        depth=$((depth + 1))
-        [ "$depth" -le 40 ] || return 1
-        target="$(readlink "$current" 2>/dev/null)" || return 1
-        [ "$target" != "/dev/null" ] || return 1
+    case "$__kisa_resolve_destination" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|__kisa_resolve_*) return 2 ;;
+    esac
+    printf -v "$__kisa_resolve_destination" '%s' ""
+    case "$__kisa_resolve_expected_type" in
+        file|directory|file_or_directory) ;;
+        *) return 2 ;;
+    esac
 
-        case "$target" in
+    while [ -L "$__kisa_resolve_current" ]; do
+        __kisa_resolve_depth=$((__kisa_resolve_depth + 1))
+        [ "$__kisa_resolve_depth" -le 40 ] || return 1
+        __kisa_resolve_target="$(readlink "$__kisa_resolve_current" 2>/dev/null)" || return 1
+        [ "$__kisa_resolve_target" != "/dev/null" ] || return 1
+
+        case "$__kisa_resolve_target" in
             /*)
                 if [ "$SCAN_ROOT" = "/" ]; then
-                    current="$target"
+                    __kisa_resolve_current="$__kisa_resolve_target"
                 else
-                    current="${SCAN_ROOT%/}$target"
+                    __kisa_resolve_current="${SCAN_ROOT%/}$__kisa_resolve_target"
                 fi
                 ;;
             *)
-                parent="${current%/*}"
-                [ -n "$parent" ] || parent="/"
-                current="$parent/$target"
+                __kisa_resolve_parent="${__kisa_resolve_current%/*}"
+                [ -n "$__kisa_resolve_parent" ] || __kisa_resolve_parent="/"
+                __kisa_resolve_current="$__kisa_resolve_parent/$__kisa_resolve_target"
                 ;;
         esac
     done
 
-    parent="${current%/*}"
-    leaf="${current##*/}"
-    [ -n "$parent" ] || parent="/"
-    canonical_parent="$(CDPATH='' cd -P -- "$parent" 2>/dev/null && pwd)" || return 1
-    canonical_path="${canonical_parent%/}/$leaf"
+    __kisa_resolve_parent="${__kisa_resolve_current%/*}"
+    __kisa_resolve_leaf="${__kisa_resolve_current##*/}"
+    case "$__kisa_resolve_leaf" in
+        .|..) return 1 ;;
+    esac
+    if [ -d "$__kisa_resolve_current" ]; then
+        canonical_directory_into "$__kisa_resolve_current" __kisa_resolve_canonical_path || return 1
+    else
+        [ -n "$__kisa_resolve_parent" ] || __kisa_resolve_parent="/"
+        canonical_directory_into "$__kisa_resolve_parent" __kisa_resolve_canonical_parent || return 1
+        __kisa_resolve_canonical_path="${__kisa_resolve_canonical_parent%/}/$__kisa_resolve_leaf"
+    fi
 
     if [ "$SCAN_ROOT" != "/" ]; then
-        canonical_scan_root="$(CDPATH='' cd -P -- "$SCAN_ROOT" 2>/dev/null && pwd)" || return 1
-        case "$canonical_path" in
-            "${canonical_scan_root%/}"/*) ;;
+        canonical_scan_root_into __kisa_resolve_canonical_root || return 1
+        case "$__kisa_resolve_canonical_path" in
+            "${__kisa_resolve_canonical_root%/}"/*) ;;
             *) return 1 ;;
         esac
     fi
 
-    case "$expected_type" in
-        file) [ -f "$canonical_path" ] && [ -r "$canonical_path" ] || return 1 ;;
-        directory) [ -d "$canonical_path" ] && [ -r "$canonical_path" ] || return 1 ;;
-        *) return 2 ;;
+    case "$__kisa_resolve_expected_type" in
+        file) [ -f "$__kisa_resolve_canonical_path" ] && [ -r "$__kisa_resolve_canonical_path" ] || return 1 ;;
+        directory) [ -d "$__kisa_resolve_canonical_path" ] && [ -r "$__kisa_resolve_canonical_path" ] || return 1 ;;
+        file_or_directory)
+            { [ -f "$__kisa_resolve_canonical_path" ] || [ -d "$__kisa_resolve_canonical_path" ]; } &&
+                [ -r "$__kisa_resolve_canonical_path" ] || return 1
+            ;;
     esac
-    printf '%s\n' "$canonical_path"
+    printf -v "$__kisa_resolve_destination" '%s' "$__kisa_resolve_canonical_path"
+}
+
+resolve_rooted_path() {
+    local resolved_rooted_path=""
+
+    resolve_rooted_path_into "$1" "${2:-file}" resolved_rooted_path || return $?
+    printf '%s\n' "$resolved_rooted_path"
+}
+
+resolve_rooted_read_path_into() {
+    resolve_rooted_path_into "$1" file "$2"
 }
 
 resolve_rooted_read_path() {
     resolve_rooted_path "$1" file
 }
 
-optional_rooted_read_path() {
-    local logical_path="$1"
-    local raw_path=""
-    local physical_path=""
+optional_rooted_read_path_into() {
+    local __kisa_optional_logical_path="$1"
+    local __kisa_optional_destination="$2"
+    local __kisa_optional_raw_path=""
+    local __kisa_optional_physical_path=""
+    local __kisa_optional_resolved_path=""
 
-    if [ "$SCAN_ROOT" = "/" ]; then raw_path="$logical_path"; else raw_path="${SCAN_ROOT%/}$logical_path"; fi
-    [ -e "$raw_path" ] || [ -L "$raw_path" ] || return 1
-    physical_path="$(fs_path "$logical_path" 2>/dev/null)" || return 2
-    resolve_rooted_read_path "$physical_path" || return 2
+    case "$__kisa_optional_destination" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|__kisa_optional_*) return 2 ;;
+    esac
+    printf -v "$__kisa_optional_destination" '%s' ""
+
+    if [ "$SCAN_ROOT" = "/" ]; then
+        __kisa_optional_raw_path="$__kisa_optional_logical_path"
+    else
+        __kisa_optional_raw_path="${SCAN_ROOT%/}$__kisa_optional_logical_path"
+    fi
+    [ -e "$__kisa_optional_raw_path" ] || [ -L "$__kisa_optional_raw_path" ] || return 1
+    fs_path_into "$__kisa_optional_logical_path" __kisa_optional_physical_path 2>/dev/null || return 2
+    resolve_rooted_path_into "$__kisa_optional_physical_path" file __kisa_optional_resolved_path || return 2
+    printf -v "$__kisa_optional_destination" '%s' "$__kisa_optional_resolved_path"
+}
+
+optional_rooted_read_path() {
+    local resolved_optional_path=""
+
+    optional_rooted_read_path_into "$1" resolved_optional_path || return $?
+    printf '%s\n' "$resolved_optional_path"
+}
+
+resolve_rooted_directory_into() {
+    resolve_rooted_path_into "$1" directory "$2"
 }
 
 resolve_rooted_directory() {
@@ -471,11 +907,11 @@ sysctl_file_is_masked() {
         esac
     done
     parent="${current%/*}"
-    canonical_parent="$(CDPATH='' cd -P -- "$parent" 2>/dev/null && pwd)" || return 1
+    canonical_directory_into "$parent" canonical_parent || return 1
     canonical_path="${canonical_parent%/}/${current##*/}"
     [ "$canonical_path" = "/dev/null" ] && return 0
     if [ "$SCAN_ROOT" != "/" ]; then
-        canonical_root="$(CDPATH='' cd -P -- "$SCAN_ROOT" 2>/dev/null && pwd)" || return 1
+        canonical_scan_root_into canonical_root || return 1
         [ "$canonical_path" = "${canonical_root%/}/dev/null" ] && return 0
     fi
     return 1
@@ -566,7 +1002,6 @@ sysctl_static_value() {
                 raw=$0
                 sub(/^[[:space:]]+/, "", raw)
                 if (raw == "" || raw ~ /^[#;]/) next
-                sub(/[[:space:]]+[#;].*$/, "", raw)
                 separator=index(raw,"=")
                 if (separator == 0) {
                     if (substr(raw, 1, 1) != "-") next
@@ -618,7 +1053,8 @@ sysctl_loader_kind() {
         --no-pager 2>/dev/null)" || command_status=$?
     [ "$command_status" -eq 0 ] || return 2
     if printf '%s\n' "$properties" | awk -F= '
-        $1 ~ /^(LoadCredential|LoadCredentialEncrypted|SetCredential|SetCredentialEncrypted)$/ && length($2) > 0 {found=1}
+        $1 ~ /^(LoadCredential|LoadCredentialEncrypted)$/ && length($2) > 0 && $2 != "sysctl.extra" {found=1}
+        $1 ~ /^(SetCredential|SetCredentialEncrypted)$/ && length($2) > 0 {found=1}
         $1 == "ImportCredential" && length($2) > 0 && $2 != "sysctl.*" {found=1}
         END {exit(found ? 0 : 1)}
     '; then
@@ -626,7 +1062,7 @@ sysctl_loader_kind() {
     fi
     case "$properties" in
         *systemd-sysctl*)
-            if printf '%s\n' "$properties" | grep -Eq 'argv\[\]=/usr/lib/systemd/systemd-sysctl[[:space:]]*;'; then
+            if systemd_sysctl_execstart_binary "$properties" >/dev/null 2>&1; then
                 printf 'systemd-sysctl\n'
                 return 0
             fi
@@ -652,6 +1088,115 @@ sysctl_credential_override_present() {
     return 1
 }
 
+ufw_static_state() {
+    local configuration_file=""
+    local configuration_status=0
+    local enabled_value=""
+    local logical_file=""
+
+    platform_is_debian_family || return 1
+    for logical_file in /etc/ufw/ufw.conf /etc/default/ufw; do
+        configuration_status=0
+        configuration_file="$(optional_rooted_read_path "$logical_file" 2>/dev/null)" || configuration_status=$?
+        [ "$configuration_status" -ne 2 ] || return 2
+        [ "$configuration_status" -eq 0 ] || continue
+        enabled_value="$(awk '
+            {
+                line=$0
+                sub(/^[[:space:]]+/, "", line)
+                if (line == "" || line ~ /^#/) next
+                sub(/^export[[:space:]]+/, "", line)
+                if (line !~ /^ENABLED[[:space:]]*=/) next
+                sub(/^ENABLED[[:space:]]*=[[:space:]]*/, "", line)
+                sub(/[[:space:]]+#.*$/, "", line)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+                if (line ~ /^".*"$/ || line ~ /^\047.*\047$/) line=substr(line, 2, length(line)-2)
+                value=tolower(line)
+            }
+            END {print value}
+        ' "$configuration_file")"
+        [ -n "$enabled_value" ] && break
+    done
+    case "$enabled_value" in
+        yes|true|1) return 0 ;;
+        no|false|0|'') return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+ufw_effective_state() {
+    local output=""
+    local static_status=0
+
+    platform_is_debian_family || return 1
+    ufw_static_state || static_status=$?
+    [ "$static_status" -ne 2 ] || return 2
+    [ "$static_status" -eq 0 ] && return 0
+    if runtime_enabled; then
+        output="$(capture_command ufw status 2>/dev/null || true)"
+        printf '%s\n' "$output" | grep -q '^Status:[[:space:]]*active' && return 0
+        printf '%s\n' "$output" | grep -q '^Status:[[:space:]]*inactive' && return 1
+    fi
+    return 1
+}
+
+ufw_sysctl_configuration_file() {
+    local defaults_file=""
+    local defaults_status=0
+    local logical_path=""
+    local configuration_file=""
+
+    defaults_file="$(optional_rooted_read_path /etc/default/ufw 2>/dev/null)" || defaults_status=$?
+    [ "$defaults_status" -ne 2 ] || return 2
+    if [ "$defaults_status" -eq 0 ]; then
+        logical_path="$(awk '
+            {
+                line=$0
+                sub(/^[[:space:]]+/, "", line)
+                if (line == "" || line ~ /^#/) next
+                sub(/^export[[:space:]]+/, "", line)
+                if (line !~ /^IPT_SYSCTL[[:space:]]*=/) next
+                sub(/^IPT_SYSCTL[[:space:]]*=[[:space:]]*/, "", line)
+                sub(/[[:space:]]+#.*$/, "", line)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+                if (line ~ /^".*"$/ || line ~ /^\047.*\047$/) line=substr(line, 2, length(line)-2)
+                value=line
+            }
+            END {print value}
+        ' "$defaults_file")"
+        case "$logical_path" in
+            *'$'*|*'`'*|*\\*|*[[:space:]]*) return 2 ;;
+        esac
+        if [ -z "$logical_path" ]; then
+            if awk '
+                {line=$0; sub(/^[[:space:]]+/, "", line); sub(/^export[[:space:]]+/, "", line)}
+                line ~ /^IPT_SYSCTL[[:space:]]*=/ {found=1}
+                END {exit(found ? 0 : 1)}
+            ' "$defaults_file"; then
+                return 1
+            fi
+            logical_path="/etc/ufw/sysctl.conf"
+        fi
+    else
+        logical_path="/etc/ufw/sysctl.conf"
+    fi
+    case "$logical_path" in /*) ;; *) return 2 ;; esac
+    configuration_file="$(optional_rooted_read_path "$logical_path" 2>/dev/null)" || return $?
+    printf '%s\n' "$configuration_file"
+}
+
+ufw_sysctl_value() (
+    local key="$1"
+    local configuration_file=""
+
+    ufw_effective_state || return $?
+    configuration_file="$(ufw_sysctl_configuration_file)" || return $?
+    sysctl_static_files() {
+        printf '%s\n' "$configuration_file"
+    }
+    sysctl_static_value "$key"
+)
+
 sysctl_explain() {
     local key="$1"
     local persistent=""
@@ -668,6 +1213,10 @@ sysctl_explain() {
     local loader_value_status=0
     local model_drift="unknown"
     local credential_override="not_observed"
+    local ufw_state="inactive"
+    local ufw_status=0
+    local ufw_persistent=""
+    local ufw_value_status=0
 
     loader="$(sysctl_loader_kind 2>/dev/null)" || loader_status=$?
     [ "$loader_status" -eq 0 ] || loader="unresolved"
@@ -708,6 +1257,26 @@ sysctl_explain() {
     else
         runtime_status=3
     fi
+    if platform_is_debian_family; then
+        ufw_effective_state || ufw_status=$?
+        case "$ufw_status" in
+            0)
+                ufw_state="enabled"
+                ufw_persistent="$(ufw_sysctl_value "$key" 2>/dev/null)" || ufw_value_status=$?
+                if [ "$ufw_value_status" -eq 0 ]; then
+                    persistent="$ufw_persistent"
+                    persistent_status=0
+                elif [ "$ufw_value_status" -eq 2 ]; then
+                    persistent_status=2
+                fi
+                ;;
+            1) ufw_state="disabled" ;;
+            *)
+                ufw_state="unresolved"
+                persistent_status=2
+                ;;
+        esac
+    fi
     nonstandard_directory="$(fs_path /etc/sysctl.conf.d)"
 
     if [ -n "$persistent" ] && [ -n "$runtime" ]; then
@@ -722,6 +1291,8 @@ sysctl_explain() {
     printf 'loader=%s\n' "$loader"
     printf 'loader_stream=%s\n' "$loader_stream_status"
     printf 'sysctl_extra_credential=%s\n' "$credential_override"
+    printf 'ufw_state=%s\n' "$ufw_state"
+    printf 'ufw_persistent=%s\n' "${ufw_persistent:-unconfigured}"
     printf 'filesystem_persistent=%s\n' "${filesystem_persistent:-unconfigured}"
     printf 'persistent_model_drift=%s\n' "$model_drift"
     printf 'persistent=%s\n' "${persistent:-unconfigured}"
@@ -786,7 +1357,64 @@ service_facts() {
 
 port_listener_facts() {
     local port="$1"
+    local transport="${2:-any}"
     local output=""
-    output="$(capture_command ss -H -lntup 2>/dev/null)" || return $?
-    printf '%s\n' "$output" | awk -v port=":$port" '$5 ~ port "$" || $5 ~ port "\\*" {print}'
+    local local_endpoint_field=0
+    local snapshot_file=""
+    local snapshot_status_file=""
+    local snapshot_status=0
+    local snapshot_generation=0
+    local ss_arguments=()
+
+    case "$transport" in
+        tcp)
+            ss_arguments=(-H -lntp)
+            local_endpoint_field=4
+            ;;
+        udp)
+            ss_arguments=(-H -lnup)
+            local_endpoint_field=4
+            ;;
+        any)
+            ss_arguments=(-H -lntup)
+            local_endpoint_field=5
+            ;;
+        *) return 2 ;;
+    esac
+
+    if [ "$LISTENER_SNAPSHOT_CACHE_ENABLED" -eq 1 ]; then
+        [ -n "$SCRATCH_DIR" ] && [ -d "$SCRATCH_DIR" ] && [ ! -L "$SCRATCH_DIR" ] || return 2
+        snapshot_generation="${LISTENER_SNAPSHOT_GENERATION:-0}"
+        case "$snapshot_generation" in
+            ''|*[!0-9]*) return 2 ;;
+        esac
+        if [ "$snapshot_generation" -eq 0 ]; then
+            snapshot_file="$SCRATCH_DIR/.listener-snapshot-${transport}"
+        else
+            snapshot_file="$SCRATCH_DIR/.listener-snapshot-${transport}-${snapshot_generation}"
+        fi
+        snapshot_status_file="${snapshot_file}.status"
+        if [ -f "$snapshot_status_file" ] && [ ! -L "$snapshot_status_file" ]; then
+            [ -f "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
+            IFS= read -r snapshot_status < "$snapshot_status_file" || return 2
+            case "$snapshot_status" in
+                ''|*[!0-9]*) return 2 ;;
+            esac
+            [ "$snapshot_status" -le 255 ] || return 2
+        else
+            [ ! -e "$snapshot_status_file" ] && [ ! -L "$snapshot_status_file" ] || return 2
+            [ ! -e "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
+            capture_command ss "${ss_arguments[@]}" > "$snapshot_file" 2>/dev/null
+            snapshot_status=$?
+            printf '%s\n' "$snapshot_status" > "$snapshot_status_file" || return 2
+        fi
+        [ "$snapshot_status" -eq 0 ] || return "$snapshot_status"
+        awk -v field="$local_endpoint_field" -v port=":$port" \
+            '$field ~ port "$" {print}' "$snapshot_file"
+        return $?
+    fi
+
+    output="$(capture_command ss "${ss_arguments[@]}" 2>/dev/null)" || return $?
+    printf '%s\n' "$output" | awk -v field="$local_endpoint_field" -v port=":$port" \
+        '$field ~ port "$" {print}'
 }

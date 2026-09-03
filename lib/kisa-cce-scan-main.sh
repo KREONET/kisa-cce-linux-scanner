@@ -93,64 +93,73 @@ RUNTIME_MODE="auto"
 OUTPUT_PARENT=""
 SELECTED_CHECKS=""
 ALLOW_UNSUPPORTED=0
+VERBOSE=0
 EXPLAIN_SYSCTL_KEY=""
 
 usage() {
     cat <<'EOF'
 Usage: kisa-cce-scan [OPTIONS]
 
-KISA CCE 2026 checks for Ubuntu 26.04 and Red Hat Enterprise Linux 10.
+KISA CCE 2026 checks for supported Debian, Ubuntu, Enterprise Linux, and named derivative releases.
+Base releases: Debian 12/13, Ubuntu 22.04/24.04/26.04, and RHEL 8.10/9.8/10.2.
+Named derivatives are listed in the operator documentation and command manual.
 
 Options:
-  --root PATH              Inspect an offline root instead of the live system.
-  --output-dir PATH        Store reports under PATH.
+  --root PATH              Inspect PATH as a root; --root / keeps live collection.
+  --output-dir PATH        Store scan reports; validated but unused with --explain-sysctl.
   --checks U-01,U-02       Run only the comma-separated check codes.
   --no-runtime             Do not query live services, listeners, or sysctls.
   --explain-sysctl KEY     Explain the effective persistent and runtime value.
   --allow-unsupported      Continue when the detected platform is unsupported.
+  -v, --verbose            Print platform, per-check status, and summary progress.
   -h, --help               Show this help text.
   --version                Show the scanner version.
 
 Exit status:
   0  No scanner errors or vulnerable results were recorded.
   1  At least one vulnerable result was recorded.
-  2  Invocation, platform, or scanner error.
+  2  Invocation, platform, scanner, or report error; errors take precedence.
 EOF
 }
 
 require_option_value() {
     local option_name="$1"
     local remaining_count="$2"
+    local option_value="${3:-}"
 
     [ "$remaining_count" -ge 2 ] || die "$option_name 옵션에 값이 필요합니다."
+    [ -n "$option_value" ] || die "$option_name 옵션에 값이 필요합니다."
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --root)
-            require_option_value "$1" "$#"
+            require_option_value "$1" "$#" "${2:-}"
             SCAN_ROOT="$2"
             shift 2
             ;;
         --root=*)
+            require_option_value --root 2 "${1#*=}"
             SCAN_ROOT="${1#*=}"
             shift
             ;;
         --output-dir)
-            require_option_value "$1" "$#"
+            require_option_value "$1" "$#" "${2:-}"
             OUTPUT_PARENT="$2"
             shift 2
             ;;
         --output-dir=*)
+            require_option_value --output-dir 2 "${1#*=}"
             OUTPUT_PARENT="${1#*=}"
             shift
             ;;
         --checks)
-            require_option_value "$1" "$#"
+            require_option_value "$1" "$#" "${2:-}"
             SELECTED_CHECKS="$2"
             shift 2
             ;;
         --checks=*)
+            require_option_value --checks 2 "${1#*=}"
             SELECTED_CHECKS="${1#*=}"
             shift
             ;;
@@ -159,16 +168,21 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         --explain-sysctl)
-            require_option_value "$1" "$#"
+            require_option_value "$1" "$#" "${2:-}"
             EXPLAIN_SYSCTL_KEY="$2"
             shift 2
             ;;
         --explain-sysctl=*)
+            require_option_value --explain-sysctl 2 "${1#*=}"
             EXPLAIN_SYSCTL_KEY="${1#*=}"
             shift
             ;;
         --allow-unsupported)
             ALLOW_UNSUPPORTED=1
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=1
             shift
             ;;
         -h|--help)
@@ -195,6 +209,9 @@ done
 case "$SCAN_ROOT" in
     /*) ;;
     *) die "--root는 절대 경로여야 합니다: $SCAN_ROOT" ;;
+esac
+case "$SCAN_ROOT" in
+    *$'\n'*|*$'\r'*|*$'\t'*) die "--root 경로에 허용되지 않는 제어 문자가 포함되어 있습니다." ;;
 esac
 [ -d "$SCAN_ROOT" ] || die "검사 루트가 디렉터리가 아닙니다: $SCAN_ROOT"
 canonical_root="$(CDPATH='' cd -P -- "$SCAN_ROOT" && pwd)" || die "검사 루트를 확인할 수 없습니다: $SCAN_ROOT"
@@ -223,7 +240,10 @@ validate_criteria() {
         }
         NF != 4 || $1 !~ /^U-[0-9][0-9]$/ || $2 == "" || $3 == "" || $4 == "" { exit 3 }
         seen[$1]++ { exit 4 }
-        { count++ }
+        {
+            count++
+            if ($1 != sprintf("U-%02d", count)) exit 5
+        }
         END { if (count != 67) exit 5 }
     ' "$CRITERIA_FILE" || die "판정 기준 파일 형식이 유효하지 않습니다."
 }
@@ -279,9 +299,11 @@ if ! detect_platform; then
     if [ "$ALLOW_UNSUPPORTED" -eq 1 ]; then
         warn "지원되지 않은 플랫폼에서 계속합니다: ${PLATFORM_ID:-unknown} ${PLATFORM_VERSION:-unknown}"
     else
-        die "지원되지 않은 플랫폼입니다: ${PLATFORM_ID:-unknown} ${PLATFORM_VERSION:-unknown}. Ubuntu 26.04 또는 RHEL 10이 필요합니다."
+        die "지원되지 않은 플랫폼입니다: ${PLATFORM_ID:-unknown} ${PLATFORM_VERSION:-unknown}. 지원 행렬은 --help와 운영 문서를 확인하세요."
     fi
 fi
+
+verbose "platform=${PLATFORM_ID:-unknown} version=${PLATFORM_VERSION:-unknown} family=${PLATFORM_FAMILY:-unknown} root=${SCAN_ROOT} runtime=${RUNTIME_MODE}"
 
 trap cleanup_workspace EXIT
 trap 'exit 130' INT
@@ -297,15 +319,19 @@ fi
 initialize_workspace
 write_report_header || die "보고서 헤더를 기록하지 못했습니다."
 
-while IFS="$(printf '\t')" read -r code category severity title || [ -n "$code" ]; do
+while IFS=$'\t' read -r code category severity title || [ -n "$code" ]; do
     [ "$code" = "code" ] && continue
     run_one_check "$code" "$category" "$severity" "$title" || true
 done < "$CRITERIA_FILE"
 
 write_report_summary || die "보고서 요약을 기록하지 못했습니다."
+verbose "summary total=${COUNT_TOTAL} good=${COUNT_GOOD} vulnerable=${COUNT_VULNERABLE} manual=${COUNT_MANUAL} not_applicable=${COUNT_NOT_APPLICABLE} error=${COUNT_ERROR}"
 validate_reports || die "완성된 보고서의 무결성 검증에 실패했습니다."
-printf 'text_report=%s\n' "$REPORT_TEXT"
-printf 'jsonl_report=%s\n' "$REPORT_JSONL"
+if ! report_output_paths_are_current; then
+    REPORT_WRITE_ERROR=1
+    die "출력 디렉터리 경로가 검사 중 변경되었습니다: $OUTPUT_PARENT"
+fi
+printf 'text_report=%s\njsonl_report=%s\n' "$REPORT_TEXT_OUTPUT_PATH" "$REPORT_JSONL_OUTPUT_PATH"
 
 scanner_exit_code
 exit "$?"

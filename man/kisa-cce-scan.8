@@ -1,4 +1,4 @@
-.TH KISA-CCE-SCAN 8 "2026-09-02" "KISA CCE Linux Scanner" "System Administration Commands"
+.TH KISA-CCE-SCAN 8 "2026-09-03" "KISA CCE Linux Scanner" "System Administration Commands"
 .SH NAME
 kisa-cce-scan \- assess KISA CCE 2026 Unix-server criteria on supported
 Linux systems
@@ -9,11 +9,49 @@ Linux systems
 .B kisa-cce-scan
 collects persistent configuration, manager-normalized configuration, and
 runtime state for the 67 KISA CCE 2026 Unix-server criteria.
-It supports Ubuntu Server 26.04 LTS and Red Hat Enterprise Linux 10.x.
+It supports the explicitly listed Debian, Ubuntu, Enterprise Linux, and
+derivative releases described below.
+.PP
+The installed support list describes accepted platform identities and
+implemented configuration families.  It is not vendor certification or proof
+that every listed release has completed booted-host acceptance testing.
 .PP
 The scanner does not remediate configuration, reload services, refresh package
-metadata, or contact external hosts.
+metadata, or run an explicit network-fetch operation.
+A live U-15 scan uses host NSS and may therefore consult an external identity
+backend.
 A normal scan writes protected text and JSONL reports.
+.SH SUPPORTED PLATFORMS
+The lifecycle snapshot dated 2026-09-03 accepts Debian 12 and 13; Ubuntu
+22.04, 24.04, and 26.04 LTS; and the current base-stream RHEL releases 8.10,
+9.8, and 10.2.
+.PP
+The Enterprise Linux derivative list contains the current AlmaLinux, Rocky
+Linux, and Oracle Linux 8.10, 9.8, and 10.2 releases, plus CentOS Stream 9 and
+10.
+The Ubuntu derivative list contains Linux Mint 21, 21.1, 21.2, 21.3, 22,
+22.1, 22.2, and 22.3; Pop!_OS 22.04 and 24.04; Zorin OS 17 and 18;
+elementary OS 7, 7.1, and 8; and KDE neon User Edition 24.04.
+.PP
+Approved Ubuntu derivatives must identify the expected Ubuntu base through
+.B UBUNTU_CODENAME
+and list both Ubuntu and Debian in
+.BR ID_LIKE .
+An arbitrary
+.B ID_LIKE
+value never authorizes an unlisted product.
+.PP
+The accepted Ubuntu derivative base mappings are: Linux Mint 21.x, Pop!_OS
+22.04, Zorin OS 17, and elementary OS 7.x use
+.BR jammy ;
+Linux Mint 22.x, Pop!_OS 24.04, Zorin OS 18, elementary OS 8, and KDE neon User
+Edition 24.04 use
+.BR noble .
+.PP
+Subscription-only extended support, third-party extended maintenance,
+development releases, point releases retired by their projects when
+superseded, and non-User KDE neon editions are not in the default support
+matrix.
 .SH OPTIONS
 .TP
 .BI \-\-root " PATH"
@@ -27,10 +65,16 @@ remains a live-root scan.
 .BI \-\-output-dir " PATH"
 Write reports below the absolute
 .IR PATH .
-The directory must not be a symbolic link, must belong to the invoking user,
-and must grant no permissions to group or other users.
+For a normal scan, the absolute path must contain no symbolic-link component.
+The directory must belong to the invoking user, grant owner read, write, and
+search access, and grant no permissions to group or other users.
+Existing ancestors must not be replaceable through an untrusted group- or
+other-writable path; trusted sticky temporary directories remain valid.
 A missing directory is created with mode 0700.
-This option has no effect in sysctl explanation mode.
+The scanner pins the validated directory by file descriptor and refuses to
+print report paths if the lexical binding changes before finalization.
+In sysctl explanation mode only the absolute-path syntax is validated, and the
+scanner does not create or write the directory.
 .TP
 .BI \-\-checks " U-01,U-02"
 Run only the comma-separated criterion codes.
@@ -51,6 +95,11 @@ This option cannot be combined with
 Continue after warning that the detected platform is unsupported.
 This bypass does not make results authoritative for that platform.
 .TP
+.BR \-v ", " \-\-verbose
+Write platform context, each check code, status, and catalog title, and final
+counters to standard error.
+Verbose output does not include result summaries or evidence.
+.TP
 .BR \-h ", " \-\-help
 Print command help and exit.
 .TP
@@ -62,6 +111,7 @@ Options that take values accept both
 and
 .B "\-\-option=VALUE"
 forms.
+Empty option values are rejected.
 Positional arguments are rejected.
 .SH MODES
 .SS Live scan
@@ -96,6 +146,8 @@ It follows standard
 directory precedence, equal-basename replacement, lexical ordering, masks,
 glob assignments, and exclusions.
 It does not change kernel parameters or create CCE report files.
+The public launcher creates the temporary diagnostic workspace below
+.IR /tmp .
 .SH REPORTS
 When
 .B \-\-output-dir
@@ -108,8 +160,8 @@ The scanner creates an owner-only temporary workspace and two randomized
 mode-0600 files:
 .TP
 .I kisa-cce-HOST-TIMESTAMP.txt.RANDOM
-Human-readable scanner metadata, criterion sections, evidence, and summary
-counts.
+Human-readable scanner metadata, criterion sections, optional evidence, and
+summary counts.
 .TP
 .I kisa-cce-HOST-TIMESTAMP.jsonl.RANDOM
 One JSON object per selected criterion followed by one summary object.
@@ -121,12 +173,29 @@ The command prints
 and
 .B jsonl_report=
 paths only after final integrity checks succeed.
-An interrupted scan may leave incomplete report files whose paths were not
-printed.
+A signal can arrive while or after these two path lines are printed.
+Any printed path names a report that passed final integrity checks, while an
+earlier interruption may leave incomplete files whose paths were not printed.
 .PP
 The JSONL file does not repeat the scanner, platform, root, runtime-mode, or
 timestamp header from the text report.
 Retain both files when those provenance fields are required.
+.PP
+Evidence separators are expanded, tab and carriage-return bytes are rendered as
+visible escapes in text evidence, remaining unsafe control bytes are removed or
+replaced, and UTF-8 is normalized when
+.B iconv
+is available, and targeted credential redaction is applied before an 8192-byte
+limit.
+Text-report evidence lines are prefixed with
+.B "| "
+to distinguish them from report framing.
+JSONL additionally removes an incomplete UTF-8 suffix created by byte-boundary
+truncation.
+The text evidence section is omitted when the value is empty; JSONL retains an
+empty
+.B evidence
+string.
 .SH RESULT STATES
 .TP
 .B GOOD
@@ -151,22 +220,25 @@ result is not a certification of the entire host.
 .SH EXIT STATUS
 .TP
 .B 0
-No
+The invocation completed without a process-level failure.
+For a normal scan, no
 .B VULNERABLE
 or
 .B ERROR
 result was recorded.
+Successful sysctl explanation also returns 0.
 .TP
 .B 1
-At least one
+A normal scan completed without a process-level failure and recorded at least
+one
 .B VULNERABLE
 result and no
 .B ERROR
-result were recorded.
+result.
 .TP
 .B 2
-Invocation, platform detection, collection, report writing, report integrity,
-or at least one criterion produced an error.
+Invocation, platform detection, sysctl diagnosis, collection, report writing,
+report integrity, or at least one criterion produced an error.
 .TP
 .B 130
 The process received SIGINT.

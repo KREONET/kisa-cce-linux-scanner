@@ -12,7 +12,7 @@ tests/                  Generated-fixture regression suite.
 Makefile                Validation and installation interface.
 ```
 
-The project has no generated source code and no production build dependency. Packaging copies the launcher, private shell files, data, and README into a staged filesystem.
+The project has no generated source code and no production build dependency. Packaging copies the launcher, private shell files, runtime data, and section 8 manual into a staged filesystem. Repository Markdown is not installed by `make install`.
 
 ## Local validation
 
@@ -34,7 +34,7 @@ make lint
 
 ### Catalog contract
 
-`data/criteria.tsv` is ordered and must contain exactly one row for every U-01 through U-67 result. Preserve the exact four-column header and tab separators:
+`data/criteria.tsv` is ordered and must contain exactly one row for every U-01 through U-67 result. Runtime validation enforces this exact ordered range in addition to the four-column header, tab separators, and non-empty metadata fields:
 
 ```text
 code	category	severity	title
@@ -77,6 +77,9 @@ Missing input is not automatically `GOOD` or `NOT_APPLICABLE`.
 - Treat an existing path that cannot be resolved safely as an error.
 - Preserve target-root display paths in evidence rather than leaking staging paths.
 - Do not write into `SCAN_ROOT`.
+- Use NUL-delimited records for recursive pathname streams. Newline- or tab-delimited recursive inventories are not safe for general pathnames.
+- Extend the shared full-filesystem collector when U-15, U-23, U-25, or U-33 needs another inode field; do not add another independent traversal.
+- Treat cached filesystem facts as one immutable run-scoped snapshot. A direct test that mutates its fixture must reset the cache before the next check.
 
 ### Runtime commands
 
@@ -128,6 +131,7 @@ Changes to collection or reporting should preserve these invariants:
 - text and JSONL counts agree;
 - report files remain mode `0600`;
 - unsupported platforms fail unless explicitly allowed;
+- shared filesystem checks retain their counts, evidence order, and error precedence when collected together or selected individually;
 - offline absolute symlinks remain within the selected root;
 - installed `/usr/lib` and optional libexec layouts both run from a `DESTDIR` tree;
 - hostile `BASH_ENV` and `ENV` values are not loaded.
@@ -157,7 +161,8 @@ Update documentation in the same change when modifying:
 | Component boundary or resolver semantics | `docs/architecture.md` |
 | Trust assumption, privileged behavior, or sensitive evidence | `docs/security-model.md` |
 | Install path or package build interface | `docs/packaging/README.md` |
-| Supported platform or criterion scope | Root `README.md` and `docs/README.md` |
+| Supported platform or criterion scope | Root `README.md`, `docs/README.md`, and `docs/platform-support.md` |
+| Rendered-guide family branch or versioned native behavior | `docs/kisa-platform-semantics.md` |
 
 ## Release gates
 
@@ -167,7 +172,7 @@ Before a release candidate:
 2. Run `make check` and `make lint`.
 3. Build staged Debian and RPM package candidates from the same source tree.
 4. Verify package ownership, modes, dependency metadata, upgrade, and removal behavior.
-5. Run complete acceptance scans on representative Ubuntu 26.04 and RHEL 10 virtual machines.
+5. Run complete acceptance scans on every listed product and release.
 6. Review reports for false `GOOD` results, missing evidence, and secret exposure.
 
 The repository does not yet include final Debian/RPM metadata, a license declaration, or completed target-platform acceptance evidence.
