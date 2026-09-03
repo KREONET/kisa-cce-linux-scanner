@@ -1,14 +1,27 @@
 # KISA CCE 2026 Linux Scanner
 
-This project implements the 67 Unix-server criteria in the KISA CCE 2026 profile for explicitly listed base-stream releases in these platform groups:
+KISA CCE 2026 Linux Scanner is a Linux security assessment tool based on the
+**Detailed Guide to Technical Vulnerability Analysis and Assessment for
+Critical Information Infrastructure** (hereafter, the **KISA CCE GUIDE**). It
+automates evidence collection and conservative assessment for all 67
+Unix-server criteria defined in the 2026 guide.
+
+Assessment support is limited to explicitly listed releases in these platform
+groups:
 
 - Debian and Ubuntu LTS
 - Red Hat Enterprise Linux, AlmaLinux, Rocky Linux, Oracle Linux, and CentOS Stream
 - Explicitly listed Ubuntu derivatives
 
-See the dated [platform support matrix](docs/platform-support.md) for exact releases, lifecycle scope, and exclusions.
+See the dated [platform support matrix](docs/platform-support.md) for the exact
+supported releases, lifecycle scope, and exclusions.
 
-The scanner assesses configuration and runtime state without applying remediation. It writes only protected reports and temporary workspace files, and it does not reload services, update package metadata, or run an explicit network-fetch operation. A live U-15 scan uses the host's configured NSS and may therefore consult an external identity backend.
+The scanner collects and evaluates persistent configuration, effective
+configuration, and runtime state without applying remediation. It writes only
+protected reports and temporary workspace files. It does not modify security
+settings, reload services, update package metadata, or initiate an explicit
+network fetch. A live U-15 scan uses the host's configured NSS and may therefore
+consult an external identity backend.
 
 ## Key properties
 
