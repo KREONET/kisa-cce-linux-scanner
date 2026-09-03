@@ -61,7 +61,7 @@ The installation layout and package staging interface are documented in [Packagi
 | `--output-dir PATH` | Writes both reports below the absolute `PATH`. |
 | `--checks U-01,U-02` | Runs only the comma-separated criterion codes. Input is case-insensitive and duplicate codes are removed. |
 | `--mode audit\|complete` | Preserves `MANUAL` for review or requires all 67 criteria to reach a final result. |
-| `--policy-dir PATH` | Loads strict review attestations from an absolute directory. Required by complete mode. |
+| `--policy-dir PATH` | Loads strict review attestations and supported typed facts from an absolute directory. Required by complete mode. |
 | `--evidence-bundle PATH` | Uses a validated live-runtime directory with an offline root. |
 | `--evidence-max-age SEC` | Rejects evidence older than `SEC`; default `3600`, maximum `604800`. |
 | `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. For a live-root scan, local mount topology is still collected to define complete filesystem traversal boundaries. |
@@ -119,13 +119,13 @@ Even with `--no-runtime`, scanning `/` requires root. Use an offline root for no
   --checks U-01,U-16,U-65
 ```
 
-Offline analysis can evaluate persistent files and metadata. It does not require UID 0, but the invoking user still needs read and directory-search access to the selected image. It cannot prove the current service state, open listeners, manager-normalized configuration, PAM/authselect runtime integration, loaded sysctl values, or current time synchronization. Checks return `MANUAL`, `NOT_APPLICABLE`, or `ERROR` when those distinctions cannot be established safely.
+Offline analysis can evaluate persistent files and metadata. It does not require UID 0, but the invoking user still needs read and directory-search access to the selected image. By itself it cannot prove current services, listeners, manager-normalized configuration, loaded sysctl values, or time synchronization. A matching evidence bundle supplies the supported captured runtime facts, including normalized schema version 2 time-source state, without enabling live commands on the analysis host. Unsupported or incomplete runtime distinctions remain `MANUAL`, `NOT_APPLICABLE`, or `ERROR`.
 
 ### Complete-mode workflow
 
 1. Run `kisa-cce-collect` on the live host immediately before creating the offline image.
 2. Run an audit scan with the matching bundle and review every `MANUAL` result and `review_id`.
-3. Record approved `GOOD` or `VULNERABLE` decisions in `policy.d/*.tsv` with a ticket, approver, and expiry date.
+3. Record approved technical inputs in supported `policy.d/facts/*.tsv` schemas, then record any remaining reviewed `GOOD` or `VULNERABLE` decisions in `policy.d/*.tsv` with a ticket, approver, and expiry date.
 4. Run complete mode against the same root and bundle.
 
 Complete mode rejects partial selection, unsupported-platform overrides, live `--no-runtime`, stale bundles, and missing policy input. A technical `MANUAL` with a matching attestation becomes the approved final decision. Missing, expired, or mismatched attestations become `ERROR`. `NOT_APPLICABLE` remains a conclusive final state.

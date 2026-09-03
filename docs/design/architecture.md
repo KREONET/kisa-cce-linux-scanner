@@ -15,7 +15,7 @@ The implementation separates collection from policy interpretation wherever the 
 | `lib/kisa-cce-scan-main.sh` | Resolves source/installed paths, parses options, validates the catalog, selects the platform, dispatches checks, and finalizes reports. |
 | `lib/kisa-cce-collect-main.sh` | Root-only live evidence collection and bundle finalization. |
 | `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, structured debug output, result normalization, report writing, and exit status. |
-| `lib/policy.sh` | Strict policy-directory loader and review-ID-bound attestation lookup. |
+| `lib/policy.sh` | Strict policy-directory loader, typed fact lookup, and review-ID-bound attestation lookup. |
 | `lib/evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
 | `lib/i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
 | `lib/scan_epoch.sh` | Run-scoped snapshot lifecycle, reverse dependencies, dirtiness, and normalized-output propagation. |
@@ -72,7 +72,7 @@ When `--debug` is active, the main flow and subsystem resolvers emit schema-vers
 
 In complete mode, `record_result` computes a SHA-256 review ID over the full redacted technical basis before the display-size limit. The review basis includes scanner and platform identity, bundle identity and digest, criterion metadata, technical summary, and evidence. A matching unexpired attestation can resolve only that exact `MANUAL` basis. Other technical states are never overridden.
 
-An offline evidence bundle is validated and bound to the root by exact `machine-id` and `os-release` matches. Central service, activation, listener, and mount helpers consume validated bundle state without enabling host command execution against the analysis machine.
+An offline evidence bundle is validated and bound to the root by exact `machine-id` and `os-release` matches. Central service, activation, listener, mount, and normalized time-source helpers consume validated bundle state without enabling host command execution against the analysis machine. The validator accepts legacy schema version 1 bundles, while the current collector writes schema version 2 with strict time-synchronization records.
 
 ## Platform profiles
 
@@ -100,13 +100,14 @@ Allowed statuses are `GOOD`, `VULNERABLE`, `MANUAL`, `NOT_APPLICABLE`, and `ERRO
 
 ## Evidence model
 
-The scanner distinguishes three layers when the subsystem exposes them:
+The scanner distinguishes four layers when the subsystem exposes them:
 
 | Layer | Meaning |
 |---|---|
 | Persistent source | Files intended to survive reboot. |
 | Manager-normalized state | The effective interpretation produced by a trusted native parser or service manager. |
 | Runtime state | Active units, listeners, loaded kernel values, exported resources, or synchronization state. |
+| Typed organization fact | A bounded approved value, owner, ticket, and expiry used as an evaluator input. |
 
 A check may return `GOOD` only when the evidence required by that criterion is conclusive. Ambiguous include graphs, unsupported native syntax, unavailable runtime state, external policy, and approved exceptions are represented as `MANUAL` or `ERROR` according to whether collection completed reliably.
 
@@ -165,7 +166,7 @@ References: [systemd `sysctl.d(5)`](https://www.freedesktop.org/software/systemd
 - General login-default consumers use legacy last-match semantics on Debian-family and Enterprise Linux 8/9 targets. Enterprise Linux 10 uses libeconf's first main-file value and merged `login.defs.d/*.defs` overrides, including the last duplicate inside a merged drop-in. The `pam_umask` and PAM password-hash paths use their separately versioned native precedence: Enterprise Linux 9 reads libeconf roots from `/usr/share` and `/etc`, while Enterprise Linux 10 reads `/etc` only. PAM hash checks use the selected native value rather than rejecting duplicate definitions as a separate condition.
 - systemd inspection includes unit aliases, masks, template and type drop-ins, socket activation, and manager properties.
 - sudo inspection detects sudo-rs or traditional sudo. U-63 applies the rendered guide's exact owner and mode requirement to `/etc/sudoers`; provider-specific syntax validation is supplemental and cannot replace that criterion.
-- Chrony follows `include`, `confdir`, and `sourcedir`, then checks selected runtime sources when available. NTPsec follows bounded `includefile` graphs and Debian-family `/etc/ntpsec/ntp.d/*.conf` package drop-ins. An active `*` network peer establishes synchronization evidence; PPS/reference-clock and dynamic-only sources remain `MANUAL`. U-65 also remains `MANUAL` without organization-approved source evidence.
+- Chrony follows `include`, `confdir`, and `sourcedir`, then checks selected runtime sources when available. NTPsec follows bounded `includefile` graphs and Debian-family `/etc/ntpsec/ntp.d/*.conf` package drop-ins. An active `*` network peer establishes synchronization evidence; PPS/reference-clock and dynamic-only sources remain `MANUAL`. U-65 compares the selected provider and source with `facts/time-sources.tsv`; an unexpired exact match can complete the technical `GOOD` path.
 - NFS combines `/etc/exports`, `/etc/exports.d/*.exports`, and the active export table when available.
 - BIND, Samba, mail, FTP, Net-SNMP, rsyslog, and journald use trusted native validation where implemented and otherwise preserve ambiguity.
 

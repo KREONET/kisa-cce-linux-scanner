@@ -262,6 +262,7 @@ validate_evidence_bundle() {
     expected_entries[runtime/mountinfo]="file"
     expected_entries[runtime/firewall.txt]="file"
     expected_entries[runtime/time-sync.txt]="file"
+    expected_entries[runtime/time-sync.tsv]="file"
 
     while IFS= read -r -d '' file; do
         relative_path="${file#"$bundle"/}"
@@ -307,6 +308,9 @@ validate_evidence_bundle() {
     done < <(find "$bundle" -mindepth 1 -print0 2>/dev/null)
 
     for relative_path in "${!expected_entries[@]}"; do
+        case "$relative_path" in
+            runtime/time-sync.txt|runtime/time-sync.tsv) continue ;;
+        esac
         [ -n "${seen_entries[$relative_path]+present}" ] || {
             evidence_fail "required evidence entry is missing: $relative_path"
             return 1
@@ -324,7 +328,6 @@ validate_evidence_bundle() {
     EVIDENCE_RUNTIME_LISTENERS_PATH="$bundle/runtime/listeners.tsv"
     EVIDENCE_RUNTIME_MOUNTINFO_PATH="$bundle/runtime/mountinfo"
     EVIDENCE_RUNTIME_FIREWALL_PATH="$bundle/runtime/firewall.txt"
-    EVIDENCE_RUNTIME_TIME_SYNC_PATH="$bundle/runtime/time-sync.txt"
 
     expected_manifest_keys=(
         schema_version captured_at machine_id boot_id kernel_release
@@ -373,7 +376,25 @@ validate_evidence_bundle() {
         return 1
     }
 
-    [ "${manifest_values[schema_version]}" = "1" ] || { evidence_fail "unsupported evidence schema"; return 1; }
+    case "${manifest_values[schema_version]}" in
+        1)
+            [ -n "${seen_entries[runtime/time-sync.txt]+present}" ] &&
+                [ -z "${seen_entries[runtime/time-sync.tsv]+present}" ] || {
+                evidence_fail "schema 1 requires runtime/time-sync.txt only"
+                return 1
+            }
+            EVIDENCE_RUNTIME_TIME_SYNC_PATH="$bundle/runtime/time-sync.txt"
+            ;;
+        2)
+            [ -n "${seen_entries[runtime/time-sync.tsv]+present}" ] &&
+                [ -z "${seen_entries[runtime/time-sync.txt]+present}" ] || {
+                evidence_fail "schema 2 requires runtime/time-sync.tsv only"
+                return 1
+            }
+            EVIDENCE_RUNTIME_TIME_SYNC_PATH="$bundle/runtime/time-sync.tsv"
+            ;;
+        *) evidence_fail "unsupported evidence schema"; return 1 ;;
+    esac
     [[ "${manifest_values[captured_at]}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
         evidence_fail "manifest.tsv has an invalid captured_at value"
         return 1
@@ -428,7 +449,11 @@ validate_evidence_bundle() {
     expected_checksum_paths[runtime/listeners.tsv]=1
     expected_checksum_paths[runtime/mountinfo]=1
     expected_checksum_paths[runtime/firewall.txt]=1
-    expected_checksum_paths[runtime/time-sync.txt]=1
+    if [ "${manifest_values[schema_version]}" = "1" ]; then
+        expected_checksum_paths[runtime/time-sync.txt]=1
+    else
+        expected_checksum_paths[runtime/time-sync.tsv]=1
+    fi
     while IFS= read -r checksum_line || [ -n "$checksum_line" ]; do
         [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([0-9A-Za-z._/-]+)$ ]] || {
             evidence_fail "invalid checksums.sha256 format"
@@ -501,6 +526,34 @@ validate_evidence_bundle() {
         evidence_fail "invalid listeners.tsv data"
         return 1
     }
+    if [ "${manifest_values[schema_version]}" = "2" ]; then
+        [ "$(head -n 1 "$EVIDENCE_RUNTIME_TIME_SYNC_PATH")" = $'provider\tsynchronized\tsource\tsource_address\tstratum\tleap\tsource_origin\tsource_type' ] || {
+            evidence_fail "invalid time-sync.tsv header"
+            return 1
+        }
+        awk -F '\t' -v collection_status="${manifest_values[runtime_time_sync_status]}" '
+            NR == 1 {next}
+            NF != 8 ||
+                ($1 != "systemd-timesyncd" && $1 != "chrony" && $1 != "ntpsec") ||
+                ($2 != "yes" && $2 != "no" && $2 != "unknown") ||
+                ($3 != "-" && $3 !~ /^[0-9A-Za-z._:@%+-]+$/) || length($3) > 255 ||
+                ($4 != "-" && $4 !~ /^[0-9A-Za-z._:@%+-]+$/) || length($4) > 255 ||
+                ($5 != "-" && $5 !~ /^[0-9]+$/) || ($5 != "-" && ($5 < 0 || $5 > 16)) ||
+                ($6 != "normal" && $6 != "warning" && $6 != "unsynchronized" && $6 != "unknown") ||
+                ($7 != "system" && $7 != "runtime" && $7 != "fallback" && $7 != "configured" && $7 != "unknown") ||
+                ($8 != "network" && $8 != "reference-clock" && $8 != "unknown") ||
+                ($2 == "yes" && $3 == "-" && $4 == "-") || seen[$1]++ {invalid=1}
+            {records++}
+            END {
+                if (records > 16 || invalid) exit 1
+                if (collection_status == "collected" && records == 0) exit 1
+                if (collection_status == "unavailable" && records != 0) exit 1
+            }
+        ' "$EVIDENCE_RUNTIME_TIME_SYNC_PATH" || {
+            evidence_fail "invalid time-sync.tsv data"
+            return 1
+        }
+    fi
 
     if [ -n "$expected_root" ]; then
         case "$expected_root" in
@@ -708,6 +761,99 @@ evidence_listener_state() {
     done
     [ "$EVIDENCE_RUNTIME_LISTENERS_STATUS" = "collected" ] || return 2
     return 1
+}
+
+evidence_time_sync_facts_into() {
+    local destination_name="$1"
+    local provider=""
+    local synchronized=""
+    local source=""
+    local source_address=""
+    local stratum=""
+    local leap=""
+    local source_origin=""
+    local source_type=""
+    local selected_provider=""
+    local selected_synchronized=""
+    local selected_source=""
+    local selected_source_address=""
+    local selected_stratum=""
+    local selected_leap=""
+    local selected_source_origin=""
+    local selected_source_type=""
+    local synchronized_count=0
+    local unsynchronized_count=0
+    local unknown_count=0
+    local normalized_facts=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!0-9A-Za-z_]*|destination_name|provider|synchronized|source|source_address|stratum|leap|source_origin|source_type|selected_provider|selected_synchronized|selected_source|selected_source_address|selected_stratum|selected_leap|selected_source_origin|selected_source_type|synchronized_count|unsynchronized_count|unknown_count|normalized_facts)
+            return 2
+            ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    [ -n "$EVIDENCE_BUNDLE_DIRECTORY" ] || return 2
+    [ "$EVIDENCE_SCHEMA_VERSION" = "2" ] || return 2
+    [ "$EVIDENCE_RUNTIME_TIME_SYNC_STATUS" = "collected" ] || return 2
+    [ -r "$EVIDENCE_RUNTIME_TIME_SYNC_PATH" ] || return 2
+
+    while IFS=$'\t' read -r provider synchronized source source_address stratum leap source_origin source_type; do
+        [ "$provider" != "provider" ] || continue
+        case "$synchronized" in
+            yes)
+                synchronized_count=$((synchronized_count + 1))
+                selected_provider="$provider"
+                selected_synchronized="$synchronized"
+                selected_source="$source"
+                selected_source_address="$source_address"
+                selected_stratum="$stratum"
+                selected_leap="$leap"
+                selected_source_origin="$source_origin"
+                selected_source_type="$source_type"
+                ;;
+            no)
+                unsynchronized_count=$((unsynchronized_count + 1))
+                if [ -z "$selected_provider" ]; then
+                    selected_provider="$provider"
+                    selected_synchronized="$synchronized"
+                    selected_source="$source"
+                    selected_source_address="$source_address"
+                    selected_stratum="$stratum"
+                    selected_leap="$leap"
+                    selected_source_origin="$source_origin"
+                    selected_source_type="$source_type"
+                fi
+                ;;
+            *) unknown_count=$((unknown_count + 1)) ;;
+        esac
+    done < "$EVIDENCE_RUNTIME_TIME_SYNC_PATH"
+
+    [ "$synchronized_count" -le 1 ] || return 2
+    [ "$unknown_count" -eq 0 ] || return 2
+    if [ "$synchronized_count" -eq 0 ]; then
+        [ "$unsynchronized_count" -gt 0 ] || return 2
+    fi
+    [ -n "$selected_provider" ] || return 2
+    printf -v normalized_facts 'provider=%s\nsynchronized=%s\nsource=%s\nsource_address=%s\nstratum=%s\nleap=%s\nsource_origin=%s\nsource_type=%s' \
+        "$selected_provider" "$selected_synchronized" "$selected_source" "$selected_source_address" \
+        "$selected_stratum" "$selected_leap" "$selected_source_origin" "$selected_source_type"
+    printf -v "$destination_name" '%s' "$normalized_facts"
+
+    if [ "$synchronized_count" -eq 0 ]; then
+        return 1
+    fi
+    [ "$selected_source_type" != "reference-clock" ] || return 3
+    [ "$selected_source_type" = "network" ] || return 2
+    return 0
+}
+
+evidence_time_sync_facts() {
+    local facts=""
+    local status=0
+
+    evidence_time_sync_facts_into facts || status=$?
+    [ -n "$facts" ] && printf '%s\n' "$facts"
+    return "$status"
 }
 
 evidence_mountinfo_path() {

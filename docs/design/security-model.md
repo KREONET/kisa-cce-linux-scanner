@@ -56,9 +56,9 @@ Drop-in directory symlinks are also confined. A `/dev/null` link is accepted onl
 
 ### Complete-mode policy and runtime evidence
 
-Policy files are parsed as strict TSV data and are never sourced as shell code. The policy directory and files reject symbolic links and untrusted write permissions. Each attestation is bound to one criterion's full redacted technical basis through a SHA-256 review ID and expires on an explicit date.
+Policy files are parsed as strict TSV data and are never sourced as shell code. The policy directory and files reject symbolic links and untrusted write permissions. Each attestation is bound to one criterion's full redacted technical basis through a SHA-256 review ID and expires on an explicit date. Typed facts use separately versioned schemas below `facts/`; unknown fact files, ambiguous matches, invalid values, and expired approvals fail closed. Both attestations and typed facts contribute to the scan-epoch policy digest.
 
-Evidence bundles are fixed-inventory directories rather than extracted archives. Validation requires owner-only permissions, regular single-link files, exact schemas, SHA-256 checksums, and matching offline-root `machine-id` and `os-release`. Complete mode rejects bundles older than its configured maximum age.
+Evidence bundles are fixed-inventory directories rather than extracted archives. Validation requires owner-only permissions, regular single-link files, exact schemas, SHA-256 checksums, and matching offline-root `machine-id` and `os-release`. Schema version 2 normalizes time synchronization before storage, and criteria consume only validated fields. Complete mode rejects bundles older than its configured maximum age.
 
 Bundle checksums detect changes after capture but do not authenticate the capture host or transfer channel. Protect bundle provenance with trusted transport or a detached-signature process appropriate to the deployment.
 

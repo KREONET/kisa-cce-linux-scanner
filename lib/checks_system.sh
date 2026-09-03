@@ -5,6 +5,69 @@
 
 # Patch and logging checks cover U-64 through U-67.
 
+# Numeric UIDs keep U-67 independent from host NSS name resolution.
+system_u67_uid_state() {
+    local owner_uid="$1"
+
+    case "$owner_uid" in
+        0) return 0 ;;
+        [1-9]*)
+            case "$owner_uid" in *[!0-9]*) return 2 ;; esac
+            return 1
+            ;;
+        *) return 2 ;;
+    esac
+}
+
+# Return 0 for compliant metadata, 1 for a violation, and 2 for invalid input.
+system_u67_file_metadata_state() {
+    local owner_uid="$1"
+    local mode="$2"
+    local uid_status=0
+
+    system_u67_uid_state "$owner_uid" || uid_status=$?
+    [ "$uid_status" -ne 2 ] || return 2
+    mode_to_decimal "$mode" >/dev/null 2>&1 || return 2
+    [ "$uid_status" -eq 0 ] && mode_is_at_most "$mode" 644
+}
+
+# Directory checks conservatively protect the traversal used to collect log files.
+system_u67_directory_metadata_state() {
+    local owner_uid="$1"
+    local mode="$2"
+    local uid_status=0
+
+    system_u67_uid_state "$owner_uid" || uid_status=$?
+    [ "$uid_status" -ne 2 ] || return 2
+    mode_to_decimal "$mode" >/dev/null 2>&1 || return 2
+    [ "$uid_status" -eq 0 ] && ! mode_group_or_other_writable "$mode"
+}
+
+time_fact_value_into() {
+    local facts="$1"
+    local key="$2"
+    local destination_name="$3"
+    local line=""
+    local value=""
+    local seen=0
+
+    case "$key" in ''|*[!A-Za-z0-9_-]*) return 2 ;; esac
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|facts|key|destination_name|line|value|seen) return 2 ;;
+    esac
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "$key="*)
+                [ "$seen" -eq 0 ] || return 2
+                value="${line#*=}"
+                seen=1
+                ;;
+        esac
+    done <<< "$facts"
+    [ "$seen" -eq 1 ] || return 1
+    printf -v "$destination_name" '%s' "$value"
+}
+
 check_u_64() {
     local evidence=""
     local path=""
@@ -80,7 +143,10 @@ chrony_runtime_evidence() {
     local sources=""
     local selected_count="0"
     local selected_reference_clocks="0"
+    local selected_source_address=""
     local leap_status=""
+    local synchronized="no"
+    local source_type="unknown"
 
     chronyc_path="$(trusted_command chronyc)" || return 127
     tracking="$($chronyc_path -n tracking 2>/dev/null)" || return 2
@@ -88,9 +154,18 @@ chrony_runtime_evidence() {
     leap_status="$(printf '%s\n' "$tracking" | awk -F: '/^Leap status/ {value=$2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); print value; exit}')"
     selected_count="$(printf '%s\n' "$sources" | awk '/^[[:space:]]*[\^=]\*/ {count++} END {print count+0}')"
     selected_reference_clocks="$(printf '%s\n' "$sources" | awk '/^[[:space:]]*#\*/ {count++} END {print count+0}')"
+    selected_source_address="$(printf '%s\n' "$sources" | awk '/^[[:space:]]*[\^=]\*/ {print $2; exit}')"
+    if [ "$leap_status" = "Normal" ] && [ "$selected_count" -gt 0 ]; then
+        synchronized="yes"
+        source_type="network"
+    elif [ "$leap_status" = "Normal" ] && [ "$selected_reference_clocks" -gt 0 ]; then
+        synchronized="yes"
+        source_type="reference-clock"
+    fi
 
-    printf 'provider=chrony\nleap_status=%s\nselected_sources=%s\nselected_reference_clocks=%s\n' \
-        "$leap_status" "$selected_count" "$selected_reference_clocks"
+    printf 'provider=chrony\nsynchronized=%s\nleap_status=%s\nselected_sources=%s\nselected_reference_clocks=%s\nsource=-\nsource_address=%s\nsource_type=%s\n' \
+        "$synchronized" "$leap_status" "$selected_count" "$selected_reference_clocks" \
+        "${selected_source_address:--}" "$source_type"
     [ -n "$leap_status" ] || return 2
     [ "$leap_status" = "Normal" ] || return 1
     [ "$selected_count" -gt 0 ] && return 0
@@ -139,9 +214,11 @@ timesyncd_runtime_evidence() {
         selected_source_origin="runtime"
     fi
 
-    printf 'provider=systemd-timesyncd\nsynchronized=%s\nserver_name=%s\nserver_address=%s\npacket_count=%s\nleap_indicator=%s\nselected_source_origin=%s\n' \
+    printf 'provider=systemd-timesyncd\nsynchronized=%s\nserver_name=%s\nserver_address=%s\nsource=%s\nsource_address=%s\npacket_count=%s\nleap_indicator=%s\nselected_source_origin=%s\nsource_origin=%s\nsource_type=network\n' \
         "$synchronized" "${server_name:-unavailable}" "${server_address:-unavailable}" \
-        "${packet_count:-unavailable}" "${leap_indicator:-unavailable}" "$selected_source_origin"
+        "${server_name:--}" "${server_address:--}" \
+        "${packet_count:-unavailable}" "${leap_indicator:-unavailable}" \
+        "$selected_source_origin" "$selected_source_origin"
     case "$synchronized" in
         no) return 1 ;;
         yes) ;;
@@ -160,14 +237,33 @@ ntpsec_runtime_evidence() {
     local peers=""
     local selected_count="0"
     local selected_reference_clocks="0"
+    local selected_source_address=""
+    local synchronized="no"
+    local source_type="unknown"
 
     ntpq_path="$(trusted_command ntpq)" || return 127
     peers="$($ntpq_path -pn 2>/dev/null)" || return 2
     selected_count="$(printf '%s\n' "$peers" | awk '/^[[:space:]]*\*/ {count++} END {print count+0}')"
     selected_reference_clocks="$(printf '%s\n' "$peers" | awk '/^[[:space:]]*o/ {count++} END {print count+0}')"
+    selected_source_address="$(printf '%s\n' "$peers" | awk '
+        /^[[:space:]]*\*/ {
+            source=$1
+            sub(/^\*/, "", source)
+            print source
+            exit
+        }
+    ')"
+    if [ "$selected_count" -gt 0 ]; then
+        synchronized="yes"
+        source_type="network"
+    elif [ "$selected_reference_clocks" -gt 0 ]; then
+        synchronized="yes"
+        source_type="reference-clock"
+    fi
 
-    printf 'provider=ntpsec\nselected_sources=%s\nselected_reference_clocks=%s\n' \
-        "$selected_count" "$selected_reference_clocks"
+    printf 'provider=ntpsec\nsynchronized=%s\nselected_sources=%s\nselected_reference_clocks=%s\nsource=-\nsource_address=%s\nsource_type=%s\n' \
+        "$synchronized" "$selected_count" "$selected_reference_clocks" \
+        "${selected_source_address:--}" "$source_type"
     [ -n "$peers" ] || return 2
     [ "$selected_count" -gt 0 ] && return 0
     [ "$selected_reference_clocks" -gt 0 ] && return 3
@@ -554,6 +650,12 @@ time_service_persistence_state() {
     local command_status=0
     local saw_loaded_unit=0
 
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] &&
+        declare -F evidence_service_activation_state >/dev/null 2>&1; then
+        evidence_service_activation_state "$@"
+        return $?
+    fi
+
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in "$@"; do
         if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
@@ -664,6 +766,13 @@ check_u_65() {
     local path=""
     local physical_path=""
     local offline_facts=""
+    local evidence_provider=""
+    local selected_source="-"
+    local selected_source_address="-"
+    local selected_source_origin="unknown"
+    local source_policy_status=3
+    local source_policy_state="absent"
+    local source_policy_reason="facts_file_absent"
 
     if platform_is_rhel_family; then
         base_major="$(platform_base_major 2>/dev/null || true)"
@@ -681,7 +790,7 @@ check_u_65() {
         return
     fi
 
-    if ! runtime_enabled; then
+    if ! runtime_snapshot_available; then
         chrony_config_facts="$(chrony_config_evidence 2>/dev/null)"
         chrony_config_status=$?
         ntpsec_config_facts="$(ntpsec_config_evidence 2>/dev/null)"
@@ -724,27 +833,45 @@ check_u_65() {
 
     if [ "$chrony_state" -eq 0 ]; then
         provider="chrony"
-        runtime_facts="$(chrony_runtime_evidence 2>/dev/null)"
-        runtime_status=$?
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+            runtime_status=0
+            evidence_time_sync_facts_into runtime_facts 2>/dev/null || runtime_status=$?
+        else
+            runtime_facts="$(chrony_runtime_evidence 2>/dev/null)"
+            runtime_status=$?
+        fi
         config_facts="$(chrony_config_evidence 2>/dev/null)"
         config_status=$?
         time_service_persistence_state chronyd.service chrony.service
         persistence_status=$?
     elif [ "$ntpsec_state" -eq 0 ]; then
         provider="ntpsec"
-        runtime_facts="$(ntpsec_runtime_evidence 2>/dev/null)"
-        runtime_status=$?
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+            runtime_status=0
+            evidence_time_sync_facts_into runtime_facts 2>/dev/null || runtime_status=$?
+        else
+            runtime_facts="$(ntpsec_runtime_evidence 2>/dev/null)"
+            runtime_status=$?
+        fi
         config_facts="$(ntpsec_config_evidence 2>/dev/null)"
         config_status=$?
         time_service_persistence_state ntpsec.service ntp.service ntpd.service
         persistence_status=$?
     else
         provider="systemd-timesyncd"
-        runtime_facts="$(timesyncd_runtime_evidence 2>/dev/null)"
-        runtime_status=$?
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+            runtime_status=0
+            evidence_time_sync_facts_into runtime_facts 2>/dev/null || runtime_status=$?
+        else
+            runtime_facts="$(timesyncd_runtime_evidence 2>/dev/null)"
+            runtime_status=$?
+        fi
         config_facts="effective_source_probe=timedatectl-show-timesync"
         if [ "$runtime_status" -eq 0 ]; then
-            if printf '%s\n' "$runtime_facts" | grep -Eq '^selected_source_origin=system$'; then
+            time_fact_value_into "$runtime_facts" source_origin selected_source_origin 2>/dev/null ||
+                time_fact_value_into "$runtime_facts" selected_source_origin selected_source_origin 2>/dev/null ||
+                selected_source_origin="unknown"
+            if [ "$selected_source_origin" = "system" ]; then
                 config_status=0
             else
                 config_status=3
@@ -753,6 +880,28 @@ check_u_65() {
         time_service_persistence_state systemd-timesyncd.service
         persistence_status=$?
     fi
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+        if ! time_fact_value_into "$runtime_facts" provider evidence_provider ||
+            [ "$evidence_provider" != "$provider" ]; then
+            runtime_status=2
+            runtime_facts="${runtime_facts}\nevidence_provider=${evidence_provider:-unavailable}\nservice_provider=${provider}\nprovider_consistency=mismatch"
+        else
+            runtime_facts="${runtime_facts}\nprovider_consistency=matched"
+        fi
+    fi
+    time_fact_value_into "$runtime_facts" source selected_source 2>/dev/null || selected_source="-"
+    time_fact_value_into "$runtime_facts" source_address selected_source_address 2>/dev/null || selected_source_address="-"
+    if declare -F policy_time_source_match >/dev/null 2>&1; then
+        source_policy_status=0
+        policy_time_source_match "$provider" "$selected_source" "$selected_source_address" || source_policy_status=$?
+        if [ "$source_policy_status" -eq 0 ]; then
+            source_policy_state="${POLICY_TIME_SOURCE_MATCH_STATE:-approved}"
+            source_policy_reason="${POLICY_TIME_SOURCE_MATCH_REASON:-matched}"
+        else
+            source_policy_state="${POLICY_TIME_SOURCE_MATCH_STATE:-error}"
+            source_policy_reason="${POLICY_TIME_SOURCE_MATCH_REASON:-unknown}"
+        fi
+    fi
     if [ "$expected_provider" = "chrony" ] && [ "$provider" != "chrony" ]; then
         provider_scope="operational-extension"
     elif [ "$expected_provider" = "ntpd" ] && { [ "$provider" = "chrony" ] || [ "$provider" = "systemd-timesyncd" ]; }; then
@@ -760,7 +909,7 @@ check_u_65() {
     elif [ "$expected_provider" = "ntpd" ] && [ "$provider" = "ntpsec" ]; then
         provider_scope="validated-extension"
     fi
-    runtime_facts="expected_provider=${expected_provider}\nactive_provider=${provider}\nprovider_scope=${provider_scope}\n${runtime_facts}\npersistent_activation_status=${persistence_status}\napproved_source_evidence=unavailable"
+    runtime_facts="expected_provider=${expected_provider}\nactive_provider=${provider}\nprovider_scope=${provider_scope}\n${runtime_facts}\npersistent_activation_status=${persistence_status}\napproved_source_evidence=${source_policy_state}\napproved_source_reason=${source_policy_reason}"
 
     if [ "$runtime_status" -eq 127 ] || [ "$runtime_status" -eq 2 ]; then
         set_result ERROR \
@@ -774,14 +923,18 @@ check_u_65() {
         set_result VULNERABLE \
             "서비스는 활성 상태지만 동기화된 소스 또는 정상 상태를 확인하지 못했습니다." \
             "${runtime_facts}\n${config_facts}"
-    elif [ "$provider_scope" = "operational-extension" ]; then
-        set_result MANUAL \
-            "현재 시각은 동기화됐지만 이 플랫폼의 KISA 절차에 명시되지 않은 공급자이므로 정책 승인이 필요합니다." \
-            "${runtime_facts}\npersistent_config_status=${config_status}\n${config_facts}"
+    elif [ "$source_policy_status" -eq 2 ]; then
+        set_result ERROR "승인된 시각 동기화 소스 정책을 안전하게 대조하지 못했습니다." "${runtime_facts}\n${config_facts}"
+    elif [ "$source_policy_status" -eq 1 ]; then
+        set_result VULNERABLE "현재 선택된 시각 동기화 소스가 승인 정책과 일치하지 않습니다." "${runtime_facts}\n${config_facts}"
     elif [ "$persistence_status" -eq 2 ]; then
         set_result ERROR "시각 동기화 서비스의 부팅 지속 상태를 수집하지 못했습니다." "${runtime_facts}\n${config_facts}"
     elif [ "$persistence_status" -ne 0 ]; then
         set_result MANUAL "현재 시각은 동기화됐지만 재부팅 후 서비스 활성화가 보장되지 않습니다." "${runtime_facts}\n${config_facts}"
+    elif [ "$config_status" -eq 0 ] && [ "$source_policy_status" -eq 0 ]; then
+        set_result GOOD \
+            "승인된 네트워크 시각 소스와 동기화되며 영구 구성과 부팅 활성화가 확인되었습니다." \
+            "${runtime_facts}\n${config_facts}"
     elif [ "$config_status" -eq 0 ]; then
         set_result MANUAL \
             "시각 동기화와 영구 구성은 확인됐지만 NTP 소스의 조직 승인 증적을 대조해야 합니다." \
@@ -982,6 +1135,8 @@ check_u_66() {
         set_result ERROR "시스템 로깅 공급자 상태 일부를 수집하지 못했습니다." "$evidence"
     elif [ "$rsyslog_config_status" -eq 2 ]; then
         set_result ERROR "rsyslog 구성 그래프 일부를 안전하게 해석하지 못했습니다." "$evidence"
+    elif [ "$rsyslog_state" -eq 0 ] && [ "$rsyslog_validation_status" = "invalid" ]; then
+        set_result ERROR "활성 rsyslog 구성이 공급자 자체 검증을 통과하지 못했습니다." "$evidence"
     elif runtime_enabled && [ -z "$active_providers" ]; then
         set_result VULNERABLE "활성화된 시스템 로깅 공급자가 없습니다." "$evidence"
     else
@@ -995,7 +1150,7 @@ check_u_67() {
     local log_directory=""
     local list_file=""
     local log_file=""
-    local owner=""
+    local owner_uid=""
     local mode=""
     local scanned=0
     local violations=0
@@ -1028,6 +1183,7 @@ check_u_67() {
     local expected_logs_present=0
     local expected_logs_absent=0
     local record_type=""
+    local metadata_status=0
 
     log_directory="$(fs_path /var/log 2>/dev/null || true)"
     log_directory="$(resolve_rooted_directory "$log_directory" 2>/dev/null || true)"
@@ -1110,8 +1266,8 @@ EOF
         [ -d "$scan_root" ] || continue
         find -P "$scan_root" -xdev \
             \( \
-                \( -type f -printf 'F\0%p\0%u\0%m\0' \) , \
-                \( -type d -printf 'D\0%p\0%u\0%m\0' \) , \
+                \( -type f -printf 'F\0%p\0%U\0%m\0' \) , \
+                \( -type d -printf 'D\0%p\0%U\0%m\0' \) , \
                 \( -type l -printf 'L\0%p\0' \) \
             \) >> "$list_file" 2>/dev/null || scan_errors=$((scan_errors + 1))
     done < <(LC_ALL=C sort -u "$roots_file")
@@ -1126,7 +1282,7 @@ EOF
         case "$record_type" in
             F|D)
                 IFS= read -r -d '' log_file || { scan_errors=$((scan_errors + 1)); break; }
-                IFS= read -r -d '' owner || { scan_errors=$((scan_errors + 1)); break; }
+                IFS= read -r -d '' owner_uid || { scan_errors=$((scan_errors + 1)); break; }
                 IFS= read -r -d '' mode || { scan_errors=$((scan_errors + 1)); break; }
                 ;;
             L)
@@ -1141,16 +1297,22 @@ EOF
         case "$record_type" in
             F)
                 scanned=$((scanned + 1))
-                if [ -z "$owner" ] || [ -z "$mode" ]; then
-                    stat_errors=$((stat_errors + 1))
-                    [ "$stat_errors" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):stat_error\n"
-                elif [ "$owner" != "root" ] || ! mode_is_at_most "$mode" 644; then
-                    violations=$((violations + 1))
-                    [ "$violations" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):owner=${owner},mode=${mode}\n"
-                fi
+                metadata_status=0
+                system_u67_file_metadata_state "$owner_uid" "$mode" || metadata_status=$?
+                case "$metadata_status" in
+                    0) ;;
+                    1)
+                        violations=$((violations + 1))
+                        [ "$violations" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):owner_uid=${owner_uid},mode=${mode}\n"
+                        ;;
+                    *)
+                        stat_errors=$((stat_errors + 1))
+                        [ "$stat_errors" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):stat_error\n"
+                        ;;
+                esac
                 ;;
             D)
-                printf '%s\0%s\0%s\0' "$log_file" "$owner" "$mode" >> "$directory_list_file" ||
+                printf '%s\0%s\0%s\0' "$log_file" "$owner_uid" "$mode" >> "$directory_list_file" ||
                     scan_errors=$((scan_errors + 1))
                 ;;
             L)
@@ -1170,14 +1332,16 @@ EOF
     fi
 
     while IFS= read -r -d '' log_file &&
-        IFS= read -r -d '' owner &&
+        IFS= read -r -d '' owner_uid &&
         IFS= read -r -d '' mode; do
         scanned_directories=$((scanned_directories + 1))
-        if [ -z "$owner" ] || [ -z "$mode" ]; then
-            stat_errors=$((stat_errors + 1))
-        elif [ "$owner" != "root" ] || mode_group_or_other_writable "$mode"; then
-            directory_violations=$((directory_violations + 1))
-        fi
+        metadata_status=0
+        system_u67_directory_metadata_state "$owner_uid" "$mode" || metadata_status=$?
+        case "$metadata_status" in
+            0) ;;
+            1) directory_violations=$((directory_violations + 1)) ;;
+            *) stat_errors=$((stat_errors + 1)) ;;
+        esac
     done < "$directory_list_file"
 
     while IFS= read -r -d '' log_file; do
@@ -1194,15 +1358,21 @@ EOF
             esac
             symlink_targets_scanned=$((symlink_targets_scanned + 1))
             scanned=$((scanned + 1))
-            owner="$(stat_owner "$resolved_target" 2>/dev/null || true)"
+            owner_uid="$(stat_uid "$resolved_target" 2>/dev/null || true)"
             mode="$(stat_mode "$resolved_target" 2>/dev/null || true)"
-            if [ -z "$owner" ] || [ -z "$mode" ]; then
-                stat_errors=$((stat_errors + 1))
-                [ "$stat_errors" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):symlink_target_stat_error\n"
-            elif [ "$owner" != "root" ] || ! mode_is_at_most "$mode" 644; then
-                violations=$((violations + 1))
-                [ "$violations" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):target_owner=${owner},target_mode=${mode}\n"
-            fi
+            metadata_status=0
+            system_u67_file_metadata_state "$owner_uid" "$mode" || metadata_status=$?
+            case "$metadata_status" in
+                0) ;;
+                1)
+                    violations=$((violations + 1))
+                    [ "$violations" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):target_owner_uid=${owner_uid},target_mode=${mode}\n"
+                    ;;
+                *)
+                    stat_errors=$((stat_errors + 1))
+                    [ "$stat_errors" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):symlink_target_stat_error\n"
+                    ;;
+            esac
         elif resolved_target="$(resolve_rooted_directory "$log_file" 2>/dev/null || true)" && [ -n "$resolved_target" ]; then
             symlink_directories=$((symlink_directories + 1))
             [ "$symlink_directories" -le 20 ] && evidence="${evidence}$(display_path "$log_file"):symlink_directory_unscanned\n"

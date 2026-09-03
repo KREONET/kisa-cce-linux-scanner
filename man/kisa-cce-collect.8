@@ -42,8 +42,9 @@ is unavailable. On success, the collector prints:
 .EE
 .PP
 The directory contains a strict manifest, SHA-256 checksums, host identity,
-normalized service and listener tables, raw mount information, firewall state,
-and time synchronization state.
+normalized service, listener, and time-synchronization tables, raw mount
+information, and firewall state. The current collector writes evidence schema
+version 2.
 All files use mode 0600 and all directories use mode 0700.
 .SH EXIT STATUS
 .TP

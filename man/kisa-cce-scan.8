@@ -96,7 +96,8 @@ collection or a matching evidence bundle, and emits no
 result.
 .TP
 .BI \-\-policy-dir " PATH"
-Load strict TSV attestations from the absolute directory
+Load strict TSV attestations and supported typed facts from the absolute
+directory
 .IR PATH .
 Complete mode requires this option.
 .TP
@@ -216,8 +217,9 @@ maps logical system paths below that root and disables runtime collection.
 Root privileges are not required, but the invoking user needs read and
 directory-search permission for the image.
 .PP
-Offline results cannot establish active services, listeners, loaded kernel
-values, or other live state.
+Offline results alone cannot establish active services, listeners, loaded kernel
+values, or other live state. A matching evidence bundle supplies the supported
+runtime snapshot without enabling live commands on the analysis host.
 Affected criteria may return
 .BR MANUAL ,
 .BR NOT_APPLICABLE ,

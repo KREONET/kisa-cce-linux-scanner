@@ -27,7 +27,7 @@ docs/
 |---|---|
 | [Platform support](reference/platform-support.md) | Accepted releases, derivative mapping, lifecycle sources, and exclusions. |
 | [KISA platform semantics](reference/kisa-platform-semantics.md) | Rendered-guide family branches, versioned native behavior, and validation limits. |
-| [Policy format](reference/policy-format.md) | Attestation schema, trust requirements, expiry, and review ID matching. |
+| [Policy format](reference/policy-format.md) | Typed fact and attestation schemas, trust requirements, expiry, and lookup behavior. |
 
 ## Design
 
@@ -59,7 +59,7 @@ The installed command manuals are maintained as [kisa-cce-scan(8)](../man/kisa-c
 | Command-line behavior | `lib/kisa-cce-scan-main.sh`. |
 | Result and report contracts | `lib/core.sh`. |
 | Configuration precedence | `lib/resolvers.sh` and the subsystem-specific check modules. |
-| Regression coverage | `tests/run.sh`. |
+| Regression coverage | `tests/run.sh` and focused scripts under `tests/`. |
 | Installed file layout | `Makefile`. |
 | Command manuals | `man/kisa-cce-scan.8` and `man/kisa-cce-collect.8`. |
 | Complete-mode policy contract | `docs/reference/policy-format.md` and `lib/policy.sh`. |

@@ -29,7 +29,9 @@ An exit status of `0` means the directory and essential identity evidence were f
 
 ## Directory format
 
-Schema version 1 has this fixed inventory:
+The current collector writes schema version 2. The scanner validator continues to accept existing schema version 1 bundles.
+
+Schema version 2 has this fixed inventory:
 
 ```text
 host-20260903T120000Z/
@@ -46,15 +48,17 @@ host-20260903T120000Z/
     ├── listeners.tsv
     ├── mountinfo
     ├── firewall.txt
-    └── time-sync.txt
+    └── time-sync.tsv
 ```
+
+Schema version 1 uses the same layout except that `runtime/time-sync.txt` replaces `runtime/time-sync.tsv`. A bundle must contain exactly the time-sync artifact selected by its manifest schema; including both files is invalid.
 
 The root and the two child directories use mode `0700`. Every regular file uses mode `0600` and has one hard link. Validation rejects symbolic links, unknown entries, missing entries, ownership changes, and looser permissions.
 
-`manifest.tsv` is strict two-column TSV without a header. Keys are unique. Schema version 1 defines these identity fields:
+`manifest.tsv` is strict two-column TSV without a header. Keys are unique. Schema version 2 defines these identity fields:
 
 ```text
-schema_version	1
+schema_version	2
 captured_at	2026-09-03T12:00:00Z
 machine_id	0123456789abcdef0123456789abcdef
 boot_id	01234567-89ab-cdef-0123-456789abcdef
@@ -72,7 +76,29 @@ The remaining manifest keys record `collected`, `partial`, or `unavailable` for 
 | `listeners.tsv` | TCP or UDP transport, local address, numeric port, and process name when available | PID, file descriptor, peer traffic, and command-line arguments |
 | `mountinfo` | Raw `/proc/1/mountinfo` | File contents from mounted filesystems |
 | `firewall.txt` | Effective nftables or iptables rules, with rule comments removed | Firewall counters and rule comments |
-| `time-sync.txt` | Synchronization state and selected or candidate time sources from available native clients | Authentication keys and daemon configuration files |
+| `time-sync.tsv` | Normalized provider synchronization state and the selected source, address, stratum, leap state, origin, and source type | Raw native-client output, authentication keys, and daemon configuration files |
+
+Schema version 2 `time-sync.tsv` uses this exact header:
+
+```text
+provider	synchronized	source	source_address	stratum	leap	source_origin	source_type
+```
+
+Each provider occurs at most once. The normalized fields use these values:
+
+| Field | Values |
+|---|---|
+| `provider` | `systemd-timesyncd`, `chrony`, or `ntpsec` |
+| `synchronized` | `yes`, `no`, or `unknown` |
+| `source`, `source_address` | A bounded token without whitespace or control characters, or `-` when unavailable |
+| `stratum` | `0` through `16`, or `-` when unavailable |
+| `leap` | `normal`, `warning`, `unsynchronized`, or `unknown` |
+| `source_origin` | `system`, `runtime`, `fallback`, `configured`, or `unknown` |
+| `source_type` | `network`, `reference-clock`, or `unknown` |
+
+`collected` requires at least one normalized provider row. `unavailable` requires a header-only table. `partial` can retain valid rows, but a criterion must not treat them as conclusive. The collector discards raw client output after normalization.
+
+Schema version 1 retains the original bounded `time-sync.txt` artifact for compatibility. It is validated as a protected checksummed file, but it is not promoted to normalized facts because its native-client sections do not provide the strict v2 record contract.
 
 Systemd unit names retain systemd's canonical `\xHH` escape sequences. The
 validator accepts only complete hexadecimal escapes and continues to reject
@@ -112,12 +138,15 @@ The state helpers use the scanner's existing return convention:
 |---|---|---|---|---|
 | `evidence_service_state UNIT...` | At least one unit is active | A recorded unit exists but none is active | Evidence is incomplete or invalid | No requested unit exists |
 | `evidence_listener_state TRANSPORT PORT...` | At least one matching listener exists | No matching listener exists | Evidence is incomplete or arguments are invalid | Not used |
+| `evidence_time_sync_facts` | Exactly one synchronized network source is established | One or more normalized providers are unsynchronized | Schema 1, unavailable, partial, malformed, unknown, or multiple synchronized providers | A selected local/reference-clock source requires review |
 
 `TRANSPORT` is `tcp`, `udp`, or `any`. `evidence_mountinfo_path` prints the validated raw mountinfo path and returns `0`; it returns `2` when mount evidence was not collected.
 
 `evidence_service_activation_state UNIT...` also treats `activating`, `reloading`, `enabled`, and `enabled-runtime` as an activation path. It returns `0` for an observed path, `1` when the complete evidence has no activation path, and `2` when the answer is indeterminate. `EVIDENCE_SERVICE_ACTIVATION_EVIDENCE` contains its bounded unit-state summary.
 
 `evidence_listener_facts TRANSPORT PORT...` prints matching validated listener rows without the TSV header. `evidence_mount_roots` converts validated mountinfo into `target<TAB>filesystem_type` rows and rejects mount targets that cannot be represented safely as TSV.
+
+`evidence_time_sync_facts` prints normalized `provider`, `synchronized`, `source`, `source_address`, `stratum`, `leap`, `source_origin`, and `source_type` facts. `evidence_time_sync_facts_into DESTINATION` provides the same facts through a caller-supplied variable without command substitution. Both helpers require a validated schema version 2 bundle whose time-sync status is `collected`.
 
 ## Operational boundary
 

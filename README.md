@@ -25,8 +25,8 @@ supported releases, lifecycle scope, and exclusions.
 - Minimizes collected evidence and applies targeted credential redaction. Reports remain sensitive security data and require controlled handling.
 - Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, and listener facts to avoid repeated process creation.
 - Supports source-tree execution and relocatable `DESTDIR` package staging.
-- Provides strict complete mode with review-bound policy attestations and validated runtime evidence bundles.
-- Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and time state before an offline scan.
+- Provides strict complete mode with typed policy facts, review-bound attestations, and validated runtime evidence bundles.
+- Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and normalized time-source state before an offline scan.
 
 The criterion reference is published at [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).
 

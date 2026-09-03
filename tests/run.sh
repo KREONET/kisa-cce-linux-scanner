@@ -909,7 +909,7 @@ test_time_and_sysctl_platform_adapters() (
     check_u_65
     assert_equal MANUAL "$RESULT_STATUS" "active NTPsec synchronization requires approved source evidence"
     assert_contains "$RESULT_EVIDENCE" "provider=ntpsec" "NTPsec result evidence"
-    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=unavailable" "NTPsec source approval evidence"
+    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=absent" "NTPsec source approval evidence"
 
     service_state() {
         case "$1" in
@@ -2678,7 +2678,7 @@ test_installed_layouts() (
         command_output="$("$installed_prefix/bin/kisa-cce-collect" --version 2>&1)" ||
             fail "$layout_name installed collector version command failed"
         assert_contains "$command_output" \
-            "kisa-cce-collect: kisa-cce-collect evidence-schema-1" \
+            "kisa-cce-collect: kisa-cce-collect evidence-schema-2" \
             "$layout_name installed collector version"
         command_status=0
         command_output="$("$installed_prefix/bin/kisa-cce-collect" \
@@ -4480,7 +4480,7 @@ test_kisa_time_provider_goldens() (
     assert_contains "$RESULT_EVIDENCE" "expected_provider=chrony" "U-65 RHEL expected provider evidence"
     assert_contains "$RESULT_EVIDENCE" "active_provider=chrony" "U-65 active Chrony evidence"
     assert_contains "$RESULT_EVIDENCE" "provider_scope=validated" "U-65 validated provider scope"
-    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=unavailable" "U-65 RHEL source approval evidence"
+    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=absent" "U-65 RHEL source approval evidence"
 
     time_fixture_provider="ntpsec"
     check_u_65
@@ -4507,7 +4507,7 @@ test_kisa_time_provider_goldens() (
     assert_equal MANUAL "$RESULT_STATUS" "U-65 Debian NTP requires approved source evidence"
     assert_contains "$RESULT_EVIDENCE" "expected_provider=ntpd" "U-65 Debian expected provider evidence"
     assert_contains "$RESULT_EVIDENCE" "provider_scope=validated-extension" "U-65 Debian NTPsec validation scope"
-    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=unavailable" "U-65 Debian source approval evidence"
+    assert_contains "$RESULT_EVIDENCE" "approved_source_evidence=absent" "U-65 Debian source approval evidence"
 
     time_fixture_provider="systemd-timesyncd"
     check_u_65

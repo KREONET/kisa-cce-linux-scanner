@@ -142,7 +142,7 @@ while [ "$#" -gt 0 ]; do
             exit 0
             ;;
         --version)
-            console_emit "kisa-cce-collect evidence-schema-1"
+            console_emit "kisa-cce-collect evidence-schema-2"
             exit 0
             ;;
         --)
@@ -457,48 +457,210 @@ collect_firewall() {
     return 0
 }
 
-collect_time_sync() {
-    local output_file="$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.txt"
-    local provider_file="$SCRATCH_DIRECTORY/time-sync.provider"
-    local collected=0
-    local provider_collected=0
+time_sync_safe_field() {
+    case "${1:-}" in
+        ''|*[!0-9A-Za-z._:@%+-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
 
-    : > "$output_file" || return 1
+time_sync_write_row() {
+    local output_file="$1"
+    local provider="$2"
+    local synchronized="$3"
+    local source="$4"
+    local source_address="$5"
+    local stratum="$6"
+    local leap="$7"
+    local source_origin="$8"
+    local source_type="$9"
+
+    case "$provider" in systemd-timesyncd|chrony|ntpsec) ;; *) return 3 ;; esac
+    case "$synchronized" in yes|no|unknown) ;; *) return 3 ;; esac
+    if [ "$source" != "-" ]; then time_sync_safe_field "$source" || return 3; fi
+    if [ "$source_address" != "-" ]; then time_sync_safe_field "$source_address" || return 3; fi
+    [ "${#source}" -le 255 ] && [ "${#source_address}" -le 255 ] || return 3
+    case "$stratum" in
+        -) ;;
+        ''|*[!0-9]*) return 3 ;;
+        *) [ "$stratum" -le 16 ] || return 3 ;;
+    esac
+    case "$leap" in normal|warning|unsynchronized|unknown) ;; *) return 3 ;; esac
+    case "$source_origin" in system|runtime|fallback|configured|unknown) ;; *) return 3 ;; esac
+    case "$source_type" in network|reference-clock|unknown) ;; *) return 3 ;; esac
+    [ "$synchronized" != "yes" ] || [ "$source" != "-" ] || [ "$source_address" != "-" ] || return 3
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$provider" "$synchronized" "$source" "$source_address" \
+        "$stratum" "$leap" "$source_origin" "$source_type" >> "$output_file" || return 1
+}
+
+time_sync_list_contains() {
+    local values="$1"
+    local expected_name="$2"
+    local expected_address="$3"
+    local candidate=""
+    local -a candidates=()
+
+    read -r -a candidates <<< "$values"
+    for candidate in "${candidates[@]}"; do
+        [ -n "$expected_name" ] && [ "$candidate" = "$expected_name" ] && return 0
+        [ -n "$expected_address" ] && [ "$candidate" = "$expected_address" ] && return 0
+    done
+    return 1
+}
+
+collect_timesyncd_normalized() {
+    local output_file="$1"
+    local state_file="$SCRATCH_DIRECTORY/timesyncd-state.raw"
+    local properties_file="$SCRATCH_DIRECTORY/timesyncd-properties.raw"
+    local synchronized=""
+    local source=""
+    local source_address=""
+    local stratum="-"
+    local leap_indicator=""
+    local leap="unknown"
+    local system_sources=""
+    local runtime_sources=""
+    local fallback_sources=""
+    local source_origin="unknown"
+    local source_type="unknown"
+    local match_source=""
+    local match_address=""
+
+    timedatectl show -p NTPSynchronized --value --no-pager > "$state_file" 2>/dev/null || return 2
+    timedatectl show-timesync --all --no-pager > "$properties_file" 2>/dev/null || return 2
+    IFS= read -r synchronized < "$state_file" || synchronized=""
+    source="$(awk -F= '$1 == "ServerName" {print substr($0, index($0, "=") + 1); exit}' "$properties_file")"
+    source_address="$(awk -F= '$1 == "ServerAddress" {print substr($0, index($0, "=") + 1); exit}' "$properties_file")"
+    system_sources="$(awk -F= '$1 == "SystemNTPServers" {print substr($0, index($0, "=") + 1); exit}' "$properties_file")"
+    runtime_sources="$(awk -F= '$1 == "RuntimeNTPServers" {print substr($0, index($0, "=") + 1); exit}' "$properties_file")"
+    fallback_sources="$(awk -F= '$1 == "FallbackNTPServers" {print substr($0, index($0, "=") + 1); exit}' "$properties_file")"
+    stratum="$(sed -n 's/^NTPMessage=.*Stratum=\([0-9][0-9]*\).*/\1/p' "$properties_file" | head -n 1)"
+    leap_indicator="$(sed -n 's/^NTPMessage=.*Leap=\([0-9][0-9]*\).*/\1/p' "$properties_file" | head -n 1)"
+
+    case "$synchronized" in yes|no) ;; *) synchronized="unknown" ;; esac
+    case "$source" in ''|n/a) source="-" ;; esac
+    case "$source_address" in
+        ''|n/a) source_address="-" ;;
+        \[*\]) source_address="${source_address#\[}"; source_address="${source_address%\]}" ;;
+    esac
+    case "$stratum" in ''|*[!0-9]*) stratum="-" ;; esac
+    case "$leap_indicator" in
+        0) leap="normal" ;;
+        1|2) leap="warning" ;;
+        3) leap="unsynchronized" ;;
+        *) [ "$synchronized" = "no" ] && leap="unsynchronized" ;;
+    esac
+    if [ "$source" != "-" ] || [ "$source_address" != "-" ]; then
+        source_type="network"
+        [ "$source" = "-" ] || match_source="$source"
+        [ "$source_address" = "-" ] || match_address="$source_address"
+        if time_sync_list_contains "$system_sources" "$match_source" "$match_address"; then
+            source_origin="system"
+        elif time_sync_list_contains "$fallback_sources" "$match_source" "$match_address"; then
+            source_origin="fallback"
+        elif time_sync_list_contains "$runtime_sources" "$match_source" "$match_address"; then
+            source_origin="runtime"
+        fi
+    fi
+    time_sync_write_row "$output_file" systemd-timesyncd "$synchronized" \
+        "$source" "$source_address" "$stratum" "$leap" "$source_origin" "$source_type" || return $?
+    [ "$synchronized:$leap" != "yes:unknown" ] || return 3
+    return 0
+}
+
+collect_chrony_normalized() {
+    local output_file="$1"
+    local tracking_file="$SCRATCH_DIRECTORY/chrony-tracking.raw"
+    local sources_file="$SCRATCH_DIRECTORY/chrony-sources.raw"
+    local leap_status=""
+    local leap="unknown"
+    local selected=""
+    local source="-"
+    local source_type="unknown"
+    local stratum="-"
+    local synchronized="no"
+
+    chronyc -n tracking > "$tracking_file" 2>/dev/null || return 2
+    chronyc -n sources > "$sources_file" 2>/dev/null || return 2
+    leap_status="$(awk -F: '/^Leap status/ {value=$2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); print value; exit}' "$tracking_file")"
+    selected="$(awk '$1 ~ /^[\^=#]\*/ {print substr($1, 1, 1) "\t" $2 "\t" $3; exit}' "$sources_file")"
+    if [ -n "$selected" ]; then
+        IFS=$'\t' read -r source_type source stratum <<< "$selected"
+        case "$source_type" in
+            '#') source_type="reference-clock" ;;
+            '^'|'=') source_type="network" ;;
+            *) source_type="unknown" ;;
+        esac
+        case "$stratum" in ''|*[!0-9]*) stratum="-" ;; esac
+    fi
+    case "$leap_status" in
+        Normal) leap="normal" ;;
+        "Not synchronised"|"Not synchronized") leap="unsynchronized" ;;
+        "Insert second"|"Delete second") leap="warning" ;;
+        *) leap="unknown" ;;
+    esac
+    if [ "$leap" = "normal" ] && [ "$source" != "-" ]; then synchronized="yes"; fi
+    time_sync_write_row "$output_file" chrony "$synchronized" "$source" "$source" \
+        "$stratum" "$leap" runtime "$source_type" || return $?
+    [ "$leap" != "unknown" ] || return 3
+    return 0
+}
+
+collect_ntpsec_normalized() {
+    local output_file="$1"
+    local peers_file="$SCRATCH_DIRECTORY/ntpsec-peers.raw"
+    local selected=""
+    local marker=""
+    local source="-"
+    local source_type="unknown"
+    local stratum="-"
+    local synchronized="no"
+
+    ntpq -pn > "$peers_file" 2>/dev/null || return 2
+    [ -s "$peers_file" ] || return 3
+    selected="$(awk '$1 ~ /^[*o]/ {print substr($1, 1, 1) "\t" substr($1, 2) "\t" $3; exit}' "$peers_file")"
+    if [ -n "$selected" ]; then
+        IFS=$'\t' read -r marker source stratum <<< "$selected"
+        synchronized="yes"
+        case "$marker" in
+            '*') source_type="network" ;;
+            o) source_type="reference-clock" ;;
+            *) source_type="unknown" ;;
+        esac
+        case "$stratum" in ''|*[!0-9]*) stratum="-" ;; esac
+    fi
+    time_sync_write_row "$output_file" ntpsec "$synchronized" "$source" "$source" \
+        "$stratum" unknown runtime "$source_type"
+}
+
+collect_time_sync() {
+    local output_file="$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.tsv"
+    local collector_status=0
+    local partial=0
+    local records=0
+
+    printf 'provider\tsynchronized\tsource\tsource_address\tstratum\tleap\tsource_origin\tsource_type\n' > "$output_file" || return 1
     if command -v timedatectl >/dev/null 2>&1; then
-        : > "$provider_file" || return 1
-        timedatectl show -p NTPSynchronized -p NTP -p CanNTP --no-pager > "$provider_file" 2>/dev/null && provider_collected=1
-        timedatectl show-timesync \
-            -p ServerName -p ServerAddress -p SystemNTPServers -p RuntimeNTPServers \
-            --no-pager >> "$provider_file" 2>/dev/null && provider_collected=1
-        if [ "$provider_collected" -eq 1 ]; then
-            printf '%s\n' '[timedatectl]'
-            cat -- "$provider_file"
-            collected=1
-        fi >> "$output_file"
-        provider_collected=0
+        collect_timesyncd_normalized "$output_file" || collector_status=$?
+        case "$collector_status" in 0|2) ;; 3) partial=1 ;; *) return 1 ;; esac
+        collector_status=0
     fi
     if command -v chronyc >/dev/null 2>&1; then
-        : > "$provider_file" || return 1
-        chronyc -n tracking > "$provider_file" 2>/dev/null && provider_collected=1
-        chronyc -n sources >> "$provider_file" 2>/dev/null && provider_collected=1
-        if [ "$provider_collected" -eq 1 ]; then
-            printf '%s\n' '[chrony]'
-            cat -- "$provider_file"
-            collected=1
-        fi >> "$output_file"
-        provider_collected=0
+        collect_chrony_normalized "$output_file" || collector_status=$?
+        case "$collector_status" in 0|2) ;; 3) partial=1 ;; *) return 1 ;; esac
+        collector_status=0
     fi
     if command -v ntpq >/dev/null 2>&1; then
-        if ntpq -pn > "$provider_file" 2>/dev/null; then
-            printf '%s\n' '[ntpq]'
-            cat -- "$provider_file"
-            collected=1
-        fi >> "$output_file"
+        collect_ntpsec_normalized "$output_file" || collector_status=$?
+        case "$collector_status" in 0|2) ;; 3) partial=1 ;; *) return 1 ;; esac
     fi
-    if [ "$collected" -eq 0 ]; then
-        printf 'status=unavailable\n' > "$output_file" || return 1
-        return 2
+    records="$(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$output_file")" || return 1
+    if [ "$records" -eq 0 ]; then
+        [ "$partial" -eq 0 ] && return 2
+        return 3
     fi
+    [ "$partial" -eq 0 ] || return 3
     return 0
 }
 
@@ -550,11 +712,11 @@ esac
     printf 'status=unavailable\n' > "$OUTPUT_DIRECTORY_FD_PATH/runtime/mountinfo"
 [ -e "$OUTPUT_DIRECTORY_FD_PATH/runtime/firewall.txt" ] ||
     printf 'status=unavailable\n' > "$OUTPUT_DIRECTORY_FD_PATH/runtime/firewall.txt"
-[ -e "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.txt" ] ||
-    printf 'status=unavailable\n' > "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.txt"
+[ -e "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.tsv" ] ||
+    printf 'provider\tsynchronized\tsource\tsource_address\tstratum\tleap\tsource_origin\tsource_type\n' > "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.tsv"
 
 cat > "$OUTPUT_DIRECTORY_FD_PATH/manifest.tsv" <<EOF
-schema_version	1
+schema_version	2
 captured_at	$captured_at
 machine_id	$machine_id
 boot_id	$boot_id
@@ -582,7 +744,7 @@ chmod 0600 -- \
     "$OUTPUT_DIRECTORY_FD_PATH/runtime/listeners.tsv" \
     "$OUTPUT_DIRECTORY_FD_PATH/runtime/mountinfo" \
     "$OUTPUT_DIRECTORY_FD_PATH/runtime/firewall.txt" \
-    "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.txt" || die "cannot set evidence file permissions"
+    "$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.tsv" || die "cannot set evidence file permissions"
 
 (
     cd -- "$OUTPUT_DIRECTORY_FD_PATH" || exit 1
@@ -597,7 +759,7 @@ chmod 0600 -- \
         runtime/listeners.tsv \
         runtime/mountinfo \
         runtime/firewall.txt \
-        runtime/time-sync.txt > checksums.sha256
+        runtime/time-sync.tsv > checksums.sha256
 ) || die "cannot create evidence checksums"
 chmod 0600 -- "$OUTPUT_DIRECTORY_FD_PATH/checksums.sha256" || die "cannot set checksum file permissions"
 

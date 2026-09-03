@@ -35,11 +35,15 @@ MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-scan.8
 
 TEST_FILES = \
 	tests/documentation_links.sh \
+	tests/evidence_bundle_v2.sh \
 	tests/pam_cache.sh \
 	tests/performance_cache.sh \
 	tests/run.sh \
 	tests/scan_epoch.sh \
-	tests/runtime_cache.sh
+	tests/runtime_cache.sh \
+	tests/system_checks.sh \
+	tests/typed_policy.sh \
+	tests/u67_numeric_uid.sh
 
 .PHONY: all check install lint
 
@@ -50,10 +54,14 @@ check:
 	/bin/bash -n $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh
 	./tests/documentation_links.sh
 	./tests/run.sh
+	./tests/evidence_bundle_v2.sh
 	./tests/performance_cache.sh
 	./tests/pam_cache.sh
 	./tests/scan_epoch.sh
 	./tests/runtime_cache.sh
+	./tests/system_checks.sh
+	./tests/typed_policy.sh
+	./tests/u67_numeric_uid.sh
 
 lint:
 	shellcheck --severity=warning -x $(PROGRAM_FILES) $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh

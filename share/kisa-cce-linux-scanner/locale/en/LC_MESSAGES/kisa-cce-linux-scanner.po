@@ -1402,6 +1402,18 @@ msgstr "The runtime is synchronized, but no persistent configuration was found i
 msgid "시각 동기화 런타임은 정상이지만 영구 구성 그래프를 검증하지 못했습니다."
 msgstr "The time synchronization runtime is healthy, but the persistent configuration graph could not be validated."
 
+msgid "승인된 시각 동기화 소스 정책을 안전하게 대조하지 못했습니다."
+msgstr "The approved time-source policy could not be compared safely."
+
+msgid "현재 선택된 시각 동기화 소스가 승인 정책과 일치하지 않습니다."
+msgstr "The currently selected time source does not match the approved policy."
+
+msgid "승인된 네트워크 시각 소스와 동기화되며 영구 구성과 부팅 활성화가 확인되었습니다."
+msgstr "Synchronization with an approved network time source, persistent configuration, and boot activation were confirmed."
+
+msgid "활성 rsyslog 구성이 공급자 자체 검증을 통과하지 못했습니다."
+msgstr "The active rsyslog configuration failed the provider's native validation."
+
 msgid "배포판별 로그 공급자와 경로는 확인했지만 기록·보존·전송 범위가 조직 정책을 충족하는지는 정책 증적이 필요합니다."
 msgstr "Distribution-specific logging providers and paths were found, but policy evidence is required to show that recording, retention, and forwarding scope meets organizational policy."
 

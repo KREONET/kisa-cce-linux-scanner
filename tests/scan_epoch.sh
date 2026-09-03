@@ -69,7 +69,7 @@ scan_epoch_begin || fail "context-change epoch failed"
 [ "${SCAN_RESOLVER_DIRTY[pam:sshd:auth]-0}" -eq 1 ] || fail "platform context did not dirty resolver"
 [ "$reset_count" -eq 5 ] || fail "epoch reset hook count"
 scan_epoch_end
-grep -Fq -- "scan_epoch phase begin epoch 1 resolver_schema 1 incremental 1 policy active evidence inactive" "$debug_file" ||
+grep -Fq -- "scan_epoch phase begin epoch 1 resolver_schema 2 incremental 1 policy active evidence inactive" "$debug_file" ||
     fail "scan epoch begin debug event"
 grep -Fq -- "scan_epoch phase end epoch 5" "$debug_file" || fail "scan epoch end debug event"
 

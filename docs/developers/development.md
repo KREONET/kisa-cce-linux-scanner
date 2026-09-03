@@ -38,7 +38,7 @@ Run ShellCheck separately:
 make lint
 ```
 
-`make check` runs the named regression groups in `tests/run.sh` and focused epoch-cache tests for sysctl, PAM, systemd, listeners, and dependency propagation. The suite creates all fixtures under a protected temporary directory and removes them at exit.
+`make check` runs the named regression groups in `tests/run.sh` and focused tests for evidence schemas, typed policy facts, system-check failure precedence, numeric UID handling, sysctl, PAM, systemd, listeners, and dependency propagation. The suite creates all fixtures under a protected temporary directory and removes them at exit.
 
 Performance measurements are separate from correctness gates because they need Linux `strace`, GNU `time`, and a baseline source tree. See [Scan performance architecture](../design/performance.md).
 
