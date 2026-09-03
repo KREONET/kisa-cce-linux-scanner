@@ -23,9 +23,10 @@ PLATFORM_BASE_ID=""
 PLATFORM_BASE_VERSION=""
 PLATFORM_UBUNTU_CODENAME=""
 SCRATCH_DIR=""
+# REPORT_TEXT is the descriptor-anchored path of the human-readable Markdown report.
 REPORT_TEXT=""
 REPORT_JSONL=""
-REPORT_TEXT_OUTPUT_PATH=""
+REPORT_MARKDOWN_OUTPUT_PATH=""
 REPORT_JSONL_OUTPUT_PATH=""
 OUTPUT_DIRECTORY_FD=""
 OUTPUT_DIRECTORY_FD_PATH=""
@@ -729,7 +730,7 @@ redact_and_limit_evidence_into() {
     printf -v "$__kisa_evidence_destination" '%s' "$__kisa_evidence_input"
 }
 
-prefix_text_evidence_into() {
+indent_markdown_evidence_into() {
     local __kisa_text_evidence_remaining="$1"
     local __kisa_text_evidence_destination="$2"
     local __kisa_text_evidence_output=""
@@ -759,11 +760,36 @@ prefix_text_evidence_into() {
         __kisa_text_evidence_line="${__kisa_text_evidence_line//$'\t'/\\t}"
         __kisa_text_evidence_line="${__kisa_text_evidence_line//$'\r'/\\r}"
         __kisa_text_evidence_line="${__kisa_text_evidence_line//$__kisa_text_evidence_c1/?}"
-        __kisa_text_evidence_output+="${__kisa_text_evidence_separator}| ${__kisa_text_evidence_line}"
+        __kisa_text_evidence_output+="${__kisa_text_evidence_separator}    ${__kisa_text_evidence_line}"
         __kisa_text_evidence_separator=$'\n'
         [ "$__kisa_text_evidence_has_more" -eq 1 ] || break
     done
     printf -v "$__kisa_text_evidence_destination" '%s' "$__kisa_text_evidence_output"
+}
+
+escape_markdown_scalar_into() {
+    local input_value="$1"
+    local destination_name="$2"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|input_value|destination_name) return 2 ;;
+    esac
+    input_value="${input_value//\\/\\\\}"
+    input_value="${input_value//$'\n'/\\n}"
+    input_value="${input_value//$'\r'/\\r}"
+    input_value="${input_value//$'\t'/\\t}"
+    input_value="${input_value//\`/\\\`}"
+    input_value="${input_value//\*/\\*}"
+    input_value="${input_value//_/\\_}"
+    input_value="${input_value//\[/\\[}"
+    input_value="${input_value//\]/\\]}"
+    input_value="${input_value//#/\\#}"
+    input_value="${input_value//+/\\+}"
+    input_value="${input_value//-/\\-}"
+    input_value="${input_value//|/\\|}"
+    input_value="${input_value//</\\<}"
+    input_value="${input_value//>/\\>}"
+    printf -v "$destination_name" '%s' "$input_value"
 }
 
 remove_incomplete_utf8_suffix_into() {
@@ -882,9 +908,13 @@ record_result() {
     local json_field_separator=$'\036'
     local iconv_normalized=0
     local escaped_title=""
+    local escaped_category=""
+    local escaped_severity=""
     local escaped_summary=""
     local escaped_evidence=""
-    local text_evidence=""
+    local markdown_title=""
+    local markdown_summary=""
+    local markdown_evidence=""
 
     criterion_slug="u-${code#U-}"
     criterion_url="${KISA_CCE_GUIDE_BASE}/unix/${criterion_slug}/"
@@ -920,26 +950,35 @@ record_result() {
         remove_incomplete_utf8_suffix_into "$normalized_json_evidence" normalized_json_evidence
     fi
     if [ -n "$RESULT_EVIDENCE" ]; then
-        if ! prefix_text_evidence_into "$RESULT_EVIDENCE" text_evidence; then
+        if ! indent_markdown_evidence_into "$RESULT_EVIDENCE" markdown_evidence; then
             REPORT_WRITE_ERROR=1
             return 1
         fi
     fi
+    escape_markdown_scalar_into "$normalized_title" markdown_title || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
+    escape_markdown_scalar_into "$normalized_summary" markdown_summary || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
 
     if {
-        printf '[%s]SSSSS\n' "$code"
-        printf '제목: %s\n' "$title"
-        printf '분류: %s\n' "$category"
-        printf '중요도: %s\n' "$severity"
-        printf '판정: %s\n' "$RESULT_STATUS"
-        printf '적용 여부: %s\n' "$RESULT_APPLICABLE"
-        printf '요약: %s\n' "$RESULT_SUMMARY"
+        printf '## %s: %s\n\n' "$code" "$markdown_title"
+        printf '| 항목 | 값 |\n'
+        printf '|---|---|\n'
+        printf "| 분류 | \`%s\` |\n" "$category"
+        printf "| 중요도 | \`%s\` |\n" "$severity"
+        printf "| 판정 | \`%s\` |\n" "$RESULT_STATUS"
+        printf "| 적용 여부 | \`%s\` |\n\n" "$RESULT_APPLICABLE"
+        printf '### 요약\n\n%s\n\n' "$markdown_summary"
         if [ -n "$RESULT_EVIDENCE" ]; then
-            printf '[근거]\n%s\n' "$text_evidence"
+            printf '### 근거\n\n%s\n\n' "$markdown_evidence"
         fi
-        printf '기준: %s\n' "$criterion_url"
-        printf '[%s]EEEEE\n' "$code"
-        printf '[%s]RRRRR : %s\n\n' "$code" "$RESULT_STATUS"
+        printf '### 기준\n\n'
+        printf '[KISA CCE %s](%s)\n\n' "$code" "$criterion_url"
+        printf '%s\n\n' '---'
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -948,10 +987,12 @@ record_result() {
     fi
 
     json_escape_into "$normalized_title" escaped_title
+    json_escape_into "$category" escaped_category
+    json_escape_into "$severity" escaped_severity
     json_escape_into "$normalized_summary" escaped_summary
     json_escape_into "$normalized_json_evidence" escaped_evidence
     if ! printf '{"code":"%s","category":"%s","severity":"%s","title":"%s","status":"%s","applicable":%s,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
-        "$code" "$category" "$severity" "$escaped_title" "$RESULT_STATUS" "$RESULT_APPLICABLE" \
+        "$code" "$escaped_category" "$escaped_severity" "$escaped_title" "$RESULT_STATUS" "$RESULT_APPLICABLE" \
         "$escaped_summary" "$escaped_evidence" "$criterion_url" >> "$REPORT_JSONL"; then
         REPORT_WRITE_ERROR=1
         return 1
@@ -1112,7 +1153,7 @@ output_directory_binding_is_current() {
 }
 
 report_output_paths_are_current() {
-    [ -n "$REPORT_TEXT_OUTPUT_PATH" ] || return 1
+    [ -n "$REPORT_MARKDOWN_OUTPUT_PATH" ] || return 1
     [ -n "$REPORT_JSONL_OUTPUT_PATH" ] || return 1
     output_directory_binding_is_current
 }
@@ -1125,6 +1166,7 @@ initialize_workspace() {
     local parent_decimal_mode=""
     local timestamp=""
     local hostname_value=""
+    local markdown_report_temp=""
     local normalized_output_parent=""
     # shellcheck disable=SC2034
     local canonical_root=""
@@ -1189,8 +1231,11 @@ initialize_workspace() {
     hostname_value="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-63)"
     [ -n "$hostname_value" ] || hostname_value="host"
 
-    REPORT_TEXT="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.txt.XXXXXXXX")" || die "텍스트 보고서를 만들 수 없습니다."
-    REPORT_TEXT_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_TEXT##*/}"
+    markdown_report_temp="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.XXXXXXXX")" ||
+        die "Markdown 보고서를 만들 수 없습니다."
+    REPORT_TEXT="${markdown_report_temp}.md"
+    mv -- "$markdown_report_temp" "$REPORT_TEXT" || die "Markdown 보고서 이름을 확정할 수 없습니다."
+    REPORT_MARKDOWN_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_TEXT##*/}"
     REPORT_JSONL="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.jsonl.XXXXXXXX")" || die "JSONL 보고서를 만들 수 없습니다."
     REPORT_JSONL_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_JSONL##*/}"
     chmod 0600 "$REPORT_TEXT" "$REPORT_JSONL" || die "보고서 권한을 설정할 수 없습니다."
@@ -1270,17 +1315,19 @@ write_report_header() {
     }
 
     if {
-        printf 'KISA CCE 2026 Linux Security Scanner\n'
-        printf 'scanner_version: %s\n' "$header_version"
-        printf 'platform: %s\n' "$header_platform_name"
-        printf 'platform_id: %s\n' "$header_platform_id"
-        printf 'platform_id_like: %s\n' "$header_platform_id_like"
-        printf 'platform_version: %s\n' "$header_platform_version"
-        printf 'platform_family: %s\n' "$header_platform_family"
-        printf 'platform_base: %s %s\n' "$header_platform_base_id" "$header_platform_base_version"
-        printf 'scan_root: %s\n' "$header_scan_root"
-        printf 'runtime_collection: %s\n' "$header_runtime_mode"
-        printf 'started_at: %s\n\n' "$header_started_at"
+        printf '# KISA CCE 2026 Linux 보안 점검 보고서\n\n'
+        printf '## 점검 정보\n\n'
+        printf '    scanner_version: %s\n' "$header_version"
+        printf '    platform: %s\n' "$header_platform_name"
+        printf '    platform_id: %s\n' "$header_platform_id"
+        printf '    platform_id_like: %s\n' "$header_platform_id_like"
+        printf '    platform_version: %s\n' "$header_platform_version"
+        printf '    platform_family: %s\n' "$header_platform_family"
+        printf '    platform_base: %s %s\n' "$header_platform_base_id" "$header_platform_base_version"
+        printf '    scan_root: %s\n' "$header_scan_root"
+        printf '    runtime_collection: %s\n' "$header_runtime_mode"
+        printf '    started_at: %s\n\n' "$header_started_at"
+        printf '%s\n\n' '---'
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -1292,14 +1339,16 @@ write_report_header() {
 
 write_report_summary() {
     if {
-        printf 'SUMMARY\n'
-        printf 'total: %d\n' "$COUNT_TOTAL"
-        printf 'good: %d\n' "$COUNT_GOOD"
-        printf 'vulnerable: %d\n' "$COUNT_VULNERABLE"
-        printf 'manual: %d\n' "$COUNT_MANUAL"
-        printf 'not_applicable: %d\n' "$COUNT_NOT_APPLICABLE"
-        printf 'error: %d\n' "$COUNT_ERROR"
-        printf 'completed_at: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '## 판정 요약\n\n'
+        printf '| 판정 | 개수 |\n'
+        printf '|---|---:|\n'
+        printf '| 전체 | %d |\n' "$COUNT_TOTAL"
+        printf '| 양호 | %d |\n' "$COUNT_GOOD"
+        printf '| 취약 | %d |\n' "$COUNT_VULNERABLE"
+        printf '| 수동 확인 | %d |\n' "$COUNT_MANUAL"
+        printf '| 해당 없음 | %d |\n' "$COUNT_NOT_APPLICABLE"
+        printf '| 오류 | %d |\n\n' "$COUNT_ERROR"
+        printf "완료 시각: \`%s\`\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -1319,7 +1368,9 @@ write_report_summary() {
 validate_reports() {
     local expected_json_lines=$((COUNT_TOTAL + 1))
     local actual_json_lines=""
-    local text_result_count=""
+    local markdown_codes=""
+    local markdown_result_count=""
+    local jsonl_codes=""
 
     [ "$REPORT_WRITE_ERROR" -eq 0 ] || return 1
     [ -s "$REPORT_TEXT" ] && [ -s "$REPORT_JSONL" ] || return 1
@@ -1329,8 +1380,19 @@ validate_reports() {
     [ "$(stat_mode "$REPORT_JSONL" 2>/dev/null || true)" = "600" ] || return 1
     actual_json_lines="$(wc -l < "$REPORT_JSONL" | tr -d '[:space:]')"
     [ "$actual_json_lines" = "$expected_json_lines" ] || return 1
-    text_result_count="$(grep -Ec '^\[U-[0-9]{2}\]RRRRR : ' "$REPORT_TEXT")"
-    [ "$text_result_count" = "$COUNT_TOTAL" ] || return 1
+    markdown_result_count="$(grep -Ec '^## U-[0-9]{2}: ' "$REPORT_TEXT")"
+    [ "$markdown_result_count" = "$COUNT_TOTAL" ] || return 1
+    markdown_codes="$(sed -n 's/^## \(U-[0-9][0-9]\): .*/\1/p' "$REPORT_TEXT")"
+    jsonl_codes="$(sed -n 's/^{"code":"\(U-[0-9][0-9]\)".*/\1/p' "$REPORT_JSONL")"
+    [ "$markdown_codes" = "$jsonl_codes" ] || return 1
+    [ "$(grep -Fxc -- '# KISA CCE 2026 Linux 보안 점검 보고서' "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- '## 판정 요약' "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 전체 | $COUNT_TOTAL |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 양호 | $COUNT_GOOD |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 취약 | $COUNT_VULNERABLE |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 수동 확인 | $COUNT_MANUAL |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 해당 없음 | $COUNT_NOT_APPLICABLE |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| 오류 | $COUNT_ERROR |" "$REPORT_TEXT")" = 1 ] || return 1
     return 0
 }
 

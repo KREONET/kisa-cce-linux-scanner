@@ -102,7 +102,7 @@ Offline analysis can evaluate persistent files and metadata. It does not require
 Every normal scan produces two files and prints their absolute paths:
 
 ```text
-text_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.txt.RANDOM
+markdown_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.RANDOM.md
 jsonl_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.jsonl.RANDOM
 ```
 
@@ -110,11 +110,11 @@ When `--output-dir` is omitted, a root invocation uses `/var/log/kisa-cce-scanne
 
 Report paths are printed only after the final summary and integrity checks succeed. If the process is interrupted, partially written report files can remain in the output directory even though their paths were not printed. Treat such files as incomplete.
 
-### Text report
+### Markdown report
 
-The text report contains scanner and platform metadata, including the detected product, configuration family, and upstream base, followed by one delimited section for each selected criterion and a final count summary. Each result includes its code, title, category, severity, status, applicability, summary, and criterion URL. The evidence section is omitted when a check supplies no evidence.
+The Markdown report contains scanner and platform metadata, followed by one `## U-NN` section for each selected criterion and a final status table. Each result includes its title, category, severity, status, applicability, summary, criterion URL, and optional evidence section.
 
-Evidence separators are expanded, tab and carriage-return bytes are rendered as visible escapes in text evidence, remaining unsafe control bytes are removed or replaced, UTF-8 is normalized when `iconv` is available, and targeted credential redaction is applied before an 8192-byte limit. Text-report evidence lines are prefixed with `| ` to distinguish them from report framing. JSONL retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string.
+Dynamic titles and summaries are escaped before entering Markdown. Evidence separators are expanded, tab and carriage-return bytes are rendered as visible escapes, remaining unsafe control bytes are removed or replaced, UTF-8 is normalized when `iconv` is available, and targeted credential redaction is applied before an 8192-byte limit. Every evidence line is indented by four spaces so headings, links, images, tables, and raw HTML from an assessed host remain inert code-block content. JSONL retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string.
 
 ### JSONL report
 
@@ -126,7 +126,7 @@ The JSONL report contains one JSON object per selected criterion followed by one
 
 The final line has `type` set to `summary` and contains all status counts. Consumers must parse the file as JSON Lines, not as one JSON array.
 
-The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or timestamp header stored in the text report. Retain the text and JSONL files together when those provenance fields are required.
+The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or timestamp header stored in the Markdown report. Retain the Markdown and JSONL files together when those provenance fields are required.
 
 ## Result states
 

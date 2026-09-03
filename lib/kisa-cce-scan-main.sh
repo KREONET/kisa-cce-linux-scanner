@@ -238,7 +238,9 @@ validate_criteria() {
             if ($0 != "code\tcategory\tseverity\ttitle") exit 2
             next
         }
-        NF != 4 || $1 !~ /^U-[0-9][0-9]$/ || $2 == "" || $3 == "" || $4 == "" { exit 3 }
+        NF != 4 || $1 !~ /^U-[0-9][0-9]$/ ||
+            $2 !~ /^[a-z][a-z0-9_-]*$/ ||
+            $3 !~ /^[a-z][a-z0-9_-]*$/ || $4 == "" { exit 3 }
         seen[$1]++ { exit 4 }
         {
             count++
@@ -331,7 +333,7 @@ if ! report_output_paths_are_current; then
     REPORT_WRITE_ERROR=1
     die "출력 디렉터리 경로가 검사 중 변경되었습니다: $OUTPUT_PARENT"
 fi
-printf 'text_report=%s\njsonl_report=%s\n' "$REPORT_TEXT_OUTPUT_PATH" "$REPORT_JSONL_OUTPUT_PATH"
+printf 'markdown_report=%s\njsonl_report=%s\n' "$REPORT_MARKDOWN_OUTPUT_PATH" "$REPORT_JSONL_OUTPUT_PATH"
 
 scanner_exit_code
 exit "$?"

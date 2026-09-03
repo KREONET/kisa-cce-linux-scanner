@@ -1,4 +1,5 @@
 reports/
 *.jsonl
 *.txt
+/kisa-cce-*.md
 .run.*

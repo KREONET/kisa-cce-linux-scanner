@@ -20,7 +20,7 @@ The scanner does not remediate configuration, reload services, refresh package
 metadata, or run an explicit network-fetch operation.
 A live U-15 scan uses host NSS and may therefore consult an external identity
 backend.
-A normal scan writes protected text and JSONL reports.
+A normal scan writes protected Markdown and JSONL reports.
 .SH SUPPORTED PLATFORMS
 The lifecycle snapshot dated 2026-09-03 accepts Debian 12 and 13; Ubuntu
 22.04, 24.04, and 26.04 LTS; and the current base-stream RHEL releases 8.10,
@@ -159,7 +159,7 @@ A non-root offline invocation uses
 The scanner creates an owner-only temporary workspace and two randomized
 mode-0600 files:
 .TP
-.I kisa-cce-HOST-TIMESTAMP.txt.RANDOM
+.I kisa-cce-HOST-TIMESTAMP.RANDOM.md
 Human-readable scanner metadata, criterion sections, optional evidence, and
 summary counts.
 .TP
@@ -169,7 +169,7 @@ One JSON object per selected criterion followed by one summary object.
 The hostname identifies the machine running the scanner, including during
 offline analysis.
 The command prints
-.B text_report=
+.B markdown_report=
 and
 .B jsonl_report=
 paths only after final integrity checks succeed.
@@ -178,22 +178,21 @@ Any printed path names a report that passed final integrity checks, while an
 earlier interruption may leave incomplete files whose paths were not printed.
 .PP
 The JSONL file does not repeat the scanner, platform, root, runtime-mode, or
-timestamp header from the text report.
+timestamp header from the Markdown report.
 Retain both files when those provenance fields are required.
 .PP
 Evidence separators are expanded, tab and carriage-return bytes are rendered as
-visible escapes in text evidence, remaining unsafe control bytes are removed or
-replaced, and UTF-8 is normalized when
+visible escapes in Markdown evidence, remaining unsafe control bytes are
+removed or replaced, and UTF-8 is normalized when
 .B iconv
 is available, and targeted credential redaction is applied before an 8192-byte
 limit.
-Text-report evidence lines are prefixed with
-.B "| "
-to distinguish them from report framing.
+Markdown titles and summaries are escaped, and evidence lines are indented by
+four spaces so assessed content remains an inert code block.
 JSONL additionally removes an incomplete UTF-8 suffix created by byte-boundary
 truncation.
-The text evidence section is omitted when the value is empty; JSONL retains an
-empty
+The Markdown evidence section is omitted when the value is empty; JSONL retains
+an empty
 .B evidence
 string.
 .SH RESULT STATES

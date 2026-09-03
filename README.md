@@ -15,7 +15,7 @@ The scanner assesses configuration and runtime state without applying remediatio
 - Resolves subsystem-specific effective configuration instead of grepping one legacy file.
 - Keeps persistent configuration, manager-normalized configuration, and runtime state distinct.
 - Uses `MANUAL` and `ERROR` when available evidence cannot justify a conclusive result.
-- Produces one text result and one JSONL result for every selected criterion.
+- Produces one human-readable Markdown result and one JSONL result for every selected criterion.
 - Minimizes collected evidence and applies targeted credential redaction. Reports remain sensitive security data and require controlled handling.
 - Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, and listener facts to avoid repeated process creation.
 - Supports source-tree execution and relocatable `DESTDIR` package staging.

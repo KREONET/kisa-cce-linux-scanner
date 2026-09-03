@@ -66,7 +66,7 @@ Runtime finalization rejects empty reports, wrong ownership, wrong modes, and mi
 
 ### Evidence handling
 
-Evidence passes through control-character normalization, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. Text evidence maps tab and carriage return to visible escapes, replaces or removes remaining unsafe control bytes, and receives a fixed `| ` prefix so evidence cannot imitate result framing. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
+Evidence passes through control-character normalization, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. Markdown titles and summaries are escaped. Evidence maps tab and carriage return to visible escapes, replaces or removes remaining unsafe control bytes, and is rendered as a four-space-indented code block so assessed content cannot create headings, links, images, tables, or raw HTML. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
 
 Verbose mode writes only platform context, check identifiers, statuses, titles, and aggregate counters to standard error. It never writes result summaries or evidence to the terminal.
 

@@ -155,7 +155,7 @@ Ubuntu 26.04 uses sudo-rs as its default sudo provider, while the traditional im
 
 ## Report pipeline
 
-`set_result` validates and retains the four logical fields until dispatch. `record_result` expands evidence separators and builds control-byte-normalized, UTF-8-normalized working values through one framed `iconv` call when available. The normalized title and summary are used for JSONL, while the text report preserves the catalog title and check summary. Evidence receives targeted credential redaction and an 8192-byte limit before serialization. The text copy renders tab and carriage return as visible escapes, maps remaining unsafe controls, and prefixes every evidence line with `| ` so evidence cannot imitate result framing. The JSONL copy retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created at the byte boundary. The text evidence section is omitted when its value is empty. Counters increment only after both report writes succeed.
+`set_result` validates and retains the four logical fields until dispatch. `record_result` expands evidence separators and builds control-byte-normalized, UTF-8-normalized working values through one framed `iconv` call when available. The Markdown serializer escapes normalized titles and summaries before placing them in headings or prose. Evidence receives targeted credential redaction and an 8192-byte limit, renders tab and carriage return as visible escapes, maps remaining unsafe controls, and indents every line as code so assessed content cannot create Markdown structure. The JSONL copy retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created at the byte boundary. The Markdown evidence section is omitted when its value is empty. Counters increment only after both report writes succeed.
 
 Before success, `validate_reports` verifies:
 
@@ -163,7 +163,8 @@ Before success, `validate_reports` verifies:
 - both files belong to the invoking UID;
 - both files have mode `0600`;
 - JSONL line count equals result count plus one summary line;
-- text result markers equal the recorded result count.
+- Markdown result headings match the JSONL criterion codes and recorded result count;
+- the Markdown header and status-summary rows occur exactly once with the recorded counts.
 
 JSON schema validation is not currently part of the runtime finalization path. The test suite optionally parses JSONL with `jq` when it is installed.
 

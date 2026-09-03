@@ -128,7 +128,7 @@ Changes to collection or reporting should preserve these invariants:
 - exactly 67 results for a full scan;
 - no duplicate criterion code;
 - JSONL has one final summary line;
-- text and JSONL counts agree;
+- Markdown headings, summary rows, and JSONL result codes agree;
 - report files remain mode `0600`;
 - unsupported platforms fail unless explicitly allowed;
 - shared filesystem checks retain their counts, evidence order, and error precedence when collected together or selected individually;

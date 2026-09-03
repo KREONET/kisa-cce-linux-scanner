@@ -78,14 +78,14 @@ assert_full_catalog_contract() {
     local jsonl_report="$2"
     local context="$3"
 
-    result_count="$(grep -Ec '^\[U-[0-9]{2}\]RRRRR : ' "$text_report")"
-    assert_equal 67 "$result_count" "$context text result count"
+    result_count="$(grep -Ec '^## U-[0-9]{2}: ' "$text_report")"
+    assert_equal 67 "$result_count" "$context Markdown result count"
     json_lines="$(wc -l < "$jsonl_report" | tr -d '[:space:]')"
     assert_equal 68 "$json_lines" "$context JSONL line count"
-    assert_file_contains "$text_report" "error: 0" "$context text error count"
+    assert_file_contains "$text_report" "| 오류 | 0 |" "$context Markdown error count"
     assert_file_contains "$jsonl_report" '"type":"summary","total":67' "$context JSONL summary"
     assert_file_contains "$jsonl_report" '"error":0' "$context JSONL error count"
-    if grep -Eq '^\[U-[0-9]{2}\]RRRRR : ERROR$' "$text_report" ||
+    if grep -Fq -- '| 판정 | `ERROR` |' "$text_report" ||
         grep -Fq -- '"status":"ERROR"' "$jsonl_report"; then
         fail "$context contains an error result"
     fi
@@ -161,6 +161,8 @@ test_manpage_contract() (
     for platform_name in Debian Ubuntu AlmaLinux Rocky Oracle CentOS "Linux Mint" "KDE neon"; do
         grep -Fq -- "$platform_name" "$manpage" || fail "manual page is missing platform: $platform_name"
     done
+    grep -Fq -- 'markdown_report=' "$manpage" || fail "manual page is missing the Markdown output key"
+    grep -Fq -- '.RANDOM.md' "$manpage" || fail "manual page is missing the Markdown filename"
 
     if command -v mandoc >/dev/null 2>&1; then
         mandoc -T lint "$manpage" >/dev/null || fail "manual page lint failed"
@@ -676,6 +678,8 @@ test_core_report_counts_and_permissions() (
     local output="$TEST_TEMP/core-reports"
     local bound_output="$TEST_TEMP/core-reports-bound"
     local json_lines=""
+    local original_markdown_report=""
+    local tampered_markdown_report="$TEST_TEMP/tampered-report.md"
     local text_basename=""
 
     write_os_release "$root" ubuntu 26.04 "Ubuntu 26.04 LTS"
@@ -711,19 +715,29 @@ test_core_report_counts_and_permissions() (
     assert_equal 1 "$COUNT_NOT_APPLICABLE" "not-applicable count"
     assert_equal 1 "$COUNT_ERROR" "error count"
     assert_equal 700 "$(mode_of "$OUTPUT_PARENT")" "output directory mode"
-    assert_equal 600 "$(mode_of "$REPORT_TEXT")" "text report mode"
+    assert_equal 600 "$(mode_of "$REPORT_TEXT")" "Markdown report mode"
     assert_equal 600 "$(mode_of "$REPORT_JSONL")" "JSONL report mode"
     case "$REPORT_TEXT$REPORT_JSONL" in *XXXXXXXX*) fail "report filename was not randomized" ;; esac
-    assert_file_contains "$REPORT_TEXT" "total: 5" "text summary"
+    case "$REPORT_TEXT" in *.md) ;; *) fail "Markdown report filename does not end in .md" ;; esac
+    assert_file_contains "$REPORT_TEXT" "| 전체 | 5 |" "Markdown summary"
     assert_file_contains "$REPORT_TEXT" "password=[REDACTED]" "evidence redaction"
     assert_file_contains "$REPORT_TEXT" "owner=root" "evidence line normalization"
     if grep -Fq -- "do-not-write-this" "$REPORT_TEXT"; then
-        fail "text report retained a secret"
+        fail "Markdown report retained a secret"
     fi
     json_lines="$(wc -l < "$REPORT_JSONL" | tr -d '[:space:]')"
     assert_equal 6 "$json_lines" "JSONL result and summary line count"
     assert_file_contains "$REPORT_JSONL" '"type":"summary","total":5' "JSONL summary"
     validate_reports || fail "completed reports failed integrity validation"
+    original_markdown_report="$REPORT_TEXT"
+    awk '{if ($0 ~ /^## U-03:/) sub(/U-03/, "U-13"); print}' \
+        "$original_markdown_report" > "$tampered_markdown_report"
+    chmod 0600 -- "$tampered_markdown_report"
+    REPORT_TEXT="$tampered_markdown_report"
+    if validate_reports; then
+        fail "criterion code drift passed Markdown report validation"
+    fi
+    REPORT_TEXT="$original_markdown_report"
     if command -v jq >/dev/null 2>&1; then
         jq -e -c . "$REPORT_JSONL" >/dev/null || fail "JSONL report is not valid JSON"
     fi
@@ -849,6 +863,28 @@ test_result_normalization_differential() (
         printf -v "$destination_name" '%s' "$escaped_value"
     }
 
+    legacy_markdown_escape_into() {
+        local input_value="$1"
+        local destination_name="$2"
+
+        input_value="${input_value//\\/\\\\}"
+        input_value="${input_value//$'\n'/\\n}"
+        input_value="${input_value//$'\r'/\\r}"
+        input_value="${input_value//$'\t'/\\t}"
+        input_value="${input_value//\`/\\\`}"
+        input_value="${input_value//\*/\\*}"
+        input_value="${input_value//_/\\_}"
+        input_value="${input_value//\[/\\[}"
+        input_value="${input_value//\]/\\]}"
+        input_value="${input_value//#/\\#}"
+        input_value="${input_value//+/\\+}"
+        input_value="${input_value//-/\\-}"
+        input_value="${input_value//|/\\|}"
+        input_value="${input_value//</\\<}"
+        input_value="${input_value//>/\\>}"
+        printf -v "$destination_name" '%s' "$input_value"
+    }
+
     write_legacy_record() {
         local title="$1"
         local summary="$2"
@@ -863,30 +899,10 @@ test_result_normalization_differential() (
         local escaped_title=""
         local escaped_summary=""
         local escaped_evidence=""
+        local markdown_title=""
+        local markdown_summary=""
         local criterion_url="${KISA_CCE_GUIDE_BASE}/unix/u-61/"
         local text_c1=$'\302[\200-\237]'
-
-        {
-            printf '[U-61]SSSSS\n'
-            printf '제목: %s\n' "$title"
-            printf '분류: service\n'
-            printf '중요도: high\n'
-            printf '판정: GOOD\n'
-            printf '적용 여부: true\n'
-            printf '요약: %s\n' "$summary"
-            if [ -n "$evidence" ]; then
-                printf '[근거]\n'
-                while IFS= read -r evidence_line || [ -n "$evidence_line" ]; do
-                    evidence_line="${evidence_line//$'\t'/\\t}"
-                    evidence_line="${evidence_line//$'\r'/\\r}"
-                    evidence_line="${evidence_line//$text_c1/?}"
-                    printf '| %s\n' "$evidence_line"
-                done <<< "$evidence"
-            fi
-            printf '기준: %s\n' "$criterion_url"
-            printf '[U-61]EEEEE\n'
-            printf '[U-61]RRRRR : GOOD\n\n'
-        } > "$expected_text"
 
         legacy_remove_control_bytes_into "$normalized_title" normalized_title
         legacy_remove_control_bytes_into "$normalized_summary" normalized_summary
@@ -909,6 +925,31 @@ test_result_normalization_differential() (
                     ;;
             esac
         fi
+        legacy_markdown_escape_into "$normalized_title" markdown_title
+        legacy_markdown_escape_into "$normalized_summary" markdown_summary
+        {
+            printf '## U-61: %s\n\n' "$markdown_title"
+            printf '| 항목 | 값 |\n'
+            printf '|---|---|\n'
+            printf '| 분류 | `service` |\n'
+            printf '| 중요도 | `high` |\n'
+            printf '| 판정 | `GOOD` |\n'
+            printf '| 적용 여부 | `true` |\n\n'
+            printf '### 요약\n\n%s\n\n' "$markdown_summary"
+            if [ -n "$evidence" ]; then
+                printf '### 근거\n\n'
+                while IFS= read -r evidence_line || [ -n "$evidence_line" ]; do
+                    evidence_line="${evidence_line//$'\t'/\\t}"
+                    evidence_line="${evidence_line//$'\r'/\\r}"
+                    evidence_line="${evidence_line//$text_c1/?}"
+                    printf '    %s\n' "$evidence_line"
+                done <<< "$evidence"
+                printf '\n'
+            fi
+            printf '### 기준\n\n'
+            printf '[KISA CCE U-61](%s)\n\n' "$criterion_url"
+            printf '%s\n\n' '---'
+        } > "$expected_text"
         legacy_json_escape_into "$normalized_title" escaped_title
         legacy_json_escape_into "$normalized_summary" escaped_summary
         legacy_json_escape_into "$normalized_evidence" escaped_evidence
@@ -942,7 +983,7 @@ test_result_normalization_differential() (
         assert_equal "$raw_evidence" "$RESULT_EVIDENCE" "$case_name raw evidence retention"
         record_result U-61 service high "$title" || fail "$case_name result record failed"
         assert_equal "$legacy_evidence" "$RESULT_EVIDENCE" "$case_name normalized evidence"
-        cmp -s "$expected_text" "$actual_text" || fail "$case_name text report differs from legacy output"
+        cmp -s "$expected_text" "$actual_text" || fail "$case_name Markdown report differs from expected output"
         cmp -s "$expected_json" "$actual_json" || fail "$case_name JSONL report differs from legacy output"
         IFS= read -r json_line < "$actual_json" || fail "$case_name JSONL record is unreadable"
         printf '%s\n' "$json_line" >> "$aggregate_json"
@@ -963,6 +1004,15 @@ test_result_normalization_differential() (
         $'pass\377word=fixturepassword\ncreate\377User alice SHA fixtureauth\nleft\\\377nright'
     compare_result_case json-fields $'title\001\036\177\377 "한글"' \
         $'summary\002\036\377 \\ tab\t carriage\r line\n😀' $'evidence="quoted"\npath=\\root'
+    compare_result_case markdown-structure \
+        $'title | <script> [link](https://example.invalid) `code`' \
+        $'summary\n## U-98: forged summary' \
+        $'## U-99: forged evidence\n![remote](https://example.invalid/image)\n<script>alert(1)</script>\n| fake | table |\n```'
+    if grep -Eq '^(## U-9[89]: forged|!\[remote\]|<script>|\| fake \|)' "$actual_text"; then
+        fail "Markdown structure was injected by a dynamic report field"
+    fi
+    assert_file_contains "$actual_text" '    ## U-99: forged evidence' "Markdown evidence code indentation"
+    assert_file_contains "$actual_text" '\<script\>' "Markdown title HTML escaping"
     compare_result_case trailing-line-feed "trailing title" $'summary\n\n' $'line one\nline two\n\n'
 
     printf -v boundary_value '%*s' 8193 ""
@@ -1770,7 +1820,7 @@ test_cli_platform_selection_and_reports() (
     done
 
     for control_root in \
-        "$TEST_TEMP/control-root"$'\n''[U-99]RRRRR : GOOD' \
+        "$TEST_TEMP/control-root"$'\n''## U-99: forged' \
         "$TEST_TEMP/control-root"$'\r''carriage' \
         "$TEST_TEMP/control-root"$'\t''tab'; do
         write_os_release "$control_root" ubuntu 26.04 "Ubuntu 26.04 LTS"
@@ -1780,7 +1830,7 @@ test_cli_platform_selection_and_reports() (
         assert_equal 2 "$command_status" "separated root control-character rejection"
         assert_contains "$command_output" "--root 경로에 허용되지 않는 제어 문자가 포함되어 있습니다." \
             "separated root control-character message"
-        case "$command_output" in *text_report=*|*jsonl_report=*) fail "rejected root produced report paths" ;; esac
+        case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "rejected root produced report paths" ;; esac
 
         command_status=0
         command_output="$("$scanner_copy/bin/kisa-cce-scan" \
@@ -1788,7 +1838,7 @@ test_cli_platform_selection_and_reports() (
         assert_equal 2 "$command_status" "attached root control-character rejection"
         assert_contains "$command_output" "--root 경로에 허용되지 않는 제어 문자가 포함되어 있습니다." \
             "attached root control-character message"
-        case "$command_output" in *text_report=*|*jsonl_report=*) fail "rejected attached root produced report paths" ;; esac
+        case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "rejected attached root produced report paths" ;; esac
     done
 
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
@@ -1799,13 +1849,13 @@ test_cli_platform_selection_and_reports() (
         --no-runtime 2>&1)"
     command_status="$?"
     assert_equal 0 "$command_status" "supported CLI scan exit status"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
+    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
     jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
-    [ -f "$text_report" ] || fail "CLI text report was not created"
+    [ -f "$text_report" ] || fail "CLI Markdown report was not created"
     [ -f "$jsonl_report" ] || fail "CLI JSONL report was not created"
-    assert_file_contains "$text_report" "total: 1" "selected CLI result count"
+    assert_file_contains "$text_report" "| 전체 | 1 |" "selected CLI result count"
     assert_file_contains "$text_report" "runtime_collection: off" "offline runtime state"
-    assert_equal 600 "$(mode_of "$text_report")" "CLI text report mode"
+    assert_equal 600 "$(mode_of "$text_report")" "CLI Markdown report mode"
     assert_equal 600 "$(mode_of "$jsonl_report")" "CLI JSONL report mode"
     assert_contains "$command_output" "VERBOSE: platform=ubuntu version=26.04 family=debian" "verbose platform line"
     assert_contains "$command_output" "VERBOSE: check=U-01 status=GOOD" "verbose check line"
@@ -1838,7 +1888,7 @@ test_cli_platform_selection_and_reports() (
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
         --root "$supported_root" --output-dir "$nested_output" --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "normal nested output directory"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
+    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
     [ -f "$text_report" ] || fail "normal nested output report was not created"
 
     command_status=0
@@ -1853,11 +1903,11 @@ test_cli_platform_selection_and_reports() (
     if grep -Fq -- "VERBOSE:" "$short_verbose_stdout"; then
         fail "verbose diagnostics were written to standard output"
     fi
-    assert_file_contains "$short_verbose_stdout" "text_report=" "short verbose report path output"
+    assert_file_contains "$short_verbose_stdout" "markdown_report=" "short verbose report path output"
 
     write_os_release "$injection_root" ubuntu 26.04 "Ubuntu 26.04 LTS"
     mkdir -p -- "$injection_root/data"
-    injection_file="$injection_root/data/evil\\n[U-99]RRRRR : GOOD"
+    injection_file="$injection_root/data/evil\\n## U-99: forged"
     : > "$injection_file"
     chmod 0666 -- "$injection_file"
     command_status=0
@@ -1865,19 +1915,19 @@ test_cli_platform_selection_and_reports() (
         --root "$injection_root" --output-dir "$injection_output_dir" \
         --checks U-25 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "literal backslash-n evidence scan exit status"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
-    [ -f "$text_report" ] || fail "literal backslash-n evidence text report was not created"
-    injection_result_count="$(grep -Ec '^\[U-[0-9]{2}\]RRRRR : ' "$text_report")"
+    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+    [ -f "$text_report" ] || fail "literal backslash-n evidence Markdown report was not created"
+    injection_result_count="$(grep -Ec '^## U-[0-9]{2}: ' "$text_report")"
     assert_equal 1 "$injection_result_count" "literal backslash-n evidence result count"
-    if grep -Fxq -- '[U-99]RRRRR : GOOD' "$text_report"; then
-        fail "literal backslash-n evidence injected a report marker"
+    if grep -Fxq -- '## U-99: forged' "$text_report"; then
+        fail "literal backslash-n evidence injected a Markdown heading"
     fi
-    assert_file_contains "$text_report" '| [U-99]RRRRR : GOOD' "literal backslash-n evidence prefix"
+    assert_file_contains "$text_report" '    ## U-99: forged' "literal backslash-n evidence indentation"
 
     mkdir -p -- "$header_root/etc"
     {
         printf '%s\n' 'ID=ubuntu' 'VERSION_ID="26.04"'
-        printf 'PRETTY_NAME="Ubuntu \033[31mred"\n'
+        printf 'PRETTY_NAME="Ubuntu \033[31mred <img src=https://example.invalid/pixel> | ## forged"\n'
         printf 'ID_LIKE="debian\tspoof"\n'
     } > "$header_root/etc/os-release"
     command_status=0
@@ -1885,12 +1935,16 @@ test_cli_platform_selection_and_reports() (
         --root "$header_root" --output-dir "$header_output" \
         --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "header control-byte sanitization scan"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
-    [ -f "$text_report" ] || fail "header control-byte text report was not created"
+    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+    [ -f "$text_report" ] || fail "header control-byte Markdown report was not created"
     # shellcheck disable=SC2094 # cmp only reads the original file; it does not overwrite pipeline input.
     if ! LC_ALL=C tr -d '\000-\011\013-\037\177' < "$text_report" | cmp -s - "$text_report"; then
-        fail "text report header retained a non-newline control byte"
+        fail "Markdown report header retained a non-newline control byte"
     fi
+    if grep -Eq '^(<img|## forged)' "$text_report"; then
+        fail "platform metadata injected Markdown structure"
+    fi
+    assert_file_contains "$text_report" '    platform: Ubuntu [31mred <img' "platform metadata code indentation"
 
     while IFS='|' read -r matrix_id matrix_version matrix_name matrix_id_like matrix_codename matrix_family matrix_base; do
         matrix_number=$((matrix_number + 1))
@@ -1901,17 +1955,17 @@ test_cli_platform_selection_and_reports() (
             --root "$matrix_root" --output-dir "$matrix_output" --checks U-01 --no-runtime 2>&1)"
         command_status=$?
         assert_equal 0 "$command_status" "$matrix_id $matrix_version CLI scan exit status"
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
+        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
         jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
-        [ -f "$text_report" ] || fail "$matrix_id $matrix_version CLI text report was not created"
+        [ -f "$text_report" ] || fail "$matrix_id $matrix_version CLI Markdown report was not created"
         [ -f "$jsonl_report" ] || fail "$matrix_id $matrix_version CLI JSONL report was not created"
-        assert_equal 600 "$(mode_of "$text_report")" "$matrix_id $matrix_version text report mode"
+        assert_equal 600 "$(mode_of "$text_report")" "$matrix_id $matrix_version Markdown report mode"
         assert_equal 600 "$(mode_of "$jsonl_report")" "$matrix_id $matrix_version JSONL report mode"
         assert_file_contains "$text_report" "platform_id: $matrix_id" "$matrix_id platform report metadata"
         assert_file_contains "$text_report" "platform_version: $matrix_version" "$matrix_id version report metadata"
         assert_file_contains "$text_report" "platform_family: $matrix_family" "$matrix_id family report metadata"
         assert_file_contains "$text_report" "platform_base: $matrix_base" "$matrix_id base report metadata"
-        assert_file_contains "$text_report" "total: 1" "$matrix_id selected result count"
+        assert_file_contains "$text_report" "| 전체 | 1 |" "$matrix_id selected result count"
     done <<'EOF'
 debian|13|Debian GNU/Linux 13|||debian|debian 13
 rhel|10.2|Red Hat Enterprise Linux 10.2|fedora||rhel|rhel 10.2
@@ -1942,7 +1996,7 @@ EOF
     assert_contains "$command_output" "persistent=0" "sysctl persistent explanation"
     assert_contains "$command_output" "runtime=unavailable" "offline sysctl runtime explanation"
     [ ! -e "$explain_output_dir" ] || fail "sysctl explanation created an output directory"
-    case "$command_output" in *text_report=*|*jsonl_report=*) fail "sysctl explanation produced a report path" ;; esac
+    case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "sysctl explanation produced a report path" ;; esac
 
     command_output="$("$scanner_copy/bin/kisa-cce-scan" --root "$supported_root" --checks U-99 2>&1)"
     command_status="$?"
@@ -2030,8 +2084,8 @@ test_installed_layouts() (
             --checks U-01 \
             --no-runtime 2>&1)" || command_status=$?
         assert_equal 0 "$command_status" "$layout_name installed scan exit status"
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
-        [ -f "$text_report" ] || fail "$layout_name installed scan did not create a text report"
+        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+        [ -f "$text_report" ] || fail "$layout_name installed scan did not create a Markdown report"
         assert_file_contains "$text_report" "installed fixture" "$layout_name installed library lookup"
     done
 )
@@ -2119,9 +2173,9 @@ test_full_catalog_produces_one_result_per_criterion() (
         0|1) ;;
         *) fail "full catalog scan exited unexpectedly: $command_status" ;;
     esac
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
+    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
     jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
-    [ -f "$text_report" ] || fail "full scan text report was not created: $command_output"
+    [ -f "$text_report" ] || fail "full scan Markdown report was not created: $command_output"
     [ -f "$jsonl_report" ] || fail "full scan JSONL report was not created"
     assert_full_catalog_contract "$text_report" "$jsonl_report" "full catalog"
     if grep -Fq -- 'fixture-secret-that-must-not-leak' "$text_report" "$jsonl_report"; then
@@ -2150,9 +2204,9 @@ test_full_catalog_produces_one_result_per_criterion() (
             0|1) ;;
             *) fail "RHEL $rhel_version full catalog scan exited unexpectedly: $command_status" ;;
         esac
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^text_report=//p')"
+        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
         jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
-        [ -f "$text_report" ] || fail "RHEL $rhel_version text report was not created: $command_output"
+        [ -f "$text_report" ] || fail "RHEL $rhel_version Markdown report was not created: $command_output"
         [ -f "$jsonl_report" ] || fail "RHEL $rhel_version JSONL report was not created"
         assert_full_catalog_contract "$text_report" "$jsonl_report" "RHEL $rhel_version full catalog"
         assert_file_contains "$text_report" "platform_family: rhel" "RHEL $rhel_version platform family"
