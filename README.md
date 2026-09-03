@@ -19,12 +19,14 @@ The scanner assesses configuration and runtime state without applying remediatio
 - Minimizes collected evidence and applies targeted credential redaction. Reports remain sensitive security data and require controlled handling.
 - Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, and listener facts to avoid repeated process creation.
 - Supports source-tree execution and relocatable `DESTDIR` package staging.
+- Provides strict complete mode with review-bound policy attestations and validated runtime evidence bundles.
+- Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and time state before an offline scan.
 
 The criterion reference is published at [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).
 
 ## Quick start
 
-Run a complete live scan as root:
+Run a live audit of all 67 criteria as root:
 
 ```bash
 sudo ./bin/kisa-cce-scan
@@ -36,7 +38,11 @@ Run selected criteria:
 sudo ./bin/kisa-cce-scan --checks U-01,U-02,U-65
 ```
 
-Show progress on standard error. This stream includes the scan root, criterion statuses, and aggregate counts, so handle it as assessment data:
+Show progress on standard error. Every terminal line, including help, errors,
+versions, progress, and result paths, uses
+`[    12.345678] command: payload`. Automation keys remain unchanged inside
+the payload. Treat verbose output as assessment data because it includes the
+scan root, criterion statuses, and aggregate counts:
 
 ```bash
 sudo ./bin/kisa-cce-scan --verbose
@@ -46,6 +52,23 @@ Inspect an offline filesystem:
 
 ```bash
 ./bin/kisa-cce-scan --root /srv/images/ubuntu-26.04 --no-runtime
+```
+
+Capture live runtime evidence before creating an offline image:
+
+```bash
+sudo ./bin/kisa-cce-collect \
+  --output-dir /var/lib/kisa-cce-evidence/server-20260903T120000Z
+```
+
+Run all 67 criteria in complete mode after reviewing the audit review IDs:
+
+```bash
+sudo ./bin/kisa-cce-scan \
+  --root /srv/images/ubuntu-26.04 \
+  --mode complete \
+  --policy-dir /etc/kisa-cce-scanner/policy.d \
+  --evidence-bundle /var/lib/kisa-cce-evidence/server-20260903T120000Z
 ```
 
 Explain one sysctl key without changing it:
@@ -68,8 +91,12 @@ See [Operator usage](docs/usage.md) for privileges, options, reports, result sta
 | [Security model](docs/security-model.md) | Trust boundaries, controls, residual risks, and deployment requirements. |
 | [Development](docs/development.md) | Check contracts, testing, and release workflow. |
 | [Packaging](docs/packaging/README.md) | `DESTDIR` layout and Debian/RPM integration. |
+| [Policy format](docs/policy-format.md) | Review-bound organizational attestations used by complete mode. |
+| [Evidence bundle](docs/evidence-bundle.md) | Live runtime collector, directory schema, validation, and offline use. |
+| [Localization](docs/localization.md) | `LANG` selection, package-specific PO catalogs, and translator workflow. |
+| [Performance](docs/performance.md) | Scan epochs, subsystem snapshots, dependency invalidation, and benchmarks. |
 
-The installed command manual is available as `kisa-cce-scan(8)`.
+The installed command manuals are available as `kisa-cce-scan(8)` and `kisa-cce-collect(8)`.
 
 ## Installation staging
 
@@ -80,7 +107,7 @@ make install DESTDIR="$package_root" prefix=/usr
 "$package_root/usr/bin/kisa-cce-scan" --version
 ```
 
-With `prefix=/usr`, private Bash files are installed under `/usr/lib/kisa-cce-linux-scanner`, runtime data under `/usr/share/kisa-cce-linux-scanner`, and the command manual under `/usr/share/man/man8`. Repository Markdown is not installed by this target.
+With `prefix=/usr`, private Bash files are installed under `/usr/lib/kisa-cce-linux-scanner`, runtime data and PO catalogs under `/usr/share/kisa-cce-linux-scanner`, and the command manuals under `/usr/share/man/man8`. Repository Markdown is not installed by this target.
 
 ## Validation
 
@@ -90,3 +117,7 @@ make lint
 ```
 
 The local suite verifies detection and classification for every platform row, family-specific semantic fixtures, 67-result cardinality, report integrity, secret-safety regressions, layered configuration, offline path confinement, and staged installation. Complete runtime acceptance still requires every listed product and release.
+
+## License
+
+Original project code and documentation are licensed under [`LGPL-3.0-or-later`](LICENSE). The complete LGPLv3 and GPLv3 terms are stored under `LICENSES/`. KISA guide-derived identifiers and references are described separately in [NOTICE](NOTICE).

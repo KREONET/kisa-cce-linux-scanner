@@ -13,6 +13,10 @@ This directory documents the behavior implemented by the current source tree. Th
 | [Security model](security-model.md) | Security and operations teams | Trust boundaries, defensive controls, residual risks, and safe deployment. |
 | [Development](development.md) | Contributors | Check implementation contract, validation workflow, and release gates. |
 | [Packaging](packaging/README.md) | Package maintainers | `DESTDIR` installation and future Debian/RPM integration. |
+| [Policy format](policy-format.md) | Security governance | Attestation schema, trust requirements, expiry, and review ID matching. |
+| [Evidence bundle](evidence-bundle.md) | Operators and reviewers | Runtime collector, bundle contents, validation, and offline binding. |
+| [Localization](localization.md) | Operators and translators | Report language selection, PO catalog layout, and translation workflow. |
+| [Performance](performance.md) | Maintainers and reviewers | Scan epochs, parse-once snapshots, dependency DAG, and benchmark method. |
 
 The source for the installed `kisa-cce-scan(8)` command manual is `man/kisa-cce-scan.8`.
 
@@ -30,6 +34,11 @@ The source for the installed `kisa-cce-scan(8)` command manual is `man/kisa-cce-
 | Regression coverage | `tests/run.sh`. |
 | Installed file layout | `Makefile`. |
 | Command manual | `man/kisa-cce-scan.8`. |
+| Complete-mode policy contract | `docs/policy-format.md` and `lib/policy.sh`. |
+| Runtime evidence contract | `docs/evidence-bundle.md` and `lib/evidence.sh`. |
+| Report localization contract | `docs/localization.md`, `lib/i18n.sh`, and `share/kisa-cce-linux-scanner/locale`. |
+| Scan cache and invalidation contract | `docs/performance.md` and `lib/scan_epoch.sh`. |
+| Project license | `LICENSE` and `LICENSES/`. |
 | Scanner version | `data/VERSION`. |
 
 The rendered KISA criterion pages provide the assessment reference, while the local catalog controls which results the scanner emits: [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).

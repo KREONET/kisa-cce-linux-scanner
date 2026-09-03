@@ -1,0 +1,14 @@
+KISA CCE Linux Scanner contains original scanner code and documentation
+licensed under LGPL-3.0-or-later.
+
+Copyright (c) 2026 Euiseo Cha <escha@zeroday0619.dev>
+
+Criterion identifiers, Korean criterion titles, judgment references, and links
+in data/criteria.tsv and generated reports are derived from or refer to the
+published KISA CCE 2026 guide:
+
+https://kreonet.github.io/kisa-cce-guide-web/
+
+The underlying KISA guide and other cited third-party documentation are not
+relicensed by this project. Their respective copyright and usage terms remain
+with their publishers and authors.

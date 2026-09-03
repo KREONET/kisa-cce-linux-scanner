@@ -1,0 +1,1514 @@
+msgid "$HOME/.rhosts, hosts.equiv 사용 금지"
+msgstr "$HOME/.rhosts, hosts.equiv 사용 금지"
+
+msgid "(r)syslog 구성 일부의 메타데이터를 확인하지 못했습니다."
+msgstr "(r)syslog 구성 일부의 메타데이터를 확인하지 못했습니다."
+
+msgid "(r)syslog 구성 파일이 없으며 journald 점검은 U-66에서 수행합니다."
+msgstr "(r)syslog 구성 파일이 없으며 journald 점검은 U-66에서 수행합니다."
+
+msgid "(r)syslog 구성의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "(r)syslog 구성의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "(r)syslog 기본 파일과 분할 구성이 허용 소유자이며 0640 이하입니다."
+msgstr "(r)syslog 기본 파일과 분할 구성이 허용 소유자이며 0640 이하입니다."
+
+msgid "/dev 경로를 안전하게 해석하지 못했습니다."
+msgstr "/dev 경로를 안전하게 해석하지 못했습니다."
+
+msgid "/dev 디렉터리가 존재하지 않습니다."
+msgstr "/dev 디렉터리가 존재하지 않습니다."
+
+msgid "/dev 일반 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "/dev 일반 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "/dev에 device node가 아닌 일반 파일이 존재합니다."
+msgstr "/dev에 device node가 아닌 일반 파일이 존재합니다."
+
+msgid "/dev에 일반 파일이 없습니다."
+msgstr "/dev에 일반 파일이 없습니다."
+
+msgid "/dev에 존재하지 않는 device 파일 점검"
+msgstr "/dev에 존재하지 않는 device 파일 점검"
+
+msgid "/dev의 일반 파일 검색을 완료하지 못했습니다."
+msgstr "/dev의 일반 파일 검색을 완료하지 못했습니다."
+
+msgid "/etc/(r)syslog.conf 파일 소유자 및 권한 설정"
+msgstr "/etc/(r)syslog.conf 파일 소유자 및 권한 설정"
+
+msgid "/etc/(x)inetd.conf 파일 소유자 및 권한 설정"
+msgstr "/etc/(x)inetd.conf 파일 소유자 및 권한 설정"
+
+msgid "/etc/group을 안전한 일반 파일로 읽고 검증하지 못했습니다."
+msgstr "/etc/group을 안전한 일반 파일로 읽고 검증하지 못했습니다."
+
+msgid "/etc/gshadow 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "/etc/gshadow 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "/etc/gshadow의 필드 구조 또는 그룹 이름이 유효하지 않습니다."
+msgstr "/etc/gshadow의 필드 구조 또는 그룹 이름이 유효하지 않습니다."
+
+msgid "/etc/hosts 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "/etc/hosts 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "/etc/hosts 파일 소유자 및 권한 설정"
+msgstr "/etc/hosts 파일 소유자 및 권한 설정"
+
+msgid "/etc/hosts.lpd 경로를 안전하게 읽지 못했습니다."
+msgstr "/etc/hosts.lpd 경로를 안전하게 읽지 못했습니다."
+
+msgid "/etc/hosts.lpd가 root 소유이며 권한이 0600 이하입니다."
+msgstr "/etc/hosts.lpd가 root 소유이며 권한이 0600 이하입니다."
+
+msgid "/etc/hosts.lpd가 존재하지 않습니다."
+msgstr "/etc/hosts.lpd가 존재하지 않습니다."
+
+msgid "/etc/hosts.lpd의 메타데이터를 확인하지 못했습니다."
+msgstr "/etc/hosts.lpd의 메타데이터를 확인하지 못했습니다."
+
+msgid "/etc/hosts.lpd의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "/etc/hosts.lpd의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "/etc/hosts가 root 소유이며 권한이 0644 이하입니다."
+msgstr "/etc/hosts가 root 소유이며 권한이 0644 이하입니다."
+
+msgid "/etc/hosts가 존재하지 않습니다."
+msgstr "/etc/hosts가 존재하지 않습니다."
+
+msgid "/etc/hosts의 메타데이터를 확인하지 못했습니다."
+msgstr "/etc/hosts의 메타데이터를 확인하지 못했습니다."
+
+msgid "/etc/hosts의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "/etc/hosts의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "/etc/nsswitch.conf 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "/etc/nsswitch.conf 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "/etc/passwd 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "/etc/passwd 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "/etc/passwd 계정 데이터가 비어 있거나 올바르지 않습니다."
+msgstr "/etc/passwd 계정 데이터가 비어 있거나 올바르지 않습니다."
+
+msgid "/etc/passwd 파일 소유자 및 권한 설정"
+msgstr "/etc/passwd 파일 소유자 및 권한 설정"
+
+msgid "/etc/passwd 파일을 읽을 수 없습니다."
+msgstr "/etc/passwd 파일을 읽을 수 없습니다."
+
+msgid "/etc/passwd가 root 소유이며 권한이 0644 이하입니다."
+msgstr "/etc/passwd가 root 소유이며 권한이 0644 이하입니다."
+
+msgid "/etc/passwd가 존재하지 않습니다."
+msgstr "/etc/passwd가 존재하지 않습니다."
+
+msgid "/etc/passwd를 안전한 일반 파일로 읽고 검증하지 못했습니다."
+msgstr "/etc/passwd를 안전한 일반 파일로 읽고 검증하지 못했습니다."
+
+msgid "/etc/passwd를 안전한 일반 파일로 읽을 수 없습니다."
+msgstr "/etc/passwd를 안전한 일반 파일로 읽을 수 없습니다."
+
+msgid "/etc/passwd를 읽을 수 없습니다."
+msgstr "/etc/passwd를 읽을 수 없습니다."
+
+msgid "/etc/passwd에 설정된 모든 계정의 홈 디렉터리가 존재합니다."
+msgstr "/etc/passwd에 설정된 모든 계정의 홈 디렉터리가 존재합니다."
+
+msgid "/etc/passwd에 설정된 홈 디렉터리가 없는 계정이 있습니다."
+msgstr "/etc/passwd에 설정된 홈 디렉터리가 없는 계정이 있습니다."
+
+msgid "/etc/passwd의 메타데이터를 확인하지 못했습니다."
+msgstr "/etc/passwd의 메타데이터를 확인하지 못했습니다."
+
+msgid "/etc/passwd의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "/etc/passwd의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "/etc/passwd의 필드 구조, 계정 이름 또는 UID/GID가 유효하지 않습니다."
+msgstr "/etc/passwd의 필드 구조, 계정 이름 또는 UID/GID가 유효하지 않습니다."
+
+msgid "/etc/services 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "/etc/services 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "/etc/services 파일 소유자 및 권한 설정"
+msgstr "/etc/services 파일 소유자 및 권한 설정"
+
+msgid "/etc/services가 존재하지 않습니다."
+msgstr "/etc/services가 존재하지 않습니다."
+
+msgid "/etc/services가 허용 소유자이며 권한이 0644 이하입니다."
+msgstr "/etc/services가 허용 소유자이며 권한이 0644 이하입니다."
+
+msgid "/etc/services의 메타데이터를 확인하지 못했습니다."
+msgstr "/etc/services의 메타데이터를 확인하지 못했습니다."
+
+msgid "/etc/services의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "/etc/services의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "/etc/shadow 경로가 검사 루트 밖을 가리키거나 안전하게 해석되지 않았습니다."
+msgstr "/etc/shadow 경로가 검사 루트 밖을 가리키거나 안전하게 해석되지 않았습니다."
+
+msgid "/etc/shadow 경로가 안전하지 않거나 일반 파일로 읽히지 않습니다."
+msgstr "/etc/shadow 경로가 안전하지 않거나 일반 파일로 읽히지 않습니다."
+
+msgid "/etc/shadow 경로가 안전하지 않거나 파일을 읽을 수 없습니다."
+msgstr "/etc/shadow 경로가 안전하지 않거나 파일을 읽을 수 없습니다."
+
+msgid "/etc/shadow 파일 소유자 및 권한 설정"
+msgstr "/etc/shadow 파일 소유자 및 권한 설정"
+
+msgid "/etc/shadow가 root 소유이며 권한이 0400 이하입니다."
+msgstr "/etc/shadow가 root 소유이며 권한이 0400 이하입니다."
+
+msgid "/etc/shadow가 존재하지 않습니다."
+msgstr "/etc/shadow가 존재하지 않습니다."
+
+msgid "/etc/shadow의 메타데이터를 확인하지 못했습니다."
+msgstr "/etc/shadow의 메타데이터를 확인하지 못했습니다."
+
+msgid "/etc/shadow의 소유자 또는 권한이 KISA 기준을 벗어납니다."
+msgstr "/etc/shadow의 소유자 또는 권한이 KISA 기준을 벗어납니다."
+
+msgid "/etc/shadow의 필드 구조 또는 계정 이름이 유효하지 않습니다."
+msgstr "/etc/shadow의 필드 구조 또는 계정 이름이 유효하지 않습니다."
+
+msgid "/var/log 디렉터리를 찾을 수 없습니다."
+msgstr "/var/log 디렉터리를 찾을 수 없습니다."
+
+msgid "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일을 확인했습니다."
+msgstr "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일을 확인했습니다."
+
+msgid "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다."
+msgstr "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다."
+
+msgid "/var/log의 모든 일반 파일이 root 소유이며 0644 이하입니다."
+msgstr "/var/log의 모든 일반 파일이 root 소유이며 0644 이하입니다."
+
+msgid "022보다 약한 유효 UMASK 적용 경로가 존재합니다."
+msgstr "022보다 약한 유효 UMASK 적용 경로가 존재합니다."
+
+msgid "22번 포트 리스너가 OpenSSH인지 확정할 수 없어 root 원격 접속 정책을 수동 확인해야 합니다."
+msgstr "22번 포트 리스너가 OpenSSH인지 확정할 수 없어 root 원격 접속 정책을 수동 확인해야 합니다."
+
+msgid "22번 포트 리스너를 확인했지만 SSH 서비스와 root 정책을 확정하지 못했습니다."
+msgstr "22번 포트 리스너를 확인했지만 SSH 서비스와 root 정책을 확정하지 못했습니다."
+
+msgid "600초 이하의 설정은 확인했지만 사용자 시작 파일의 재정의 가능성을 확인해야 합니다."
+msgstr "600초 이하의 설정은 확인했지만 사용자 시작 파일의 재정의 가능성을 확인해야 합니다."
+
+msgid "BIND 9.20 미만에서 Zone Transfer 제한을 확인하지 못했습니다."
+msgstr "BIND 9.20 미만에서 Zone Transfer 제한을 확인하지 못했습니다."
+
+msgid "BIND 9.20 이상의 기본 정책으로 Zone Transfer가 거부됩니다."
+msgstr "BIND 9.20 이상의 기본 정책으로 Zone Transfer가 거부됩니다."
+
+msgid "BIND 동적 업데이트가 제한되지 않은 대상에 허용되어 있습니다."
+msgstr "BIND 동적 업데이트가 제한되지 않은 대상에 허용되어 있습니다."
+
+msgid "BIND 버전에 따른 Zone Transfer 기본 정책을 확정할 수 없습니다."
+msgstr "BIND 버전에 따른 Zone Transfer 기본 정책을 확정할 수 없습니다."
+
+msgid "BIND 유효 설정에서 Zone Transfer 대상이 제한되어 있습니다."
+msgstr "BIND 유효 설정에서 Zone Transfer 대상이 제한되어 있습니다."
+
+msgid "BIND 유효 설정에서 동적 업데이트가 비활성화되었거나 명시적 키로 제한되어 있습니다."
+msgstr "BIND 유효 설정에서 동적 업데이트가 비활성화되었거나 명시적 키로 제한되어 있습니다."
+
+msgid "BIND 유효 설정을 수집하지 못해 Zone Transfer 제한을 확정할 수 없습니다."
+msgstr "BIND 유효 설정을 수집하지 못해 Zone Transfer 제한을 확정할 수 없습니다."
+
+msgid "BIND 유효 설정을 수집하지 못해 동적 업데이트 통제를 확정할 수 없습니다."
+msgstr "BIND 유효 설정을 수집하지 못해 동적 업데이트 통제를 확정할 수 없습니다."
+
+msgid "DNS ZoneTransfer 설정"
+msgstr "DNS ZoneTransfer 설정"
+
+msgid "DNS 보안 버전 패치"
+msgstr "DNS 보안 버전 패치"
+
+msgid "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "DNS 서비스의 취약한 동적 업데이트 설정 금지"
+msgstr "DNS 서비스의 취약한 동적 업데이트 설정 금지"
+
+msgid "DoS 공격에 취약한 레거시 서비스의 활성 상태를 확정할 수 없습니다."
+msgstr "DoS 공격에 취약한 레거시 서비스의 활성 상태를 확정할 수 없습니다."
+
+msgid "DoS 공격에 취약한 서비스 비활성화"
+msgstr "DoS 공격에 취약한 서비스 비활성화"
+
+msgid "ENCRYPT_METHOD 설정 경로를 안전하게 해석하지 못했습니다."
+msgstr "ENCRYPT_METHOD 설정 경로를 안전하게 해석하지 못했습니다."
+
+msgid "Enterprise Linux 기반 버전을 확인하지 못했습니다."
+msgstr "Enterprise Linux 기반 버전을 확인하지 못했습니다."
+
+msgid "FTP UMASK 적용 경로를 안전하게 해석하지 못했습니다."
+msgstr "FTP UMASK 적용 경로를 안전하게 해석하지 못했습니다."
+
+msgid "FTP root 접속 차단의 유효 상태를 확정할 수 없습니다."
+msgstr "FTP root 접속 차단의 유효 상태를 확정할 수 없습니다."
+
+msgid "FTP unit의 실제 PAM·userlist 구성 경로를 확정할 수 없습니다."
+msgstr "FTP unit의 실제 PAM·userlist 구성 경로를 확정할 수 없습니다."
+
+msgid "FTP unit의 실제 실행 인수와 TLS 구성 경로를 확정할 수 없습니다."
+msgstr "FTP unit의 실제 실행 인수와 TLS 구성 경로를 확정할 수 없습니다."
+
+msgid "FTP unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다."
+msgstr "FTP unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다."
+
+msgid "FTP 계정 shell 제한"
+msgstr "FTP 계정 shell 제한"
+
+msgid "FTP 기본 배너 또는 제품 정보 노출 가능성을 확인했습니다."
+msgstr "FTP 기본 배너 또는 제품 정보 노출 가능성을 확인했습니다."
+
+msgid "FTP 서비스 접근 제어 설정"
+msgstr "FTP 서비스 접근 제어 설정"
+
+msgid "FTP 서비스 정보 노출 제한"
+msgstr "FTP 서비스 정보 노출 제한"
+
+msgid "FTP 서비스와 배너 유효 설정을 확정할 수 없습니다."
+msgstr "FTP 서비스와 배너 유효 설정을 확정할 수 없습니다."
+
+msgid "FTP 서비스와 접근 제어의 실제 상태를 확정할 수 없습니다."
+msgstr "FTP 서비스와 접근 제어의 실제 상태를 확정할 수 없습니다."
+
+msgid "FTP 접속 배너의 실제 응답에서 제품·버전 정보 노출 여부를 확인해야 합니다."
+msgstr "FTP 접속 배너의 실제 응답에서 제품·버전 정보 노출 여부를 확인해야 합니다."
+
+msgid "FTP 활성 상태와 전송 암호화 강제 여부를 확정할 수 없습니다."
+msgstr "FTP 활성 상태와 전송 암호화 강제 여부를 확정할 수 없습니다."
+
+msgid "Finger 서비스 비활성화"
+msgstr "Finger 서비스 비활성화"
+
+msgid "Finger 서비스의 활성화 경로가 확인됐습니다."
+msgstr "Finger 서비스의 활성화 경로가 확인됐습니다."
+
+msgid "Ftpusers 파일 설정"
+msgstr "Ftpusers 파일 설정"
+
+msgid "KISA CCE 2026 Linux 보안 점검 보고서"
+msgstr "KISA CCE 2026 Linux 보안 점검 보고서"
+
+msgid "NFS export 구성 경로를 안전하게 수집하지 못했습니다."
+msgstr "NFS export 구성 경로를 안전하게 수집하지 못했습니다."
+
+msgid "NFS export 대상이 조직에서 승인한 호스트인지 자산 정책과 대조해야 합니다."
+msgstr "NFS export 대상이 조직에서 승인한 호스트인지 자산 정책과 대조해야 합니다."
+
+msgid "NFS 런타임 상태와 유효 export 구성을 확정할 수 없습니다."
+msgstr "NFS 런타임 상태와 유효 export 구성을 확정할 수 없습니다."
+
+msgid "NFS 서비스는 비활성 상태지만 남아 있는 export의 재활성화 가능성을 확인해야 합니다."
+msgstr "NFS 서비스는 비활성 상태지만 남아 있는 export의 재활성화 가능성을 확인해야 합니다."
+
+msgid "NFS 서비스는 활성 상태지만 유효 export를 확인하지 못했습니다."
+msgstr "NFS 서비스는 활성 상태지만 유효 export를 확인하지 못했습니다."
+
+msgid "NFS 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "NFS 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "NFS 서비스의 활성화 경로와 수신 포트를 확인하지 못했습니다."
+msgstr "NFS 서비스의 활성화 경로와 수신 포트를 확인하지 못했습니다."
+
+msgid "NFS 설정 파일 권한 또는 export 접근 통제가 KISA 기준을 벗어났습니다."
+msgstr "NFS 설정 파일 권한 또는 export 접근 통제가 KISA 기준을 벗어났습니다."
+
+msgid "NFS 접근 통제"
+msgstr "NFS 접근 통제"
+
+msgid "NIS 계열 서비스가 비활성 상태입니다."
+msgstr "NIS 계열 서비스가 비활성 상태입니다."
+
+msgid "NIS 계열 서비스가 활성 상태입니다."
+msgstr "NIS 계열 서비스가 활성 상태입니다."
+
+msgid "NIS 계열 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "NIS 계열 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "NIS+ 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "NIS+ 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "NIS, NIS+ 점검"
+msgstr "NIS, NIS+ 점검"
+
+msgid "NTP 및 시각 동기화 설정"
+msgstr "NTP 및 시각 동기화 설정"
+
+msgid "NTP, DNS, SNMP 또는 SMTP 서비스가 활성 상태이며 업무상 필요 여부를 확인해야 합니다."
+msgstr "NTP, DNS, SNMP 또는 SMTP 서비스가 활성 상태이며 업무상 필요 여부를 확인해야 합니다."
+
+msgid "NTP, DNS, SNMP 또는 SMTP 서비스의 활성 상태를 모두 확정할 수 없습니다."
+msgstr "NTP, DNS, SNMP 또는 SMTP 서비스의 활성 상태를 모두 확정할 수 없습니다."
+
+msgid "PAM UMASK 적용 경로를 안전하게 해석하지 못했습니다."
+msgstr "PAM UMASK 적용 경로를 안전하게 해석하지 못했습니다."
+
+msgid "PAM 계정 스택을 분석할 임시 파일을 만들지 못했습니다."
+msgstr "PAM 계정 스택을 분석할 임시 파일을 만들지 못했습니다."
+
+msgid "PAM 비밀번호 스택을 분석할 임시 파일을 만들지 못했습니다."
+msgstr "PAM 비밀번호 스택을 분석할 임시 파일을 만들지 못했습니다."
+
+msgid "PAM 설정을 분석할 임시 파일을 만들지 못했습니다."
+msgstr "PAM 설정을 분석할 임시 파일을 만들지 못했습니다."
+
+msgid "PAM 인증 스택을 분석할 임시 파일을 만들지 못했습니다."
+msgstr "PAM 인증 스택을 분석할 임시 파일을 만들지 못했습니다."
+
+msgid "PAM 정책은 충족하지만 RHEL authselect opt-out 구성이므로 변경 관리 상태를 확인해야 합니다."
+msgstr "PAM 정책은 충족하지만 RHEL authselect opt-out 구성이므로 변경 관리 상태를 확인해야 합니다."
+
+msgid "Postfix 유효 설정에서 인증되지 않은 목적지 릴레이가 제한되어 있습니다."
+msgstr "Postfix 유효 설정에서 인증되지 않은 목적지 릴레이가 제한되어 있습니다."
+
+msgid "RHEL PAM 비밀번호 스택 중 KISA 기준을 충족하지 못한 구성이 있습니다."
+msgstr "RHEL PAM 비밀번호 스택 중 KISA 기준을 충족하지 못한 구성이 있습니다."
+
+msgid "RHEL PAM 비밀번호 스택 중 안전하게 판정하지 못한 구성이 있습니다."
+msgstr "RHEL PAM 비밀번호 스택 중 안전하게 판정하지 못한 구성이 있습니다."
+
+msgid "RHEL PAM 비밀번호 스택의 정책 적용을 추가로 확인해야 합니다."
+msgstr "RHEL PAM 비밀번호 스택의 정책 적용을 추가로 확인해야 합니다."
+
+msgid "RHEL authselect 구성이 없거나 무결성 검증에 실패했습니다."
+msgstr "RHEL authselect 구성이 없거나 무결성 검증에 실패했습니다."
+
+msgid "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "Redhat 절차의 PASS_MIN_DAYS 0과 1 표기가 충돌하여 최소 사용 기간을 확인해야 합니다."
+msgstr "Redhat 절차의 PASS_MIN_DAYS 0과 1 표기가 충돌하여 최소 사용 기간을 확인해야 합니다."
+
+msgid "SHA-2 이상 또는 yescrypt 계열의 비밀번호 알고리즘을 사용합니다."
+msgstr "SHA-2 이상 또는 yescrypt 계열의 비밀번호 알고리즘을 사용합니다."
+
+msgid "SNMP Access Control 설정"
+msgstr "SNMP Access Control 설정"
+
+msgid "SNMP Community String 복잡성 설정"
+msgstr "SNMP Community String 복잡성 설정"
+
+msgid "SNMP unit의 실제 구성 경로를 확정할 수 없습니다."
+msgstr "SNMP unit의 실제 구성 경로를 확정할 수 없습니다."
+
+msgid "SNMP v1 또는 v2c를 활성화하는 community/VACM 설정이 확인됐습니다."
+msgstr "SNMP v1 또는 v2c를 활성화하는 community/VACM 설정이 확인됐습니다."
+
+msgid "SNMP v3 사용자 인증 외에 네트워크·방화벽 접근 제한을 함께 확인해야 합니다."
+msgstr "SNMP v3 사용자 인증 외에 네트워크·방화벽 접근 제한을 함께 확인해야 합니다."
+
+msgid "SNMP v3 인증 비밀번호 복잡도는 비밀값을 보고서에 노출하지 않고 별도 검증해야 합니다."
+msgstr "SNMP v3 인증 비밀번호 복잡도는 비밀값을 보고서에 노출하지 않고 별도 검증해야 합니다."
+
+msgid "SNMP v3의 실제 인증·암호화 응답과 사용자 유효성을 확인해야 합니다."
+msgstr "SNMP v3의 실제 인증·암호화 응답과 사용자 유효성을 확인해야 합니다."
+
+msgid "SNMP 서비스 활성화 경로 또는 수신 포트가 확인됐습니다."
+msgstr "SNMP 서비스 활성화 경로 또는 수신 포트가 확인됐습니다."
+
+msgid "SNMP 서비스 활성화 경로와 수신 포트를 확인하지 못했습니다."
+msgstr "SNMP 서비스 활성화 경로와 수신 포트를 확인하지 못했습니다."
+
+msgid "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "SSH Include 또는 Match 구성을 안전하게 분석하지 못했습니다."
+msgstr "SSH Include 또는 Match 구성을 안전하게 분석하지 못했습니다."
+
+msgid "SSH Match 조건 전체에서 root 직접 접속 차단을 확인해야 합니다."
+msgstr "SSH Match 조건 전체에서 root 직접 접속 차단을 확인해야 합니다."
+
+msgid "SSH drop-in 또는 기본 구성의 전체 그래프를 안전하게 읽지 못했습니다."
+msgstr "SSH drop-in 또는 기본 구성의 전체 그래프를 안전하게 읽지 못했습니다."
+
+msgid "SSH의 root 직접 접속이 완전히 차단되지 않았습니다."
+msgstr "SSH의 root 직접 접속이 완전히 차단되지 않았습니다."
+
+msgid "SSH의 root 직접 접속이 차단되어 있습니다."
+msgstr "SSH의 root 직접 접속이 차단되어 있습니다."
+
+msgid "SUID, SGID, Sticky bit 설정 파일 점검"
+msgstr "SUID, SGID, Sticky bit 설정 파일 점검"
+
+msgid "SUID·SGID 파일의 설치 출처와 업무 필요성을 승인 목록과 대조해야 합니다."
+msgstr "SUID·SGID 파일의 설치 출처와 업무 필요성을 승인 목록과 대조해야 합니다."
+
+msgid "Telnet inetd 또는 xinetd 경로를 안전한 일반 파일로 읽지 못했습니다."
+msgstr "Telnet inetd 또는 xinetd 경로를 안전한 일반 파일로 읽지 못했습니다."
+
+msgid "Telnet inetd 또는 xinetd 유효 활성 상태를 확정할 수 없습니다."
+msgstr "Telnet inetd 또는 xinetd 유효 활성 상태를 확정할 수 없습니다."
+
+msgid "Telnet 서비스 비활성화"
+msgstr "Telnet 서비스 비활성화"
+
+msgid "Telnet 서비스 활성화 경로가 확인됐습니다."
+msgstr "Telnet 서비스 활성화 경로가 확인됐습니다."
+
+msgid "Telnet 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다."
+msgstr "Telnet 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다."
+
+msgid "Telnet 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "Telnet 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "UID_MIN 값이 유효한 정수가 아닙니다."
+msgstr "UID_MIN 값이 유효한 정수가 아닙니다."
+
+msgid "UID_MIN 설정 경로를 안전하게 해석하지 못했습니다."
+msgstr "UID_MIN 설정 경로를 안전하게 해석하지 못했습니다."
+
+msgid "UMASK 로그인 기본값 경로를 안전하게 해석하지 못했습니다."
+msgstr "UMASK 로그인 기본값 경로를 안전하게 해석하지 못했습니다."
+
+msgid "UMASK 설정 관리"
+msgstr "UMASK 설정 관리"
+
+msgid "UMASK 점검용 임시 파일을 만들지 못했습니다."
+msgstr "UMASK 점검용 임시 파일을 만들지 못했습니다."
+
+msgid "automount 또는 autofs 서비스 활성화 경로가 확인됐습니다."
+msgstr "automount 또는 autofs 서비스 활성화 경로가 확인됐습니다."
+
+msgid "automount 또는 autofs의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "automount 또는 autofs의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "automount와 autofs 서비스가 비활성 상태입니다."
+msgstr "automount와 autofs 서비스가 비활성 상태입니다."
+
+msgid "cron 또는 at 관련 파일의 소유자·권한을 읽지 못했습니다."
+msgstr "cron 또는 at 관련 파일의 소유자·권한을 읽지 못했습니다."
+
+msgid "cron 및 at 구성 요소가 설치된 증거를 확인하지 못했습니다."
+msgstr "cron 및 at 구성 요소가 설치된 증거를 확인하지 못했습니다."
+
+msgid "cron 및 at 파일 목록을 안전하게 만들 수 없습니다."
+msgstr "cron 및 at 파일 목록을 안전하게 만들 수 없습니다."
+
+msgid "crontab 또는 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 벗어났습니다."
+msgstr "crontab 또는 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 벗어났습니다."
+
+msgid "crontab 및 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 충족합니다."
+msgstr "crontab 및 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 충족합니다."
+
+msgid "crontab 설정파일 권한 설정 미흡"
+msgstr "crontab 설정파일 권한 설정 미흡"
+
+msgid "echo, discard, daytime 또는 chargen 서비스 활성화 경로가 확인됐습니다."
+msgstr "echo, discard, daytime 또는 chargen 서비스 활성화 경로가 확인됐습니다."
+
+msgid "expn, vrfy 명령어 제한"
+msgstr "expn, vrfy 명령어 제한"
+
+msgid "faillock.conf 경로 또는 내용을 안전하게 해석하지 못했습니다."
+msgstr "faillock.conf 경로 또는 내용을 안전하게 해석하지 못했습니다."
+
+msgid "ftp 기본 계정에 대화형 로그인이 가능한 셸이 지정되어 있습니다."
+msgstr "ftp 기본 계정에 대화형 로그인이 가능한 셸이 지정되어 있습니다."
+
+msgid "ftp 기본 계정에 비로그인 셸이 지정되어 있습니다."
+msgstr "ftp 기본 계정에 비로그인 셸이 지정되어 있습니다."
+
+msgid "ftp 기본 계정이 존재하지 않습니다."
+msgstr "ftp 기본 계정이 존재하지 않습니다."
+
+msgid "hosts.lpd 파일 소유자 및 권한 설정"
+msgstr "hosts.lpd 파일 소유자 및 권한 설정"
+
+msgid "include와 view를 포함한 BIND 동적 업데이트 유효 설정을 검증해야 합니다."
+msgstr "include와 view를 포함한 BIND 동적 업데이트 유효 설정을 검증해야 합니다."
+
+msgid "include와 실행 인수를 포함한 BIND Zone Transfer 유효 설정을 검증해야 합니다."
+msgstr "include와 실행 인수를 포함한 BIND Zone Transfer 유효 설정을 검증해야 합니다."
+
+msgid "inetd·xinetd·systemd 관리자 구성 일부를 확인하지 못했습니다."
+msgstr "inetd·xinetd·systemd 관리자 구성 일부를 확인하지 못했습니다."
+
+msgid "pam_faillock의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+msgstr "pam_faillock의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+
+msgid "pam_pwhistory custom 구성 값을 안전하게 해석하지 못했습니다."
+msgstr "pam_pwhistory custom 구성 값을 안전하게 해석하지 못했습니다."
+
+msgid "pam_pwhistory의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+msgstr "pam_pwhistory의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+
+msgid "pam_pwquality custom 구성의 drop-in 그래프를 해석하지 못했습니다."
+msgstr "pam_pwquality custom 구성의 drop-in 그래프를 해석하지 못했습니다."
+
+msgid "pam_pwquality의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+msgstr "pam_pwquality의 conf= 경로를 안전하게 단일 해석하지 못했습니다."
+
+msgid "profile.d 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "profile.d 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "r 계열 서비스 비활성화"
+msgstr "r 계열 서비스 비활성화"
+
+msgid "r 계열 서비스 신뢰 파일이 없거나 소유자·권한·'+' 설정 기준을 충족합니다."
+msgstr "r 계열 서비스 신뢰 파일이 없거나 소유자·권한·'+' 설정 기준을 충족합니다."
+
+msgid "r 계열 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다."
+msgstr "r 계열 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다."
+
+msgid "r 계열 서비스가 활성 상태이며 백업·클러스터링 용도의 필요성을 확인해야 합니다."
+msgstr "r 계열 서비스가 활성 상태이며 백업·클러스터링 용도의 필요성을 확인해야 합니다."
+
+msgid "r 계열 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "r 계열 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "r-command 포트의 TCP 수신 프로세스가 실제 rlogin·rsh·rexec인지 확인해야 합니다."
+msgstr "r-command 포트의 TCP 수신 프로세스가 실제 rlogin·rsh·rexec인지 확인해야 합니다."
+
+msgid "rlogin·rsh·rexec 서비스가 비활성 상태입니다."
+msgstr "rlogin·rsh·rexec 서비스가 비활성 상태입니다."
+
+msgid "rlogin·rsh·rexec의 활성 상태를 완전하게 확정하지 못했습니다."
+msgstr "rlogin·rsh·rexec의 활성 상태를 완전하게 확정하지 못했습니다."
+
+msgid "root 계정 UID가 Linux 관리자 UID 0이 아닙니다."
+msgstr "root 계정 UID가 Linux 관리자 UID 0이 아닙니다."
+
+msgid "root 계정 레코드를 찾지 못했습니다."
+msgstr "root 계정 레코드를 찾지 못했습니다."
+
+msgid "root 계정 원격 접속 제한"
+msgstr "root 계정 원격 접속 제한"
+
+msgid "root 그룹에 추가 계정이 없습니다."
+msgstr "root 그룹에 추가 계정이 없습니다."
+
+msgid "root 그룹을 찾을 수 없습니다."
+msgstr "root 그룹을 찾을 수 없습니다."
+
+msgid "root 그룹의 추가 계정이 업무상 필요한지 확인해야 합니다."
+msgstr "root 그룹의 추가 계정이 업무상 필요한지 확인해야 합니다."
+
+msgid "root 소유가 아니거나 일반 사용자 쓰기가 허용된 시작 스크립트가 있습니다."
+msgstr "root 소유가 아니거나 일반 사용자 쓰기가 허용된 시작 스크립트가 있습니다."
+
+msgid "root 외 UID 0 계정이 없습니다."
+msgstr "root 외 UID 0 계정이 없습니다."
+
+msgid "root 외 UID 0 계정이 존재합니다."
+msgstr "root 외 UID 0 계정이 존재합니다."
+
+msgid "root 이외의 UID가 ‘0’ 금지"
+msgstr "root 이외의 UID가 ‘0’ 금지"
+
+msgid "root 홈 디렉터리 경로가 안전하지 않습니다."
+msgstr "root 홈 디렉터리 경로가 안전하지 않습니다."
+
+msgid "root 홈 디렉터리가 절대 경로가 아닙니다."
+msgstr "root 홈 디렉터리가 절대 경로가 아닙니다."
+
+msgid "root 홈, 패스 디렉터리 권한 및 패스 설정"
+msgstr "root 홈, 패스 디렉터리 권한 및 패스 설정"
+
+msgid "rsync daemon의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "rsync daemon의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "rsync daemon이 활성 상태이며 가이드의 r-command 범위와 업무 필요성을 확인해야 합니다."
+msgstr "rsync daemon이 활성 상태이며 가이드의 r-command 범위와 업무 필요성을 확인해야 합니다."
+
+msgid "rsyslog 구성 그래프 일부를 안전하게 해석하지 못했습니다."
+msgstr "rsyslog 구성 그래프 일부를 안전하게 해석하지 못했습니다."
+
+msgid "rsyslog 분할 구성 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "rsyslog 분할 구성 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "rsyslog의 비표준 include 그래프에 포함된 모든 파일의 메타데이터를 확인해야 합니다."
+msgstr "rsyslog의 비표준 include 그래프에 포함된 모든 파일의 메타데이터를 확인해야 합니다."
+
+msgid "su PAM include 그래프를 완전히 해석하지 못했습니다."
+msgstr "su PAM include 그래프를 완전히 해석하지 못했습니다."
+
+msgid "su PAM 구조 분석용 임시 파일을 만들지 못했습니다."
+msgstr "su PAM 구조 분석용 임시 파일을 만들지 못했습니다."
+
+msgid "su PAM 제한 모듈 또는 대상 그룹을 사용할 수 없습니다."
+msgstr "su PAM 제한 모듈 또는 대상 그룹을 사용할 수 없습니다."
+
+msgid "su PAM 행의 control 및 module 구조를 해석하지 못했습니다."
+msgstr "su PAM 행의 control 및 module 구조를 해석하지 못했습니다."
+
+msgid "su 명령 경로를 안전한 일반 파일로 해석하지 못했습니다."
+msgstr "su 명령 경로를 안전한 일반 파일로 해석하지 못했습니다."
+
+msgid "su 명령이 설치되어 있지 않습니다."
+msgstr "su 명령이 설치되어 있지 않습니다."
+
+msgid "su 실행이 필수 PAM 규칙으로 특정 그룹에 제한되어 있습니다."
+msgstr "su 실행이 필수 PAM 규칙으로 특정 그룹에 제한되어 있습니다."
+
+msgid "su 제한 그룹의 구성원 범위가 관리 목적에 적합한지 확인해야 합니다."
+msgstr "su 제한 그룹의 구성원 범위가 관리 목적에 적합한지 확인해야 합니다."
+
+msgid "su 파일 권한은 그룹 실행으로 제한되지만 해당 그룹의 업무상 적정성을 확인해야 합니다."
+msgstr "su 파일 권한은 그룹 실행으로 제한되지만 해당 그룹의 업무상 적정성을 확인해야 합니다."
+
+msgid "su 파일에 실행 권한이 없어 명령을 사용할 수 없습니다."
+msgstr "su 파일에 실행 권한이 없어 명령을 사용할 수 없습니다."
+
+msgid "sudo 공급자와 정책 파일을 확인하지 못했습니다."
+msgstr "sudo 공급자와 정책 파일을 확인하지 못했습니다."
+
+msgid "sudo 명령어 접근 관리"
+msgstr "sudo 명령어 접근 관리"
+
+msgid "sudo 정책 파일 권한은 0640보다 엄격하지만 가이드의 양호 조건과 정확히 일치하지 않습니다."
+msgstr "sudo 정책 파일 권한은 0640보다 엄격하지만 가이드의 양호 조건과 정확히 일치하지 않습니다."
+
+msgid "sudo 정책 파일의 소유자 또는 권한을 읽지 못했습니다."
+msgstr "sudo 정책 파일의 소유자 또는 권한을 읽지 못했습니다."
+
+msgid "sudo 정책 파일의 소유자 또는 권한이 KISA 기준을 벗어났습니다."
+msgstr "sudo 정책 파일의 소유자 또는 권한이 KISA 기준을 벗어났습니다."
+
+msgid "sudo 정책 파일이 root 소유이며 권한이 정확히 0640입니다."
+msgstr "sudo 정책 파일이 root 소유이며 권한이 정확히 0640입니다."
+
+msgid "sudo-rs 전용 정책 파일은 KISA U-63의 명시 경로가 아니므로 별도 검증이 필요합니다."
+msgstr "sudo-rs 전용 정책 파일은 KISA U-63의 명시 경로가 아니므로 별도 검증이 필요합니다."
+
+msgid "system-auth와 password-auth의 비밀번호 정책이 KISA 기준을 충족합니다."
+msgstr "system-auth와 password-auth의 비밀번호 정책이 KISA 기준을 충족합니다."
+
+msgid "systemd, inetd/xinetd와 수신 포트에서 Finger 서비스가 비활성 상태입니다."
+msgstr "systemd, inetd/xinetd와 수신 포트에서 Finger 서비스가 비활성 상태입니다."
+
+msgid "tftp, talk 또는 ntalk 서비스 활성화 경로가 확인됐습니다."
+msgstr "tftp, talk 또는 ntalk 서비스 활성화 경로가 확인됐습니다."
+
+msgid "tftp, talk 또는 ntalk의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "tftp, talk 또는 ntalk의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "tftp, talk 서비스 비활성화"
+msgstr "tftp, talk 서비스 비활성화"
+
+msgid "tftp, talk와 ntalk 서비스가 비활성 상태입니다."
+msgstr "tftp, talk와 ntalk 서비스가 비활성 상태입니다."
+
+msgid "world writable 일반 파일이 없습니다."
+msgstr "world writable 일반 파일이 없습니다."
+
+msgid "world writable 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "world writable 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "world writable 파일 점검"
+msgstr "world writable 파일 점검"
+
+msgid "world writable 파일의 설정 사유와 승인 여부를 확인해야 합니다."
+msgstr "world writable 파일의 설정 사유와 승인 여부를 확인해야 합니다."
+
+msgid "가이드"
+msgstr "가이드"
+
+msgid "가이드가 열거한 DoS 관련 서비스의 활성화 경로를 확인하지 못했습니다."
+msgstr "가이드가 열거한 DoS 관련 서비스의 활성화 경로를 확인하지 못했습니다."
+
+msgid "각 view와 zone의 Zone Transfer 상속 범위를 추가 확인해야 합니다."
+msgstr "각 view와 zone의 Zone Transfer 상속 범위를 추가 확인해야 합니다."
+
+msgid "검사 루트"
+msgstr "검사 루트"
+
+msgid "검사 모드"
+msgstr "검사 모드"
+
+msgid "검사한 파일시스템에서 소유자 없는 파일·디렉터리가 없습니다."
+msgstr "검사한 파일시스템에서 소유자 없는 파일·디렉터리가 없습니다."
+
+msgid "검사한 파일시스템에서 숨김 파일·디렉터리를 찾지 못했습니다."
+msgstr "검사한 파일시스템에서 숨김 파일·디렉터리를 찾지 못했습니다."
+
+msgid "검토 ID"
+msgstr "검토 ID"
+
+msgid "결과 요약"
+msgstr "결과 요약"
+
+msgid "계정 및 그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+msgstr "계정 및 그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+
+msgid "계정 소유가 아니거나 other 쓰기가 허용된 홈 디렉터리가 있습니다."
+msgstr "계정 소유가 아니거나 other 쓰기가 허용된 홈 디렉터리가 있습니다."
+
+msgid "계정 잠금 모듈이 없거나 잠금 임계값이 1~10회로 설정되지 않았습니다."
+msgstr "계정 잠금 모듈이 없거나 잠금 임계값이 1~10회로 설정되지 않았습니다."
+
+msgid "계정 잠금 임계값 설정"
+msgstr "계정 잠금 임계값 설정"
+
+msgid "계정 잠금 임계값과 PAM 잠금 흐름이 확인됐습니다."
+msgstr "계정 잠금 임계값과 PAM 잠금 흐름이 확인됐습니다."
+
+msgid "계정과 직접 연결되지 않은 그룹의 시스템·서비스상 필요성을 확인해야 합니다."
+msgstr "계정과 직접 연결되지 않은 그룹의 시스템·서비스상 필요성을 확인해야 합니다."
+
+msgid "계정별 비밀번호 저장 위치를 분석하지 못했습니다."
+msgstr "계정별 비밀번호 저장 위치를 분석하지 못했습니다."
+
+msgid "계정별 비밀번호 저장 위치를 분석할 임시 파일을 만들지 못했습니다."
+msgstr "계정별 비밀번호 저장 위치를 분석할 임시 파일을 만들지 못했습니다."
+
+msgid "계정의 업무 필요성과 최근 사용 여부는 조직의 계정 대장 및 인증 로그로 확인해야 합니다."
+msgstr "계정의 업무 필요성과 최근 사용 여부는 조직의 계정 대장 및 인증 로그로 확인해야 합니다."
+
+msgid "계정이 존재하지 않는 GID 금지"
+msgstr "계정이 존재하지 않는 GID 금지"
+
+msgid "공유 서비스에 대한 익명 접근 제한 설정"
+msgstr "공유 서비스에 대한 익명 접근 제한 설정"
+
+msgid "공유 서비스의 유효 설정 또는 외부 접근 경로를 모두 확정할 수 없습니다."
+msgstr "공유 서비스의 유효 설정 또는 외부 접근 경로를 모두 확정할 수 없습니다."
+
+msgid "관리자 그룹에 최소한의 계정 포함"
+msgstr "관리자 그룹에 최소한의 계정 포함"
+
+msgid "관리자 그룹을 확인할 계정·그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+msgstr "관리자 그룹을 확인할 계정·그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+
+msgid "관리자 서비스 구성 파일의 소유자 또는 권한이 기준을 벗어납니다."
+msgstr "관리자 서비스 구성 파일의 소유자 또는 권한이 기준을 벗어납니다."
+
+msgid "관리자 서비스 구성 파일이 root 소유이며 권한이 0600 이하입니다."
+msgstr "관리자 서비스 구성 파일이 root 소유이며 권한이 0600 이하입니다."
+
+msgid "구성 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "구성 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "구성된 SNMP community가 길이와 문자 조합 기준을 충족합니다."
+msgstr "구성된 SNMP community가 길이와 문자 조합 기준을 충족합니다."
+
+msgid "권한 있는 DNS zone 구성을 확인하지 못했습니다."
+msgstr "권한 있는 DNS zone 구성을 확인하지 못했습니다."
+
+msgid "권한 있는 DNS zone에 전체 대상 Zone Transfer가 허용될 수 있습니다."
+msgstr "권한 있는 DNS zone에 전체 대상 Zone Transfer가 허용될 수 있습니다."
+
+msgid "근거"
+msgstr "근거"
+
+msgid "기술 판정"
+msgstr "기술 판정"
+
+msgid "동일한 UID 금지"
+msgstr "동일한 UID 금지"
+
+msgid "동일한 UID를 공유하는 로컬 계정이 없습니다."
+msgstr "동일한 UID를 공유하는 로컬 계정이 없습니다."
+
+msgid "동일한 UID를 공유하는 로컬 계정이 존재합니다."
+msgstr "동일한 UID를 공유하는 로컬 계정이 존재합니다."
+
+msgid "런타임 모드"
+msgstr "런타임 모드"
+
+msgid "레거시 NIS는 비활성 상태이며 NIS+ 서비스만 확인됐습니다."
+msgstr "레거시 NIS는 비활성 상태이며 NIS+ 서비스만 확인됐습니다."
+
+msgid "레거시 RPC 서비스와 rpcbind 활성화 경로가 확인되지 않았습니다."
+msgstr "레거시 RPC 서비스와 rpcbind 활성화 경로가 확인되지 않았습니다."
+
+msgid "로그 디렉터리 소유자 및 권한 설정"
+msgstr "로그 디렉터리 소유자 및 권한 설정"
+
+msgid "로그 파일 전체 목록을 수집하지 못했습니다."
+msgstr "로그 파일 전체 목록을 수집하지 못했습니다."
+
+msgid "로그인 셸을 가진 추가 시스템 계정의 업무 필요성을 확인해야 합니다."
+msgstr "로그인 셸을 가진 추가 시스템 계정의 업무 필요성을 확인해야 합니다."
+
+msgid "로그인 시 경고 메시지 설정"
+msgstr "로그인 시 경고 메시지 설정"
+
+msgid "로그인이 불필요한 표준 시스템 계정에 로그인 셸이 부여되어 있습니다."
+msgstr "로그인이 불필요한 표준 시스템 계정에 로그인 셸이 부여되어 있습니다."
+
+msgid "로깅 구성 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "로깅 구성 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "로컬 시스템 시작 스크립트를 찾지 못했습니다."
+msgstr "로컬 시스템 시작 스크립트를 찾지 못했습니다."
+
+msgid "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다."
+msgstr "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다."
+
+msgid "로컬 파일시스템 마운트 목록을 완전하게 수집하지 못했습니다."
+msgstr "로컬 파일시스템 마운트 목록을 완전하게 수집하지 못했습니다."
+
+msgid "로컬 파일시스템 목록을 완전하게 수집하지 못했습니다."
+msgstr "로컬 파일시스템 목록을 완전하게 수집하지 못했습니다."
+
+msgid "루트 파일시스템의 SUID·SGID 검색을 완료하지 못했습니다."
+msgstr "루트 파일시스템의 SUID·SGID 검색을 완료하지 못했습니다."
+
+msgid "루트 파일시스템의 world writable 파일 검색을 완료하지 못했습니다."
+msgstr "루트 파일시스템의 world writable 파일 검색을 완료하지 못했습니다."
+
+msgid "루트 파일시스템의 소유자 없는 파일 검색을 완료하지 못했습니다."
+msgstr "루트 파일시스템의 소유자 없는 파일 검색을 완료하지 못했습니다."
+
+msgid "루트 파일시스템의 숨김 경로 검색을 완료하지 못했습니다."
+msgstr "루트 파일시스템의 숨김 경로 검색을 완료하지 못했습니다."
+
+msgid "리스너 표를 확인하지 못해 원격 터미널 비활성 상태를 확정할 수 없습니다."
+msgstr "리스너 표를 확인하지 못해 원격 터미널 비활성 상태를 확정할 수 없습니다."
+
+msgid "메일 ACL과 접근 맵을 포함한 실제 릴레이 동작 검증이 필요합니다."
+msgstr "메일 ACL과 접근 맵을 포함한 실제 릴레이 동작 검증이 필요합니다."
+
+msgid "메일 unit의 실제 릴레이 구성 경로를 확정할 수 없습니다."
+msgstr "메일 unit의 실제 릴레이 구성 경로를 확정할 수 없습니다."
+
+msgid "메일 unit의 실제 명령 제한 구성 경로를 확정할 수 없습니다."
+msgstr "메일 unit의 실제 명령 제한 구성 경로를 확정할 수 없습니다."
+
+msgid "메일 unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다."
+msgstr "메일 unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다."
+
+msgid "메일 릴레이 제한의 유효 상태를 확정할 수 없습니다."
+msgstr "메일 릴레이 제한의 유효 상태를 확정할 수 없습니다."
+
+msgid "메일 명령 제한의 유효 상태를 확정할 수 없습니다."
+msgstr "메일 명령 제한의 유효 상태를 확정할 수 없습니다."
+
+msgid "메일 서비스 버전 점검"
+msgstr "메일 서비스 버전 점검"
+
+msgid "메일 서비스 활성 상태와 일반 사용자 실행 제한을 확정할 수 없습니다."
+msgstr "메일 서비스 활성 상태와 일반 사용자 실행 제한을 확정할 수 없습니다."
+
+msgid "메일 서비스의 실제 활성 상태를 확정할 수 없습니다."
+msgstr "메일 서비스의 실제 활성 상태를 확정할 수 없습니다."
+
+msgid "명시적 해시 방식이 없는 PAM 경로의 향후 비밀번호 알고리즘을 확인해야 합니다."
+msgstr "명시적 해시 방식이 없는 PAM 경로의 향후 비밀번호 알고리즘을 확인해야 합니다."
+
+msgid "모든 SNMP community가 특정 네트워크 또는 호스트로 제한되어 있습니다."
+msgstr "모든 SNMP community가 특정 네트워크 또는 호스트로 제한되어 있습니다."
+
+msgid "모든 계정 비밀번호가 쉐도우 또는 암호화된 비밀번호 필드로 저장됩니다."
+msgstr "모든 계정 비밀번호가 쉐도우 또는 암호화된 비밀번호 필드로 저장됩니다."
+
+msgid "모든 유효 인증 서비스에서 실패 기록·잠금·성공 초기화 흐름을 확인하지 못했습니다."
+msgstr "모든 유효 인증 서비스에서 실패 기록·잠금·성공 초기화 흐름을 확인하지 못했습니다."
+
+msgid "발견된 홈 환경 파일은 root 또는 해당 계정 소유이며 타 사용자 쓰기가 차단되어 있습니다."
+msgstr "발견된 홈 환경 파일은 root 또는 해당 계정 소유이며 타 사용자 쓰기가 차단되어 있습니다."
+
+msgid "복잡도 기준을 충족하지 않는 SNMP community가 확인됐습니다."
+msgstr "복잡도 기준을 충족하지 않는 SNMP community가 확인됐습니다."
+
+msgid "복잡하거나 적용 여부가 불명확한 접근 제한 구성을 검토해야 합니다."
+msgstr "복잡하거나 적용 여부가 불명확한 접근 제한 구성을 검토해야 합니다."
+
+msgid "복잡한 PAM control 흐름에서 비밀번호 정책이 항상 적용되는지 확인해야 합니다."
+msgstr "복잡한 PAM control 흐름에서 비밀번호 정책이 항상 적용되는지 확인해야 합니다."
+
+msgid "분류"
+msgstr "분류"
+
+msgid "불필요한 NFS 서비스 비활성화"
+msgstr "불필요한 NFS 서비스 비활성화"
+
+msgid "불필요한 RPC 서비스 비활성화"
+msgstr "불필요한 RPC 서비스 비활성화"
+
+msgid "불필요한 SNMP 서비스 구동 점검"
+msgstr "불필요한 SNMP 서비스 구동 점검"
+
+msgid "불필요한 automountd 제거"
+msgstr "불필요한 automountd 제거"
+
+msgid "불필요한 계정 제거"
+msgstr "불필요한 계정 제거"
+
+msgid "비밀번호 관리 정책에서 KISA 기준 미충족 또는 미설정 항목을 확인했습니다."
+msgstr "비밀번호 관리 정책에서 KISA 기준 미충족 또는 미설정 항목을 확인했습니다."
+
+msgid "비밀번호 관리정책 설정"
+msgstr "비밀번호 관리정책 설정"
+
+msgid "비밀번호 길이·복잡성·사용기간·이력 정책이 KISA 기준을 충족합니다."
+msgstr "비밀번호 길이·복잡성·사용기간·이력 정책이 KISA 기준을 충족합니다."
+
+msgid "비밀번호 저장 위치를 계정별로 분석하지 못했습니다."
+msgstr "비밀번호 저장 위치를 계정별로 분석하지 못했습니다."
+
+msgid "비밀번호 저장 파일의 필드 구조가 해당 파일 형식을 충족하지 않습니다."
+msgstr "비밀번호 저장 파일의 필드 구조가 해당 파일 형식을 충족하지 않습니다."
+
+msgid "비밀번호 정책 파일의 우선순위 또는 경로를 안전하게 해석하지 못했습니다."
+msgstr "비밀번호 정책 파일의 우선순위 또는 경로를 안전하게 해석하지 못했습니다."
+
+msgid "비밀번호 파일 보호"
+msgstr "비밀번호 파일 보호"
+
+msgid "비밀번호 품질 또는 이력 모듈이 우회 가능한 PAM control로 구성되어 있습니다."
+msgstr "비밀번호 품질 또는 이력 모듈이 우회 가능한 PAM control로 구성되어 있습니다."
+
+msgid "사용 근거가 없는 rlogin, rsh 또는 rexec 활성화 경로가 확인됐습니다."
+msgstr "사용 근거가 없는 rlogin, rsh 또는 rexec 활성화 경로가 확인됐습니다."
+
+msgid "사용 중인 셸에 대한 전역 세션 시간 제한 설정을 확인하지 못했습니다."
+msgstr "사용 중인 셸에 대한 전역 세션 시간 제한 설정을 확인하지 못했습니다."
+
+msgid "사용자 shell 점검"
+msgstr "사용자 shell 점검"
+
+msgid "사용자 계정 su 기능 제한"
+msgstr "사용자 계정 su 기능 제한"
+
+msgid "사용자, 시스템 환경변수 파일 소유자 및 권한 설정"
+msgstr "사용자, 시스템 환경변수 파일 소유자 및 권한 설정"
+
+msgid "상태"
+msgstr "상태"
+
+msgid "생성 시각"
+msgstr "생성 시각"
+
+msgid "서버 또는 활성 원격 서비스에서 로그인 경고 메시지 설정 누락을 확인했습니다."
+msgstr "서버 또는 활성 원격 서비스에서 로그인 경고 메시지 설정 누락을 확인했습니다."
+
+msgid "서버와 활성 원격 서비스에 명시적인 보안 경고 문구가 설정되어 있습니다."
+msgstr "서버와 활성 원격 서비스에 명시적인 보안 경고 문구가 설정되어 있습니다."
+
+msgid "설정된 배너가 조직의 법적·보안 경고 문구를 충족하는지 확인해야 합니다."
+msgstr "설정된 배너가 조직의 법적·보안 경고 문구를 충족하는지 확인해야 합니다."
+
+msgid "세션 종료 시간 설정"
+msgstr "세션 종료 시간 설정"
+
+msgid "셸 UMASK 설정 경로를 안전하게 해석하지 못했습니다."
+msgstr "셸 UMASK 설정 경로를 안전하게 해석하지 못했습니다."
+
+msgid "셸별 설정 순서와 동적 재정의를 반영한 최종 세션 시간 제한을 확인해야 합니다."
+msgstr "셸별 설정 순서와 동적 재정의를 반영한 최종 세션 시간 제한을 확인해야 합니다."
+
+msgid "소유자 또는 그룹이 존재하지 않는 파일·디렉터리가 있습니다."
+msgstr "소유자 또는 그룹이 존재하지 않는 파일·디렉터리가 있습니다."
+
+msgid "숨겨진 파일 및 디렉토리 검색 및 제거"
+msgstr "숨겨진 파일 및 디렉토리 검색 및 제거"
+
+msgid "숨김 경로 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "숨김 경로 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "숨김 파일·디렉터리의 업무 필요성과 무결성을 확인해야 합니다."
+msgstr "숨김 파일·디렉터리의 업무 필요성과 무결성을 확인해야 합니다."
+
+msgid "쉐도우 대응 레코드가 없거나 알 수 없는 비밀번호 저장 형식이 존재합니다."
+msgstr "쉐도우 대응 레코드가 없거나 알 수 없는 비밀번호 저장 형식이 존재합니다."
+
+msgid "쉐도우 저장 또는 암호화된 /etc/passwd 비밀번호 필드가 아닌 계정이 존재합니다."
+msgstr "쉐도우 저장 또는 암호화된 /etc/passwd 비밀번호 필드가 아닌 계정이 존재합니다."
+
+msgid "스캐너 버전"
+msgstr "스캐너 버전"
+
+msgid "스팸 메일 릴레이 제한"
+msgstr "스팸 메일 릴레이 제한"
+
+msgid "시각 동기화 서비스 상태를 수집하지 못했습니다."
+msgstr "시각 동기화 서비스 상태를 수집하지 못했습니다."
+
+msgid "시각 동기화 서비스의 부팅 지속 상태를 수집하지 못했습니다."
+msgstr "시각 동기화 서비스의 부팅 지속 상태를 수집하지 못했습니다."
+
+msgid "시스템 로깅 공급자 상태 일부를 수집하지 못했습니다."
+msgstr "시스템 로깅 공급자 상태 일부를 수집하지 못했습니다."
+
+msgid "시스템 시작 스크립트 권한 설정"
+msgstr "시스템 시작 스크립트 권한 설정"
+
+msgid "시스템 시작 스크립트가 root 소유이며 일반 사용자 쓰기가 차단되어 있습니다."
+msgstr "시스템 시작 스크립트가 root 소유이며 일반 사용자 쓰기가 차단되어 있습니다."
+
+msgid "시스템 전역 UMASK 설정을 확인하지 못했습니다."
+msgstr "시스템 전역 UMASK 설정을 확인하지 못했습니다."
+
+msgid "시작 스크립트 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "시작 스크립트 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "안전한 SNMP 버전 사용"
+msgstr "안전한 SNMP 버전 사용"
+
+msgid "안전한 디렉터리 목록을 만들 수 없습니다."
+msgstr "안전한 디렉터리 목록을 만들 수 없습니다."
+
+msgid "안전한 마운트 목록을 만들 수 없습니다."
+msgstr "안전한 마운트 목록을 만들 수 없습니다."
+
+msgid "안전한 비밀번호 암호화 알고리즘 사용"
+msgstr "안전한 비밀번호 암호화 알고리즘 사용"
+
+msgid "안전한 심볼릭 링크 목록을 만들 수 없습니다."
+msgstr "안전한 심볼릭 링크 목록을 만들 수 없습니다."
+
+msgid "안전한 파일 목록을 만들 수 없습니다."
+msgstr "안전한 파일 목록을 만들 수 없습니다."
+
+msgid "암호화되지 않는 FTP 서비스 비활성화"
+msgstr "암호화되지 않는 FTP 서비스 비활성화"
+
+msgid "암호화되지 않은 FTP 서비스 활성화 경로를 확인하지 못했습니다."
+msgstr "암호화되지 않은 FTP 서비스 활성화 경로를 확인하지 못했습니다."
+
+msgid "여러 시각 동기화 서비스가 동시에 활성화되어 실제 공급자를 확인해야 합니다."
+msgstr "여러 시각 동기화 서비스가 동시에 활성화되어 실제 공급자를 확인해야 합니다."
+
+msgid "오프라인 SSH Include 또는 Match 문맥의 유효값을 확정할 수 없습니다."
+msgstr "오프라인 SSH Include 또는 Match 문맥의 유효값을 확정할 수 없습니다."
+
+msgid "오프라인 Telnet unit의 정적 활성 상태를 확정할 수 없습니다."
+msgstr "오프라인 Telnet unit의 정적 활성 상태를 확정할 수 없습니다."
+
+msgid "오프라인 또는 제한된 런타임에서는 Finger 활성 상태를 확정할 수 없습니다."
+msgstr "오프라인 또는 제한된 런타임에서는 Finger 활성 상태를 확정할 수 없습니다."
+
+msgid "오프라인 루트에서 sudo와 sudo-rs 중 활성 공급자를 확정할 수 없습니다."
+msgstr "오프라인 루트에서 sudo와 sudo-rs 중 활성 공급자를 확정할 수 없습니다."
+
+msgid "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다."
+msgstr "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다."
+
+msgid "오프라인 루트의 계정 및 그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+msgstr "오프라인 루트의 계정 및 그룹 파일을 안전하게 읽고 검증하지 못했습니다."
+
+msgid "오프라인 루트의 전체 파일 목록을 수집하지 못했습니다."
+msgstr "오프라인 루트의 전체 파일 목록을 수집하지 못했습니다."
+
+msgid "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 SUID·SGID 검색 완료를 확정할 수 없습니다."
+msgstr "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 SUID·SGID 검색 완료를 확정할 수 없습니다."
+
+msgid "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 world writable 검색 완료를 확정할 수 없습니다."
+msgstr "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 world writable 검색 완료를 확정할 수 없습니다."
+
+msgid "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 소유자 검색 완료를 확정할 수 없습니다."
+msgstr "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 소유자 검색 완료를 확정할 수 없습니다."
+
+msgid "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 숨김 경로 검색 완료를 확정할 수 없습니다."
+msgstr "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 숨김 경로 검색 완료를 확정할 수 없습니다."
+
+msgid "외부 NSS 조회 실패와 실제 소유자 부재를 구분할 수 없어 확인이 필요합니다."
+msgstr "외부 NSS 조회 실패와 실제 소유자 부재를 구분할 수 없어 확인이 필요합니다."
+
+msgid "요약"
+msgstr "요약"
+
+msgid "원격 터미널 사용 여부와 root 직접 접속의 유효 설정을 확정할 수 없습니다."
+msgstr "원격 터미널 사용 여부와 root 직접 접속의 유효 설정을 확정할 수 없습니다."
+
+msgid "원격 터미널의 unit, 실행 인수 또는 리스너 상태를 완전히 수집하지 못했습니다."
+msgstr "원격 터미널의 unit, 실행 인수 또는 리스너 상태를 완전히 수집하지 못했습니다."
+
+msgid "유효 PAM 계정 스택의 include 그래프를 완전히 해석하지 못했습니다."
+msgstr "유효 PAM 계정 스택의 include 그래프를 완전히 해석하지 못했습니다."
+
+msgid "유효 PAM 비밀번호 스택의 include 그래프를 완전히 해석하지 못했습니다."
+msgstr "유효 PAM 비밀번호 스택의 include 그래프를 완전히 해석하지 못했습니다."
+
+msgid "유효 PAM 인증 스택의 include 그래프를 완전히 해석하지 못했습니다."
+msgstr "유효 PAM 인증 스택의 include 그래프를 완전히 해석하지 못했습니다."
+
+msgid "이 플랫폼에서 지원하지 않는 PAM 해시 옵션의 실제 적용 결과를 확인해야 합니다."
+msgstr "이 플랫폼에서 지원하지 않는 PAM 해시 옵션의 실제 적용 결과를 확인해야 합니다."
+
+msgid "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다."
+msgstr "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다."
+
+msgid "일반 사용자의 su 실행을 제한하는 설정을 확인하지 못했습니다."
+msgstr "일반 사용자의 su 실행을 제한하는 설정을 확인하지 못했습니다."
+
+msgid "일반 사용자의 메일 서비스 실행 방지"
+msgstr "일반 사용자의 메일 서비스 실행 방지"
+
+msgid "일반 파일에서 SUID·SGID 설정을 찾지 못했습니다."
+msgstr "일반 파일에서 SUID·SGID 설정을 찾지 못했습니다."
+
+msgid "일부 root 셸 시작 파일을 안전하게 해석하지 못해 최종 PATH 확인이 필요합니다."
+msgstr "일부 root 셸 시작 파일을 안전하게 해석하지 못해 최종 PATH 확인이 필요합니다."
+
+msgid "일부 로그 파일 또는 디렉터리의 메타데이터를 수집하지 못했습니다."
+msgstr "일부 로그 파일 또는 디렉터리의 메타데이터를 수집하지 못했습니다."
+
+msgid "일부 시스템 시작 스크립트의 메타데이터를 확인하지 못했습니다."
+msgstr "일부 시스템 시작 스크립트의 메타데이터를 확인하지 못했습니다."
+
+msgid "일부 파일의 소유자 메타데이터를 확인하지 못했습니다."
+msgstr "일부 파일의 소유자 메타데이터를 확인하지 못했습니다."
+
+msgid "일부 홈 디렉터리 경로를 안전하게 해석하지 못했습니다."
+msgstr "일부 홈 디렉터리 경로를 안전하게 해석하지 못했습니다."
+
+msgid "일부 홈 디렉터리의 메타데이터를 확인하지 못했습니다."
+msgstr "일부 홈 디렉터리의 메타데이터를 확인하지 못했습니다."
+
+msgid "일부 홈 환경 파일의 메타데이터를 확인하지 못했습니다."
+msgstr "일부 홈 환경 파일의 메타데이터를 확인하지 못했습니다."
+
+msgid "입력 경로의 호스트·포트 제한 후보가 확인됐으며 업무 허용 목록과 대조해야 합니다."
+msgstr "입력 경로의 호스트·포트 제한 후보가 확인됐으며 업무 허용 목록과 대조해야 합니다."
+
+msgid "잠금 임계값은 확인했지만 PAM의 실패 기록·잠금·성공 초기화 흐름을 완전하게 입증하지 못했습니다."
+msgstr "잠금 임계값은 확인했지만 PAM의 실패 기록·잠금·성공 초기화 흐름을 완전하게 입증하지 못했습니다."
+
+msgid "적용 가능한 대화형 셸과 세션 시간 제한 정책을 확인해야 합니다."
+msgstr "적용 가능한 대화형 셸과 세션 시간 제한 정책을 확인해야 합니다."
+
+msgid "적용 여부"
+msgstr "적용 여부"
+
+msgid "전체"
+msgstr "전체"
+
+msgid "전체 또는 기본 네트워크에서 접근 가능한 SNMP community 설정이 확인됐습니다."
+msgstr "전체 또는 기본 네트워크에서 접근 가능한 SNMP community 설정이 확인됐습니다."
+
+msgid "전체 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "전체 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "점검 대상 inetd·xinetd·systemd 관리자 구성 파일이 없습니다."
+msgstr "점검 대상 inetd·xinetd·systemd 관리자 구성 파일이 없습니다."
+
+msgid "점검 대상 시스템 계정에 비로그인 셸이 부여되어 있습니다."
+msgstr "점검 대상 시스템 계정에 비로그인 셸이 부여되어 있습니다."
+
+msgid "점검 항목"
+msgstr "점검 항목"
+
+msgid "접근 제한 공급자의 설정 또는 실행 상태를 안전하게 수집하지 못했습니다."
+msgstr "접근 제한 공급자의 설정 또는 실행 상태를 안전하게 수집하지 못했습니다."
+
+msgid "접속 IP 및 포트 제한"
+msgstr "접속 IP 및 포트 제한"
+
+msgid "정적 환경 파일에는 명백한 취약 PATH가 없지만 root 로그인 시 유효값 확인이 필요합니다."
+msgstr "정적 환경 파일에는 명백한 취약 PATH가 없지만 root 로그인 시 유효값 확인이 필요합니다."
+
+msgid "정책에 따른 시스템 로깅 설정"
+msgstr "정책에 따른 시스템 로깅 설정"
+
+msgid "조건부 또는 충돌하는 UMASK 적용 순서를 확인해야 합니다."
+msgstr "조건부 또는 충돌하는 UMASK 적용 순서를 확인해야 합니다."
+
+msgid "존재하는 홈 디렉터리는 해당 계정 소유이며 other 쓰기가 차단되어 있습니다."
+msgstr "존재하는 홈 디렉터리는 해당 계정 소유이며 other 쓰기가 차단되어 있습니다."
+
+msgid "주기적 보안 패치 및 벤더 권고사항 적용"
+msgstr "주기적 보안 패치 및 벤더 권고사항 적용"
+
+msgid "중요도"
+msgstr "중요도"
+
+msgid "증적 bundle의 마운트 목록을 저장하지 못했습니다."
+msgstr "증적 bundle의 마운트 목록을 저장하지 못했습니다."
+
+msgid "지원 계열의 PAM 비밀번호 서비스를 선택하지 못했습니다."
+msgstr "지원 계열의 PAM 비밀번호 서비스를 선택하지 못했습니다."
+
+msgid "지원 계열의 PAM 인증 서비스를 선택하지 못했습니다."
+msgstr "지원 계열의 PAM 인증 서비스를 선택하지 못했습니다."
+
+msgid "지원되지 않은 플랫폼에서는 시각 동기화 구현을 수동 검증해야 합니다."
+msgstr "지원되지 않은 플랫폼에서는 시각 동기화 구현을 수동 검증해야 합니다."
+
+msgid "직접 연결되지 않은 그룹은 없지만 전체 그룹의 업무 필요성과 파일 소유 관계를 대조해야 합니다."
+msgstr "직접 연결되지 않은 그룹은 없지만 전체 그룹의 업무 필요성과 파일 소유 관계를 대조해야 합니다."
+
+msgid "취약한 비밀번호 해시 또는 향후 생성 비밀번호의 취약한 알고리즘 설정을 확인했습니다."
+msgstr "취약한 비밀번호 해시 또는 향후 생성 비밀번호의 취약한 알고리즘 설정을 확인했습니다."
+
+msgid "취약할 수 있는 PATH 할당은 발견했지만 셸 시작 순서상의 최종 유효값을 확인해야 합니다."
+msgstr "취약할 수 있는 PATH 할당은 발견했지만 셸 시작 순서상의 최종 유효값을 확인해야 합니다."
+
+msgid "특수 권한 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+msgstr "특수 권한 파일 목록을 저장할 임시 파일을 만들지 못했습니다."
+
+msgid "파일 및 디렉터리 소유자 설정"
+msgstr "파일 및 디렉터리 소유자 설정"
+
+msgid "판정 근거"
+msgstr "판정 근거"
+
+msgid "플랫폼"
+msgstr "플랫폼"
+
+msgid "현재 시각은 동기화됐지만 재부팅 후 서비스 활성화가 보장되지 않습니다."
+msgstr "현재 시각은 동기화됐지만 재부팅 후 서비스 활성화가 보장되지 않습니다."
+
+msgid "형식이 불완전하거나 알 수 없는 비밀번호 해시의 안전성을 확인해야 합니다."
+msgstr "형식이 불완전하거나 알 수 없는 비밀번호 해시의 안전성을 확인해야 합니다."
+
+msgid "호스트·IP·포트 접근 제한을 입증할 활성 또는 영구 입력 규칙을 찾지 못했습니다."
+msgstr "호스트·IP·포트 접근 제한을 입증할 활성 또는 영구 입력 규칙을 찾지 못했습니다."
+
+msgid "홈 디렉토리로 지정한 디렉토리의 존재 관리"
+msgstr "홈 디렉토리로 지정한 디렉토리의 존재 관리"
+
+msgid "홈 환경 파일의 소유자 또는 쓰기 권한이 기준을 벗어납니다."
+msgstr "홈 환경 파일의 소유자 또는 쓰기 권한이 기준을 벗어납니다."
+
+msgid "홈디렉토리 소유자 및 권한 설정"
+msgstr "홈디렉토리 소유자 및 권한 설정"
+
+msgid "확인된 시스템·사용자·활성 FTP UMASK 적용 경로가 022 이상입니다."
+msgstr "확인된 시스템·사용자·활성 FTP UMASK 적용 경로가 022 이상입니다."
+
+msgid "활성 DNS 서비스를 확인하지 못했습니다."
+msgstr "활성 DNS 서비스를 확인하지 못했습니다."
+
+msgid "활성 FTP 서비스 일부의 TLS 강제 여부를 확정할 수 없습니다."
+msgstr "활성 FTP 서비스 일부의 TLS 강제 여부를 확정할 수 없습니다."
+
+msgid "활성 FTP 서비스 일부의 root 접속 차단을 확정할 수 없습니다."
+msgstr "활성 FTP 서비스 일부의 root 접속 차단을 확정할 수 없습니다."
+
+msgid "활성 FTP 서비스가 제어·데이터 채널 TLS를 강제합니다."
+msgstr "활성 FTP 서비스가 제어·데이터 채널 TLS를 강제합니다."
+
+msgid "활성 FTP 서비스가 제어·데이터 채널 암호화를 강제하지 않습니다."
+msgstr "활성 FTP 서비스가 제어·데이터 채널 암호화를 강제하지 않습니다."
+
+msgid "활성 FTP 서비스를 확인하지 못했습니다."
+msgstr "활성 FTP 서비스를 확인하지 못했습니다."
+
+msgid "활성 FTP 서비스에서 root 계정 접속 차단 누락을 확인했습니다."
+msgstr "활성 FTP 서비스에서 root 계정 접속 차단 누락을 확인했습니다."
+
+msgid "활성 FTP 서비스에서 root 계정 접속이 차단되어 있습니다."
+msgstr "활성 FTP 서비스에서 root 계정 접속이 차단되어 있습니다."
+
+msgid "활성 FTP 서비스의 로컬 유효 설정에서 제품·버전 배너 노출이 제한되어 있습니다."
+msgstr "활성 FTP 서비스의 로컬 유효 설정에서 제품·버전 배너 노출이 제한되어 있습니다."
+
+msgid "활성 FTP, NFS 또는 Samba 공유 서비스를 확인하지 못했습니다."
+msgstr "활성 FTP, NFS 또는 Samba 공유 서비스를 확인하지 못했습니다."
+
+msgid "활성 NFS export의 런타임 테이블을 수집하지 못했습니다."
+msgstr "활성 NFS export의 런타임 테이블을 수집하지 못했습니다."
+
+msgid "활성 NFS 서비스와 구성된 export를 확인하지 못했습니다."
+msgstr "활성 NFS 서비스와 구성된 export를 확인하지 못했습니다."
+
+msgid "활성 SMTP 메일 서비스를 확인하지 못했습니다."
+msgstr "활성 SMTP 메일 서비스를 확인하지 못했습니다."
+
+msgid "활성 SNMP 서비스를 확인하지 못했습니다."
+msgstr "활성 SNMP 서비스를 확인하지 못했습니다."
+
+msgid "활성 SNMP 서비스의 community 또는 v3 인증 설정을 확인하지 못했습니다."
+msgstr "활성 SNMP 서비스의 community 또는 v3 인증 설정을 확인하지 못했습니다."
+
+msgid "활성 SNMP 서비스의 실제 프로토콜 버전을 설정과 패킷 응답으로 확인해야 합니다."
+msgstr "활성 SNMP 서비스의 실제 프로토콜 버전을 설정과 패킷 응답으로 확인해야 합니다."
+
+msgid "활성 SNMP 서비스의 유효 접근 제어 설정을 확정할 수 없습니다."
+msgstr "활성 SNMP 서비스의 유효 접근 제어 설정을 확정할 수 없습니다."
+
+msgid "활성 SSH 서비스의 유효 설정을 확인하지 못했습니다."
+msgstr "활성 SSH 서비스의 유효 설정을 확인하지 못했습니다."
+
+msgid "활성 Telnet과 SSH의 root 직접 접속이 차단되어 있습니다."
+msgstr "활성 Telnet과 SSH의 root 직접 접속이 차단되어 있습니다."
+
+msgid "활성 Telnet에서 root 직접 접속을 차단하는 PAM 및 securetty 설정이 불완전합니다."
+msgstr "활성 Telnet에서 root 직접 접속을 차단하는 PAM 및 securetty 설정이 불완전합니다."
+
+msgid "활성 Telnet의 PAM 또는 securetty 경로를 안전하게 분석하지 못했습니다."
+msgstr "활성 Telnet의 PAM 또는 securetty 경로를 안전하게 분석하지 못했습니다."
+
+msgid "활성 Telnet의 root 직접 접속이 차단되어 있고 활성 SSH는 확인되지 않았습니다."
+msgstr "활성 Telnet의 root 직접 접속이 차단되어 있고 활성 SSH는 확인되지 않았습니다."
+
+msgid "활성 r 계열 서비스의 신뢰 파일 소유자·권한 또는 '+' 설정이 취약합니다."
+msgstr "활성 r 계열 서비스의 신뢰 파일 소유자·권한 또는 '+' 설정이 취약합니다."
+
+msgid "활성 r 계열 서비스의 신뢰 파일 일부를 확인하지 못했습니다."
+msgstr "활성 r 계열 서비스의 신뢰 파일 일부를 확인하지 못했습니다."
+
+msgid "활성 sudo 공급자의 정책 파일이 없습니다."
+msgstr "활성 sudo 공급자의 정책 파일이 없습니다."
+
+msgid "활성 sudo 정책 경로가 검사 루트 밖을 가리키거나 읽을 수 없습니다."
+msgstr "활성 sudo 정책 경로가 검사 루트 밖을 가리키거나 읽을 수 없습니다."
+
+msgid "활성 공유 서비스에서 익명 또는 게스트 접근 설정을 확인했습니다."
+msgstr "활성 공유 서비스에서 익명 또는 게스트 접근 설정을 확인했습니다."
+
+msgid "활성 공유 서비스의 로컬 유효 설정에서 익명 접근이 제한되어 있습니다."
+msgstr "활성 공유 서비스의 로컬 유효 설정에서 익명 접근이 제한되어 있습니다."
+
+msgid "활성 메일 서비스 일부의 EXPN·VRFY 실제 응답을 확인해야 합니다."
+msgstr "활성 메일 서비스 일부의 EXPN·VRFY 실제 응답을 확인해야 합니다."
+
+msgid "활성 메일 서비스에서 EXPN 또는 VRFY 제한 누락을 확인했습니다."
+msgstr "활성 메일 서비스에서 EXPN 또는 VRFY 제한 누락을 확인했습니다."
+
+msgid "활성 메일 서비스에서 제한되지 않은 릴레이 조건을 확인했습니다."
+msgstr "활성 메일 서비스에서 제한되지 않은 릴레이 조건을 확인했습니다."
+
+msgid "활성 메일 서비스의 EXPN·VRFY 제한 설정이 확인됐습니다."
+msgstr "활성 메일 서비스의 EXPN·VRFY 제한 설정이 확인됐습니다."
+
+msgid "활성 비밀번호 해시와 명시적 생성 알고리즘이 없어 정책을 확정할 수 없습니다."
+msgstr "활성 비밀번호 해시와 명시적 생성 알고리즘이 없어 정책을 확정할 수 없습니다."
+
+msgid "활성 원격 터미널 서비스를 확인하지 못했습니다."
+msgstr "활성 원격 터미널 서비스를 확인하지 못했습니다."
+
+msgid "활성화된 시스템 로깅 공급자가 없습니다."
+msgstr "활성화된 시스템 로깅 공급자가 없습니다."
+
+msgid "로컬 패키지 이력만으로 EOL 여부와 최신 보안 패치 적용을 확정할 수 없어 조직 정책 및 벤더 권고와 대조해야 합니다."
+msgstr "로컬 패키지 이력만으로 EOL 여부와 최신 보안 패치 적용을 확정할 수 없어 조직 정책 및 벤더 권고와 대조해야 합니다."
+
+msgid "오프라인 루트에서는 실제 시각 동기화 상태를 확정할 수 없습니다."
+msgstr "오프라인 루트에서는 실제 시각 동기화 상태를 확정할 수 없습니다."
+
+msgid "활성화된 시각 동기화 서비스가 확인되지 않았습니다."
+msgstr "활성화된 시각 동기화 서비스가 확인되지 않았습니다."
+
+msgid "시각 동기화 서비스는 활성 상태지만 공급자별 런타임 상태를 수집하지 못했습니다."
+msgstr "시각 동기화 서비스는 활성 상태지만 공급자별 런타임 상태를 수집하지 못했습니다."
+
+msgid "시각은 동기화됐지만 KISA의 NTP 서버 절차가 아닌 로컬 기준 시계를 사용하므로 적합성 검토가 필요합니다."
+msgstr "시각은 동기화됐지만 KISA의 NTP 서버 절차가 아닌 로컬 기준 시계를 사용하므로 적합성 검토가 필요합니다."
+
+msgid "서비스는 활성 상태지만 동기화된 소스 또는 정상 상태를 확인하지 못했습니다."
+msgstr "서비스는 활성 상태지만 동기화된 소스 또는 정상 상태를 확인하지 못했습니다."
+
+msgid "현재 시각은 동기화됐지만 이 플랫폼의 KISA 절차에 명시되지 않은 공급자이므로 정책 승인이 필요합니다."
+msgstr "현재 시각은 동기화됐지만 이 플랫폼의 KISA 절차에 명시되지 않은 공급자이므로 정책 승인이 필요합니다."
+
+msgid "시각 동기화와 영구 구성은 확인됐지만 NTP 소스의 조직 승인 증적을 대조해야 합니다."
+msgstr "시각 동기화와 영구 구성은 확인됐지만 NTP 소스의 조직 승인 증적을 대조해야 합니다."
+
+msgid "런타임은 동기화됐지만 영구 소스가 동적 공급인지 확인해야 합니다."
+msgstr "런타임은 동기화됐지만 영구 소스가 동적 공급인지 확인해야 합니다."
+
+msgid "런타임은 동기화됐지만 기본 위치에서 영구 구성을 찾지 못했습니다."
+msgstr "런타임은 동기화됐지만 기본 위치에서 영구 구성을 찾지 못했습니다."
+
+msgid "시각 동기화 런타임은 정상이지만 영구 구성 그래프를 검증하지 못했습니다."
+msgstr "시각 동기화 런타임은 정상이지만 영구 구성 그래프를 검증하지 못했습니다."
+
+msgid "배포판별 로그 공급자와 경로는 확인했지만 기록·보존·전송 범위가 조직 정책을 충족하는지는 정책 증적이 필요합니다."
+msgstr "배포판별 로그 공급자와 경로는 확인했지만 기록·보존·전송 범위가 조직 정책을 충족하는지는 정책 증적이 필요합니다."
+
+msgid "NFS 서비스가 활성 상태이며 업무상 필요 여부는 자산 용도와 함께 확인해야 합니다."
+msgstr "NFS 서비스가 활성 상태이며 업무상 필요 여부는 자산 용도와 함께 확인해야 합니다."
+
+msgid "취약한 레거시 RPC 서비스의 활성화 경로가 확인됐습니다."
+msgstr "취약한 레거시 RPC 서비스의 활성화 경로가 확인됐습니다."
+
+msgid "rpc.nisd는 U-42의 불필요 RPC 목록과 U-43의 NIS+ 양호 조건이 충돌하여 수동 확인이 필요합니다."
+msgstr "rpc.nisd는 U-42의 불필요 RPC 목록과 U-43의 NIS+ 양호 조건이 충돌하여 수동 확인이 필요합니다."
+
+msgid "RPC 기반 서비스가 활성 상태이며 NFS 등 업무 의존성과 필요성을 확인해야 합니다."
+msgstr "RPC 기반 서비스가 활성 상태이며 NFS 등 업무 의존성과 필요성을 확인해야 합니다."
+
+msgid "활성 메일 서비스의 버전이 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다."
+msgstr "활성 메일 서비스의 버전이 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다."
+
+msgid "활성 메일 서비스에서 일반 사용자 실행 제한 기준 위반을 확인했습니다."
+msgstr "활성 메일 서비스에서 일반 사용자 실행 제한 기준 위반을 확인했습니다."
+
+msgid "활성 메일 서비스 일부의 일반 사용자 실행 제한을 확정할 수 없습니다."
+msgstr "활성 메일 서비스 일부의 일반 사용자 실행 제한을 확정할 수 없습니다."
+
+msgid "활성 메일 서비스의 일반 사용자 실행 제한이 설정되어 있습니다."
+msgstr "활성 메일 서비스의 일반 사용자 실행 제한이 설정되어 있습니다."
+
+msgid "활성 DNS 서버 패키지가 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다."
+msgstr "활성 DNS 서버 패키지가 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다."
+
+msgid "FTP 접근 제어는 daemon 설정, systemd IPAddress 정책, 호스트 방화벽과 외부 방화벽을 함께 확인해야 합니다."
+msgstr "FTP 접근 제어는 daemon 설정, systemd IPAddress 정책, 호스트 방화벽과 외부 방화벽을 함께 확인해야 합니다."
+
+msgid "점검 정보"
+msgstr "점검 정보"
+
+msgid "항목"
+msgstr "항목"
+
+msgid "값"
+msgstr "값"
+
+msgid "완료 시각"
+msgstr "완료 시각"
+
+msgid "최종 판정"
+msgstr "최종 판정"
+
+msgid "승인 티켓"
+msgstr "승인 티켓"
+
+msgid "승인자"
+msgstr "승인자"
+
+msgid "승인 만료일"
+msgstr "승인 만료일"
+
+msgid "기준"
+msgstr "기준"
+
+msgid "개수"
+msgstr "개수"
+
+msgid "양호"
+msgstr "양호"
+
+msgid "취약"
+msgstr "취약"
+
+msgid "수동 확인"
+msgstr "수동 확인"
+
+msgid "해당 없음"
+msgstr "해당 없음"
+
+msgid "오류"
+msgstr "오류"
+
+msgid "정책 승인으로 확정"
+msgstr "정책 승인으로 확정"
+
+msgid "완전 검사에 필요한 검토 ID를 생성하지 못했습니다."
+msgstr "완전 검사에 필요한 검토 ID를 생성하지 못했습니다."
+
+msgid "완전 검사 정책 모듈을 사용할 수 없습니다."
+msgstr "완전 검사 정책 모듈을 사용할 수 없습니다."
+
+msgid "정책 attestation과 현재 검토 ID가 일치하여 GOOD으로 확정했습니다."
+msgstr "정책 attestation과 현재 검토 ID가 일치하여 GOOD으로 확정했습니다."
+
+msgid "정책 attestation과 현재 검토 ID가 일치하여 VULNERABLE으로 확정했습니다."
+msgstr "정책 attestation과 현재 검토 ID가 일치하여 VULNERABLE으로 확정했습니다."
+
+msgid "완전 검사에 필요한 정책 attestation이 없습니다."
+msgstr "완전 검사에 필요한 정책 attestation이 없습니다."
+
+msgid "정책 attestation이 현재 증적과 일치하지 않거나 만료됐습니다."
+msgstr "정책 attestation이 현재 증적과 일치하지 않거나 만료됐습니다."
+
+msgid "검사 함수가 유효하지 않은 상태를 반환했습니다."
+msgstr "검사 함수가 유효하지 않은 상태를 반환했습니다."
+
+msgid "검사 함수가 유효하지 않은 적용 여부를 반환했습니다."
+msgstr "검사 함수가 유효하지 않은 적용 여부를 반환했습니다."
+
+msgid "검사 함수가 구현되지 않았습니다."
+msgstr "검사 함수가 구현되지 않았습니다."
+
+msgid "검사 함수가 결과를 반환하지 않았습니다."
+msgstr "검사 함수가 결과를 반환하지 않았습니다."

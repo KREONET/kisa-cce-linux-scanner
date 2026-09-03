@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+
 PACKAGE_NAME = kisa-cce-linux-scanner
 
 prefix ?= /usr/local
@@ -19,30 +21,54 @@ LIBRARY_FILES = \
 	lib/checks_service.sh \
 	lib/checks_system.sh \
 	lib/core.sh \
+	lib/evidence.sh \
+	lib/i18n.sh \
+	lib/kisa-cce-collect-main.sh \
 	lib/kisa-cce-scan-main.sh \
+	lib/policy.sh \
+	lib/scan_epoch.sh \
 	lib/resolvers.sh
 
-MANPAGE_FILES = man/kisa-cce-scan.8
+PROGRAM_FILES = bin/kisa-cce-collect bin/kisa-cce-scan
+
+MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-scan.8
+
+TEST_FILES = \
+	tests/pam_cache.sh \
+	tests/performance_cache.sh \
+	tests/run.sh \
+	tests/scan_epoch.sh \
+	tests/runtime_cache.sh
 
 .PHONY: all check install lint
 
 all:
 
 check:
-	/bin/sh -n bin/kisa-cce-scan
-	/bin/bash -n $(LIBRARY_FILES) tests/run.sh
+	/bin/sh -n $(PROGRAM_FILES)
+	/bin/bash -n $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh
 	./tests/run.sh
+	./tests/performance_cache.sh
+	./tests/pam_cache.sh
+	./tests/scan_epoch.sh
+	./tests/runtime_cache.sh
 
 lint:
-	shellcheck -x bin/kisa-cce-scan $(LIBRARY_FILES) tests/run.sh
+	shellcheck --severity=warning -x $(PROGRAM_FILES) $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh
 
 install:
 	$(INSTALL) -d \
 		"$(DESTDIR)$(bindir)" \
 		"$(DESTDIR)$(pkglibdir)" \
 		"$(DESTDIR)$(datadir)" \
+		"$(DESTDIR)$(datadir)/locale/en/LC_MESSAGES" \
+		"$(DESTDIR)$(datadir)/locale/ko/LC_MESSAGES" \
 		"$(DESTDIR)$(man8dir)"
-	$(INSTALL_PROGRAM) bin/kisa-cce-scan "$(DESTDIR)$(bindir)/kisa-cce-scan"
+	$(INSTALL_PROGRAM) $(PROGRAM_FILES) "$(DESTDIR)$(bindir)"
 	$(INSTALL_DATA) $(LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)"
 	$(INSTALL_DATA) data/criteria.tsv data/VERSION "$(DESTDIR)$(datadir)"
+	$(INSTALL_DATA) share/kisa-cce-linux-scanner/locale/en/LC_MESSAGES/kisa-cce-linux-scanner.po \
+		"$(DESTDIR)$(datadir)/locale/en/LC_MESSAGES"
+	$(INSTALL_DATA) share/kisa-cce-linux-scanner/locale/ko/LC_MESSAGES/kisa-cce-linux-scanner.po \
+		"$(DESTDIR)$(datadir)/locale/ko/LC_MESSAGES"
 	$(INSTALL_DATA) $(MANPAGE_FILES) "$(DESTDIR)$(man8dir)"

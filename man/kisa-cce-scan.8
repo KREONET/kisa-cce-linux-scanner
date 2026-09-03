@@ -1,3 +1,4 @@
+.\" SPDX-License-Identifier: LGPL-3.0-or-later
 .TH KISA-CCE-SCAN 8 "2026-09-03" "KISA CCE Linux Scanner" "System Administration Commands"
 .SH NAME
 kisa-cce-scan \- assess KISA CCE 2026 Unix-server criteria on supported
@@ -21,6 +22,10 @@ metadata, or run an explicit network-fetch operation.
 A live U-15 scan uses host NSS and may therefore consult an external identity
 backend.
 A normal scan writes protected Markdown and JSONL reports.
+.PP
+One invocation uses one immutable scan epoch.  Configuration parser results,
+systemd facts, and listener facts are reused only inside that process.  A new
+invocation collects runtime state again; no cache persists across runs.
 .SH SUPPORTED PLATFORMS
 The lifecycle snapshot dated 2026-09-03 accepts Debian 12 and 13; Ubuntu
 22.04, 24.04, and 26.04 LTS; and the current base-stream RHEL releases 8.10,
@@ -81,6 +86,31 @@ Run only the comma-separated criterion codes.
 Codes are case-insensitive, whitespace is removed, and duplicates are ignored.
 Results retain catalog order rather than argument order.
 .TP
+.BI \-\-mode " audit|complete"
+Select the result contract.
+Audit mode preserves indeterminate results as
+.BR MANUAL .
+Complete mode requires all 67 criteria, a policy directory, live runtime
+collection or a matching evidence bundle, and emits no
+.B MANUAL
+result.
+.TP
+.BI \-\-policy-dir " PATH"
+Load strict TSV attestations from the absolute directory
+.IR PATH .
+Complete mode requires this option.
+.TP
+.BI \-\-evidence-bundle " PATH"
+Use the validated owner-only runtime evidence directory at
+.I PATH
+with an offline root.
+The bundle must match the image machine ID and os-release.
+.TP
+.BI \-\-evidence-max-age " SECONDS"
+Reject a runtime evidence bundle older than
+.IR SECONDS .
+The default is 3600 and the maximum is 604800.
+.TP
 .B \-\-no-runtime
 Disable live service, listener, kernel-value, and native-validator collection.
 A scan of the live root still requires root privileges.
@@ -105,6 +135,20 @@ Print command help and exit.
 .TP
 .B \-\-version
 Print the scanner version and exit.
+.SH TERMINAL OUTPUT
+Every line written by the command uses a dmesg-style prefix with six
+fractional uptime digits:
+.PP
+.EX
+[    12.345678] kisa-cce-scan: payload
+.EE
+.PP
+This contract applies to help, version, errors, warnings, verbose progress,
+sysctl explanations, and report paths. Automation keys and values remain in
+the payload. Report paths use standard output; warnings and verbose progress
+use standard error. The scanner uses a safe process-time or zero fallback when
+.I /proc/uptime
+is unavailable.
 .PP
 Options that take values accept both
 .B "\-\-option VALUE"
@@ -114,6 +158,26 @@ forms.
 Empty option values are rejected.
 Positional arguments are rejected.
 .SH MODES
+.SS Complete scan
+Complete mode runs U-01 through U-67 and preserves conclusive
+.BR GOOD ,
+.BR VULNERABLE ,
+.BR NOT_APPLICABLE ,
+and
+.B ERROR
+results.
+Each technical
+.B MANUAL
+result receives a SHA-256 review ID.
+A matching, unexpired policy attestation converts it to the approved final
+decision; a missing, stale, or mismatched attestation becomes
+.BR ERROR .
+.PP
+A live complete scan requires root and runtime collection.
+An offline complete scan requires both
+.B \-\-policy-dir
+and
+.BR \-\-evidence-bundle .
 .SS Live scan
 Scanning
 .B /
@@ -139,8 +203,8 @@ Affected criteria may return
 or
 .BR ERROR .
 .SS Sysctl explanation
-The diagnostic output distinguishes the filesystem configuration model, active
-loader model where available, runtime value, and detected drift.
+The prefixed diagnostic payloads distinguish the filesystem configuration
+model, active loader model where available, runtime value, and detected drift.
 It follows standard
 .I sysctl.d
 directory precedence, equal-basename replacement, lexical ordering, masks,
@@ -168,7 +232,7 @@ One JSON object per selected criterion followed by one summary object.
 .PP
 The hostname identifies the machine running the scanner, including during
 offline analysis.
-The command prints
+The command prints prefixed payloads containing
 .B markdown_report=
 and
 .B jsonl_report=
@@ -267,6 +331,14 @@ storage or transfer.
 When
 .B \-\-output-dir
 points below an offline root, report files are written into that image.
+.SH ENVIRONMENT
+.TP
+.B LANG
+Selects the report catalog. Values beginning with
+.B en
+select English report titles, summaries, and labels. Korean reports are the
+default for unset, C, POSIX, Korean, and other locale values. Command help,
+progress, warnings, and errors remain English.
 .SH FILES
 The following paths describe a package installed with
 .BR prefix=/usr .
@@ -283,13 +355,19 @@ Ordered criterion catalog.
 .I /usr/share/kisa-cce-linux-scanner/VERSION
 Scanner version.
 .TP
+.I /usr/share/kisa-cce-linux-scanner/locale/
+Package-specific Korean and English PO catalogs used for report output.
+.TP
 .I /etc/os-release
 Platform identification inside the live or offline root.
 .TP
 .I /var/log/kisa-cce-scanner/
 Default live-root report directory.
+.TP
+.I /etc/kisa-cce-scanner/policy.d/
+Recommended directory for reviewed criterion attestations.
 .SH EXAMPLES
-Run a complete live scan:
+Run a live audit of all 67 criteria:
 .PP
 .EX
 sudo kisa-cce-scan
@@ -313,6 +391,7 @@ Explain one sysctl key:
 sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 .EE
 .SH SEE ALSO
+.BR kisa-cce-collect (8),
 .BR sysctl (8),
 .BR sysctl.d (5),
 .BR systemd-sysctl.service (8),
@@ -322,4 +401,5 @@ sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 .PP
 KISA CCE 2026 Unix criteria:
 .UR https://kreonet.github.io/kisa-cce-guide-web/unix/
+KISA CCE guide
 .UE

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # shellcheck shell=bash
 
 # Account and file-system checks cover U-01 through U-33.
@@ -103,6 +104,24 @@ scanner_local_filesystem_roots() {
     local findmnt_path=""
 
     if [ "$SCAN_ROOT" != "/" ]; then
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_mount_roots >/dev/null 2>&1; then
+            mount_inventory_file="$(new_scratch_file bundle-mount-roots)" || return 2
+            evidence_mount_roots > "$mount_inventory_file" || return 2
+            printf '%s\n' "${SCAN_ROOT%/}"
+            while IFS=$'\t' read -r target filesystem_type; do
+                case "$target" in /) continue ;; esac
+                case "$target" in /proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*) continue ;; esac
+                case "$filesystem_type" in
+                    proc|sysfs|devtmpfs|devpts|tmpfs|cgroup*|securityfs|debugfs|tracefs|configfs|pstore|efivarfs|mqueue|hugetlbfs|rpc_pipefs|nfs|nfs4|cifs|smb3|fuse.*) continue ;;
+                esac
+                target="$(fs_path "$target" 2>/dev/null || true)"
+                [ -n "$target" ] || return 2
+                target="$(resolve_rooted_directory "$target" 2>/dev/null || true)"
+                [ -n "$target" ] || return 2
+                printf '%s\n' "$target"
+            done < "$mount_inventory_file"
+            return 0
+        fi
         printf '%s\n' "${SCAN_ROOT%/}"
         return 0
     fi
@@ -423,11 +442,13 @@ scanner_collect_full_filesystem_facts() {
             [ "$collect_offline_other_facts" -eq 0 ]; then
             return 0
         fi
-        # U-15 historically scans the supplied offline root even when the shared mount helper fails for other checks.
-        printf '%s\n' "${SCAN_ROOT%/}" > "$roots_file" || {
-            SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
-            return 0
-        }
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -ne 1 ]; then
+            # Without a mount snapshot, offline U-15 is limited to the supplied root.
+            printf '%s\n' "${SCAN_ROOT%/}" > "$roots_file" || {
+                SCANNER_FULL_FILESYSTEM_SCRATCH_ERROR=1
+                return 0
+            }
+        fi
     fi
 
     while IFS= read -r filesystem_root; do
@@ -3999,8 +4020,10 @@ scanner_tcp_listener_state() {
     local output=""
     local status=0
 
-    runtime_enabled || return 2
-    trusted_command ss >/dev/null 2>&1 || return 2
+    runtime_snapshot_available || return 2
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -ne 1 ]; then
+        trusted_command ss >/dev/null 2>&1 || return 2
+    fi
     for port in "$@"; do
         output="$(port_listener_facts "$port" tcp 2>/dev/null)"
         status=$?
@@ -5981,7 +6004,7 @@ scanner_u30_shell_file_records() {
                     last_seen=1
                     last_value=value
                     last_source=origin
-                    last_certainty=(value ~ /^[0-7]{1,4}$/ ? "resolved" : "unresolved")
+                    last_certainty=(value ~ /^[0-7]+$/ && length(value) <= 4 ? "resolved" : "unresolved")
                     conditional_count=0
                 } else {
                     remember_conditional(value, origin, "conditional")

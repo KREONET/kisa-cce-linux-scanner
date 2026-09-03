@@ -1,0 +1,72 @@
+.\" SPDX-License-Identifier: LGPL-3.0-or-later
+.TH KISA-CCE-COLLECT 8 "2026-09-03" "KISA CCE Linux Scanner" "System Administration Commands"
+.SH NAME
+kisa-cce-collect \- collect live runtime evidence for an offline KISA CCE scan
+.SH SYNOPSIS
+.B kisa-cce-collect
+.BI \-\-output-dir " PATH"
+.SH DESCRIPTION
+.B kisa-cce-collect
+captures a bounded snapshot of live Linux identity, systemd units, listeners,
+mounts, firewall state, and time synchronization state.
+The resulting owner-only directory can be supplied to
+.BR kisa-cce-scan (8)
+with
+.BR \-\-evidence-bundle .
+.PP
+The collector must run as root on the live system immediately before creating
+the corresponding offline filesystem snapshot.
+It does not create an archive, probe remote services, refresh package metadata,
+or collect authentication secrets.
+.SH OPTIONS
+.TP
+.BI \-\-output-dir " PATH"
+Create or use an empty absolute directory for the evidence bundle.
+The directory must be root-owned, must have mode 0700, and must not be a
+symbolic link.
+.TP
+.BR \-h ", " \-\-help
+Print command help and exit.
+.TP
+.B \-\-version
+Print the evidence schema version and exit.
+.SH OUTPUT
+Every terminal line uses a dmesg-style prefix with six fractional uptime
+digits. This applies to help, version, errors, warnings, and the successful
+bundle path. A safe process-time or zero fallback is used when
+.I /proc/uptime
+is unavailable. On success, the collector prints:
+.PP
+.EX
+[    12.345678] kisa-cce-collect: evidence_bundle=/absolute/path
+.EE
+.PP
+The directory contains a strict manifest, SHA-256 checksums, host identity,
+normalized service and listener tables, raw mount information, firewall state,
+and time synchronization state.
+All files use mode 0600 and all directories use mode 0700.
+.SH EXIT STATUS
+.TP
+.B 0
+The bundle was finalized successfully.
+Optional runtime sources can still be marked partial or unavailable in the
+manifest.
+.TP
+.B 2
+Invocation, identity collection, output security, or finalization failed.
+.TP
+.B 130
+The process received SIGINT.
+.TP
+.B 143
+The process received SIGTERM.
+.SH SECURITY
+The bundle contains sensitive infrastructure metadata.
+Store and transfer it as security assessment data.
+SHA-256 checksums detect modification after capture but do not authenticate the
+collector or transport by themselves.
+.SH SEE ALSO
+.BR kisa-cce-scan (8),
+.BR systemctl (1),
+.BR ss (8),
+.BR proc_pid_mountinfo (5)

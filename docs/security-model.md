@@ -2,7 +2,7 @@
 
 ## Context
 
-A complete live scan runs as root and reads security-sensitive system state. The scanner therefore treats the execution environment, executable lookup, offline path traversal, report permissions, and evidence content as security boundaries.
+A live scan runs as root and reads security-sensitive system state. The scanner therefore treats the execution environment, executable lookup, offline path traversal, report permissions, and evidence content as security boundaries.
 
 This document describes controls implemented by the current code. It is not a claim that the scanner itself has completed an independent security audit.
 
@@ -51,6 +51,14 @@ The sysctl loader adapter is a narrower special case. It accepts the distributio
 Logical paths must be absolute and reject newline, carriage-return, tab, and explicit `.` or `..` components. Canonical parent paths must remain below the selected root. Symlink traversal is bounded, absolute symlink targets are interpreted inside the offline root, and escapes or unresolved links fail collection.
 
 Drop-in directory symlinks are also confined. A `/dev/null` link is accepted only where the corresponding subsystem uses it as an explicit mask.
+
+### Complete-mode policy and runtime evidence
+
+Policy files are parsed as strict TSV data and are never sourced as shell code. The policy directory and files reject symbolic links and untrusted write permissions. Each attestation is bound to one criterion's full redacted technical basis through a SHA-256 review ID and expires on an explicit date.
+
+Evidence bundles are fixed-inventory directories rather than extracted archives. Validation requires owner-only permissions, regular single-link files, exact schemas, SHA-256 checksums, and matching offline-root `machine-id` and `os-release`. Complete mode rejects bundles older than its configured maximum age.
+
+Bundle checksums detect changes after capture but do not authenticate the capture host or transfer channel. Protect bundle provenance with trusted transport or a detached-signature process appropriate to the deployment.
 
 ### Read-only assessment
 

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# SPDX-License-Identifier: LGPL-3.0-or-later
+
 # shellcheck disable=SC1091,SC2016,SC2030,SC2031,SC2034,SC2329
 
 # Dependency-free regression tests for the scanner runtime and sysctl resolver.
@@ -8,6 +10,8 @@ PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 LC_ALL=C
 export LC_ALL
+LANG=ko_KR.UTF-8
+export LANG
 umask 077
 
 case "${BASH_SOURCE[0]}" in
@@ -65,6 +69,14 @@ assert_contains() {
     esac
 }
 
+scanner_console_value() {
+    local key="$1"
+    local output="$2"
+
+    printf '%s\n' "$output" |
+        sed -n "s/^\\[[^]]*\\] kisa-cce-scan: ${key}=//p"
+}
+
 assert_file_contains() {
     local file="$1"
     local expected_part="$2"
@@ -85,7 +97,7 @@ assert_full_catalog_contract() {
     assert_file_contains "$text_report" "| 오류 | 0 |" "$context Markdown error count"
     assert_file_contains "$jsonl_report" '"type":"summary","total":67' "$context JSONL summary"
     assert_file_contains "$jsonl_report" '"error":0' "$context JSONL error count"
-    if grep -Fq -- '| 판정 | `ERROR` |' "$text_report" ||
+    if grep -Fq -- '| 최종 판정 | `ERROR` |' "$text_report" ||
         grep -Fq -- '"status":"ERROR"' "$jsonl_report"; then
         fail "$context contains an error result"
     fi
@@ -123,6 +135,86 @@ write_os_release() {
     } > "$root/etc/os-release"
 }
 
+test_sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum -- "$1" | awk '{print $1}'
+    else
+        shasum -a 256 -- "$1" | awk '{print $1}'
+    fi
+}
+
+write_evidence_bundle() {
+    local bundle="$1"
+    local root="$2"
+    local machine_id="0123456789abcdef0123456789abcdef"
+    local boot_id="01234567-89ab-cdef-0123-456789abcdef"
+    local captured_at=""
+    local relative_path=""
+
+    captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    mkdir -p -- "$root/etc" "$bundle/identity" "$bundle/runtime"
+    chmod 0700 -- "$bundle" "$bundle/identity" "$bundle/runtime"
+    [ -s "$root/etc/os-release" ] || write_os_release "$root" ubuntu 26.04 "Ubuntu 26.04 LTS"
+    printf '%s\n' "$machine_id" > "$root/etc/machine-id"
+    cp -- "$root/etc/os-release" "$bundle/identity/os-release"
+    printf '%s\n' "$machine_id" > "$bundle/identity/machine-id"
+    printf '%s\n' "$boot_id" > "$bundle/identity/boot-id"
+    printf '%s\n' '6.8.0-test' > "$bundle/identity/kernel-release"
+    {
+        printf 'unit\tload_state\tactive_state\tsub_state\tunit_file_state\n'
+        printf 'ssh.service\tloaded\tactive\trunning\tenabled\n'
+        printf 'telnet.service\tloaded\tinactive\tdead\tdisabled\n'
+        printf 'chronyd.service\tloaded\tactive\trunning\tenabled\n'
+        printf 'rsyslog.service\tloaded\tactive\trunning\tenabled\n'
+        printf 'getty@.service\tloaded\tinactive\tdead\tdisabled\n'
+    } > "$bundle/runtime/systemd-units.tsv"
+    {
+        printf 'unit\tunit_file_state\tpreset\n'
+        printf 'ssh.service\tenabled\tenabled\n'
+        printf 'telnet.service\tdisabled\tdisabled\n'
+        printf 'chronyd.service\tenabled\tenabled\n'
+        printf 'rsyslog.service\tenabled\tenabled\n'
+        printf 'getty@.service\tdisabled\tdisabled\n'
+    } > "$bundle/runtime/systemd-unit-files.tsv"
+    {
+        printf 'transport\tlocal_address\tport\tprocess\n'
+        printf 'tcp\t0.0.0.0\t22\tsshd\n'
+        printf 'udp\t0.0.0.0\t123\tchronyd\n'
+    } > "$bundle/runtime/listeners.tsv"
+    printf '%s\n' \
+        '36 25 8:1 / / rw,relatime - ext4 /dev/root rw' \
+        '37 36 8:1 /var/log /var/log rw,relatime - ext4 /dev/root rw' > "$bundle/runtime/mountinfo"
+    printf '%s\n' 'collector=nft' 'table inet filter {}' > "$bundle/runtime/firewall.txt"
+    printf '%s\n' '[chrony]' 'Leap status     : Normal' '^* 192.0.2.10' > "$bundle/runtime/time-sync.txt"
+    cat > "$bundle/manifest.tsv" <<EOF
+schema_version	1
+captured_at	$captured_at
+machine_id	$machine_id
+boot_id	$boot_id
+kernel_release	6.8.0-test
+identity_os_release_status	collected
+identity_machine_id_status	collected
+identity_boot_id_status	collected
+identity_kernel_release_status	collected
+runtime_systemd_units_status	collected
+runtime_systemd_unit_files_status	collected
+runtime_listeners_status	collected
+runtime_mountinfo_status	collected
+runtime_firewall_status	collected
+runtime_time_sync_status	collected
+EOF
+    : > "$bundle/checksums.sha256"
+    for relative_path in \
+        manifest.tsv \
+        identity/os-release identity/machine-id identity/boot-id identity/kernel-release \
+        runtime/systemd-units.tsv runtime/systemd-unit-files.tsv runtime/listeners.tsv \
+        runtime/mountinfo runtime/firewall.txt runtime/time-sync.txt; do
+        printf '%s  %s\n' "$(test_sha256_file "$bundle/$relative_path")" "$relative_path" >> "$bundle/checksums.sha256"
+    done
+    chmod 0600 -- "$bundle/manifest.tsv" "$bundle/checksums.sha256" \
+        "$bundle"/identity/* "$bundle"/runtime/*
+}
+
 set_test_platform() {
     PLATFORM_ID="$1"
     PLATFORM_VERSION="$2"
@@ -134,7 +226,9 @@ set_test_platform() {
 test_shell_syntax() (
     local file=""
 
-    /bin/sh -n "$PROJECT_DIR/bin/kisa-cce-scan" || fail "CLI wrapper syntax check failed"
+    for file in "$PROJECT_DIR"/bin/*; do
+        /bin/sh -n "$file" || fail "CLI wrapper syntax check failed: $file"
+    done
     for file in "$PROJECT_DIR"/lib/*.sh "$PROJECT_DIR"/tests/*.sh; do
         /bin/bash -n "$file" || fail "syntax check failed: $file"
     done
@@ -142,9 +236,11 @@ test_shell_syntax() (
 
 test_manpage_contract() (
     local manpage="$PROJECT_DIR/man/kisa-cce-scan.8"
+    local collector_manpage="$PROJECT_DIR/man/kisa-cce-collect.8"
     local option=""
 
     [ -r "$manpage" ] || fail "manual page is missing"
+    [ -r "$collector_manpage" ] || fail "collector manual page is missing"
     for option in \
         '\-\-root' \
         '\-\-output-dir' \
@@ -163,9 +259,119 @@ test_manpage_contract() (
     done
     grep -Fq -- 'markdown_report=' "$manpage" || fail "manual page is missing the Markdown output key"
     grep -Fq -- '.RANDOM.md' "$manpage" || fail "manual page is missing the Markdown filename"
+    grep -Fq -- '\-\-evidence-bundle' "$manpage" || fail "manual page is missing evidence bundle option"
+    grep -Fq -- '\-\-policy-dir' "$manpage" || fail "manual page is missing policy directory option"
+    grep -Fq -- '\-\-output-dir' "$collector_manpage" || fail "collector manual page is missing output option"
 
     if command -v mandoc >/dev/null 2>&1; then
         mandoc -T lint "$manpage" >/dev/null || fail "manual page lint failed"
+        mandoc -T lint "$collector_manpage" >/dev/null || fail "collector manual page lint failed"
+    fi
+)
+
+test_policy_and_evidence_contracts() (
+    local root="$TEST_TEMP/evidence-root"
+    local bundle="$TEST_TEMP/evidence-bundle"
+    local policy_directory="$TEST_TEMP/policy.d"
+    local policy_file="$policy_directory/50-review.tsv"
+    local scratch="$TEST_TEMP/policy-scratch"
+    local audit_markdown="$TEST_TEMP/policy-audit.md"
+    local audit_json="$TEST_TEMP/policy-audit.jsonl"
+    local complete_markdown="$TEST_TEMP/policy-complete.md"
+    local complete_json="$TEST_TEMP/policy-complete.jsonl"
+    local review_id=""
+    local listener_facts=""
+    local mount_roots=""
+
+    write_os_release "$root" ubuntu 26.04 "Ubuntu 26.04 LTS"
+    mkdir -p -- "$root/var/log" "$scratch" "$policy_directory"
+    chmod 0700 -- "$scratch" "$policy_directory"
+    write_evidence_bundle "$bundle" "$root"
+
+    SCAN_ROOT="$root"
+    RUNTIME_MODE="bundle"
+    SCAN_MODE="audit"
+    SELECTED_CHECKS=""
+    VERBOSE=0
+    SCRATCH_DIR="$scratch"
+    # shellcheck source=../lib/core.sh
+    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/policy.sh
+    . "$PROJECT_DIR/lib/policy.sh"
+    # shellcheck source=../lib/evidence.sh
+    . "$PROJECT_DIR/lib/evidence.sh"
+
+    validate_evidence_bundle "$bundle" "$root" || fail "valid evidence bundle was rejected: $EVIDENCE_VALIDATION_ERROR"
+    EVIDENCE_BUNDLE_ACTIVE=1
+    evidence_service_state ssh.service || fail "active bundled service was not resolved"
+    evidence_service_state telnet.service
+    assert_equal 1 "$?" "inactive bundled service state"
+    evidence_service_activation_state ssh.service || fail "enabled bundled service was not resolved"
+    evidence_listener_state tcp 22 || fail "bundled TCP listener was not resolved"
+    evidence_listener_state tcp 23
+    assert_equal 1 "$?" "absent bundled TCP listener"
+    listener_facts="$(evidence_listener_facts tcp 22)"
+    assert_contains "$listener_facts" $'tcp\t0.0.0.0\t22\tsshd' "bundled listener facts"
+    mount_roots="$(evidence_mount_roots)" || fail "bundled mount roots were not resolved"
+    assert_contains "$mount_roots" $'/var/log\text4' "bundled /var/log mount"
+    [ -n "$(evidence_capture_age_seconds)" ] || fail "evidence age was not calculated"
+
+    : > "$audit_markdown"
+    : > "$audit_json"
+    REPORT_TEXT="$audit_markdown"
+    REPORT_JSONL="$audit_json"
+    COUNT_MANUAL=0
+    COUNT_ERROR=0
+    COUNT_GOOD=0
+    COUNT_TOTAL=0
+    COUNT_POLICY_RESOLVED=0
+    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete"
+    record_result U-64 patch high "주기적 보안 패치 및 벤더 권고사항 적용" || fail "audit manual result failed"
+    review_id="$RESULT_REVIEW_ID"
+    case "$review_id" in sha256:[0-9a-f][0-9a-f]*) ;; *) fail "audit review ID was not generated" ;; esac
+    assert_equal MANUAL "$RESULT_STATUS" "audit mode preserves manual result"
+    assert_file_contains "$audit_json" '"decision_basis":"manual_review"' "audit decision basis"
+
+    {
+        printf 'code\tdecision\treview_id\tticket\tapprover\texpires\n'
+        printf 'U-64\tGOOD\t%s\tSEC-TEST-64\tsecurity-governance\t2099-12-31\n' "$review_id"
+    } > "$policy_file"
+    chmod 0600 -- "$policy_file"
+    policy_load_dir "$policy_directory" || fail "valid policy directory was rejected"
+    case "$POLICY_SET_DIGEST" in
+        sha256:[0-9a-f][0-9a-f]*) ;;
+        *) fail "policy set digest was not generated" ;;
+    esac
+
+    : > "$complete_markdown"
+    : > "$complete_json"
+    REPORT_TEXT="$complete_markdown"
+    REPORT_JSONL="$complete_json"
+    SCAN_MODE="complete"
+    COUNT_MANUAL=0
+    COUNT_ERROR=0
+    COUNT_GOOD=0
+    COUNT_TOTAL=0
+    COUNT_POLICY_RESOLVED=0
+    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete"
+    record_result U-64 patch high "주기적 보안 패치 및 벤더 권고사항 적용" || fail "complete attestation result failed"
+    assert_equal GOOD "$RESULT_STATUS" "matching attestation final decision"
+    assert_equal MANUAL "$RESULT_TECHNICAL_STATUS" "matching attestation technical decision"
+    assert_equal policy_attestation "$RESULT_DECISION_BASIS" "matching attestation basis"
+    assert_equal 1 "$COUNT_POLICY_RESOLVED" "resolved policy count"
+    assert_file_contains "$complete_json" '"technical_status":"MANUAL"' "complete technical status"
+    assert_file_contains "$complete_json" '"attestation_ticket":"SEC-TEST-64"' "complete policy ticket"
+    assert_file_contains "$complete_markdown" '| 최종 판정 | `GOOD` |' "complete Markdown decision"
+
+    set_result MANUAL "다른 정책 확인이 필요합니다." "policy_probe=missing"
+    record_result U-65 log medium "NTP 및 시각 동기화 설정" || fail "missing attestation result failed"
+    assert_equal ERROR "$RESULT_STATUS" "missing attestation becomes error"
+    assert_equal MANUAL "$RESULT_TECHNICAL_STATUS" "missing attestation technical status"
+    assert_equal missing_policy_attestation "$RESULT_DECISION_BASIS" "missing attestation basis"
+
+    printf 'tampered\n' >> "$bundle/runtime/listeners.tsv"
+    if validate_evidence_bundle "$bundle" "$root"; then
+        fail "tampered evidence bundle passed validation"
     fi
 )
 
@@ -933,7 +1139,9 @@ test_result_normalization_differential() (
             printf '|---|---|\n'
             printf '| 분류 | `service` |\n'
             printf '| 중요도 | `high` |\n'
-            printf '| 판정 | `GOOD` |\n'
+            printf '| 기술 판정 | `GOOD` |\n'
+            printf '| 최종 판정 | `GOOD` |\n'
+            printf '| 판정 근거 | `technical` |\n'
             printf '| 적용 여부 | `true` |\n\n'
             printf '### 요약\n\n%s\n\n' "$markdown_summary"
             if [ -n "$evidence" ]; then
@@ -953,7 +1161,7 @@ test_result_normalization_differential() (
         legacy_json_escape_into "$normalized_title" escaped_title
         legacy_json_escape_into "$normalized_summary" escaped_summary
         legacy_json_escape_into "$normalized_evidence" escaped_evidence
-        printf '{"code":"U-61","category":"service","severity":"high","title":"%s","status":"GOOD","applicable":true,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
+        printf '{"code":"U-61","category":"service","severity":"high","title":"%s","status":"GOOD","technical_status":"GOOD","decision_basis":"technical","review_id":"","attestation_ticket":"","attestation_approver":"","attestation_expires":"","applicable":true,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
             "$escaped_title" "$escaped_summary" "$escaped_evidence" "$criterion_url" > "$expected_json"
     }
 
@@ -1403,6 +1611,9 @@ test_path_scratch_and_listener_cache_semantics() (
     printf '0\n' > "$scratch/listener-count"
     : > "$scratch/listener-arguments"
     LISTENER_SNAPSHOT_GENERATION=0
+    SCAN_EPOCH_ACTIVE=1
+    SCAN_EPOCH_ID=1
+    listener_reset_epoch_cache
     record_result() { return 0; }
     check_u_01() {
         service_listener_state 80 22 || fail "same-criterion multi-port listener lookup failed"
@@ -1417,10 +1628,16 @@ test_path_scratch_and_listener_cache_semantics() (
     assert_equal 1 "$listener_count" "multiple ports in one criterion share a listener snapshot"
     run_one_check U-02 account high second
     IFS= read -r listener_count < "$scratch/listener-count"
-    assert_equal 2 "$listener_count" "listener snapshot refreshes for the next criterion"
-    assert_equal 2 "$LISTENER_SNAPSHOT_GENERATION" "listener snapshot criterion generation"
+    assert_equal 1 "$listener_count" "all criteria share one listener snapshot in an epoch"
+    SCAN_EPOCH_ID=2
+    listener_reset_epoch_cache
+    run_one_check U-02 account high second
+    IFS= read -r listener_count < "$scratch/listener-count"
+    assert_equal 2 "$listener_count" "a new scan epoch refreshes the listener snapshot"
+    assert_equal 0 "$LISTENER_SNAPSHOT_GENERATION" "listener cache is no longer criterion-generated"
 
     SCRATCH_DIR="$failure_scratch"
+    SCAN_EPOCH_ACTIVE=0
     LISTENER_SNAPSHOT_GENERATION=0
     printf '0\n' > "$failure_scratch/listener-count"
     : > "$failure_scratch/listener-arguments"
@@ -1574,13 +1791,13 @@ test_sysctl_layering_masks_and_drift() (
     runtime_enabled() { return 0; }
     sysctl_loader_kind() { printf '%s\n' systemd-sysctl; }
     systemd_sysctl_stream() { printf '%s\n' 'net.ipv4.ip_forward = 2'; }
-    sysctl_runtime_value() { printf '%s\n' 1; }
+    sysctl_runtime_value_into() { printf -v "$2" '%s' 1; }
     explanation="$(sysctl_explain net.ipv4.ip_forward)"
     assert_contains "$explanation" "runtime=1" "runtime sysctl explanation"
     assert_contains "$explanation" "drift=present" "runtime drift explanation"
     assert_contains "$explanation" "inactive_nonstandard_directory=/etc/sysctl.conf.d" "inactive sysctl directory warning"
 
-    sysctl_runtime_value() { printf '%s\n' 2; }
+    sysctl_runtime_value_into() { printf -v "$2" '%s' 2; }
     explanation="$(sysctl_explain net.ipv4.ip_forward)"
     assert_contains "$explanation" "drift=none" "matching runtime value"
 
@@ -1784,16 +2001,24 @@ test_cli_platform_selection_and_reports() (
     local header_root="$TEST_TEMP/header-control-root"
     local header_output="$TEST_TEMP/header-control-output"
 
-    mkdir -p -- "$scanner_copy/bin" "$scanner_copy/lib" "$scanner_copy/data"
+    mkdir -p -- "$scanner_copy/bin" "$scanner_copy/lib" "$scanner_copy/data" \
+        "$scanner_copy/share/kisa-cce-linux-scanner/locale"
     cp -- "$PROJECT_DIR/bin/kisa-cce-scan" "$scanner_copy/bin/kisa-cce-scan"
     cp -- "$PROJECT_DIR/lib/core.sh" "$scanner_copy/lib/core.sh"
+    cp -- "$PROJECT_DIR/lib/evidence.sh" "$scanner_copy/lib/evidence.sh"
+    cp -- "$PROJECT_DIR/lib/i18n.sh" "$scanner_copy/lib/i18n.sh"
     cp -- "$PROJECT_DIR/lib/kisa-cce-scan-main.sh" "$scanner_copy/lib/kisa-cce-scan-main.sh"
+    cp -- "$PROJECT_DIR/lib/policy.sh" "$scanner_copy/lib/policy.sh"
+    cp -- "$PROJECT_DIR/lib/scan_epoch.sh" "$scanner_copy/lib/scan_epoch.sh"
     cp -- "$PROJECT_DIR/lib/resolvers.sh" "$scanner_copy/lib/resolvers.sh"
     cp -- "$PROJECT_DIR/data/criteria.tsv" "$scanner_copy/data/criteria.tsv"
     cp -- "$PROJECT_DIR/data/VERSION" "$scanner_copy/data/VERSION"
+    cp -R -- "$PROJECT_DIR/share/kisa-cce-linux-scanner/locale/en" \
+        "$PROJECT_DIR/share/kisa-cce-linux-scanner/locale/ko" \
+        "$scanner_copy/share/kisa-cce-linux-scanner/locale/"
     {
         printf '%s\n' '#!/bin/bash'
-        printf '%s\n' 'check_u_01() { set_result GOOD "fixture result" "fixture=true"; }'
+        printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "fixture=true"; }'
     } > "$scanner_copy/lib/checks_fixture.sh"
     chmod 0755 -- "$scanner_copy/bin/kisa-cce-scan"
 
@@ -1806,18 +2031,33 @@ test_cli_platform_selection_and_reports() (
     assert_contains "$help_output" "--root / keeps live collection" "live root help contract"
     assert_contains "$help_output" "validated but unused with --explain-sysctl" "explain output help contract"
     assert_contains "$help_output" "errors take precedence" "scanner error exit precedence help contract"
+    if printf '%s\n' "$help_output" |
+        grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
+        fail "CLI help contains a line without the console prefix"
+    fi
 
     for empty_option in --root --output-dir --checks --explain-sysctl; do
         command_status=0
         command_output="$("$scanner_copy/bin/kisa-cce-scan" "$empty_option" "" 2>&1)" || command_status=$?
         assert_equal 2 "$command_status" "$empty_option separated empty value rejection"
-        assert_contains "$command_output" "$empty_option 옵션에 값이 필요합니다." "$empty_option separated empty value message"
+        assert_contains "$command_output" "$empty_option requires a value" "$empty_option separated empty value message"
 
         command_status=0
         command_output="$("$scanner_copy/bin/kisa-cce-scan" "${empty_option}=" 2>&1)" || command_status=$?
         assert_equal 2 "$command_status" "$empty_option attached empty value rejection"
-        assert_contains "$command_output" "$empty_option 옵션에 값이 필요합니다." "$empty_option attached empty value message"
+        assert_contains "$command_output" "$empty_option requires a value" "$empty_option attached empty value message"
     done
+
+    command_status=0
+    command_output="$("$scanner_copy/bin/kisa-cce-scan" --root $'relative\nforged-line' 2>&1)" || command_status=$?
+    assert_equal 2 "$command_status" "relative multiline root rejection"
+    if printf '%s\n' "$command_output" |
+        grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
+        fail "multiline scanner error produced an unframed terminal line"
+    fi
+    if printf '%s\n' "$command_output" | grep -q '^forged-line$'; then
+        fail "multiline scanner error injected a terminal line"
+    fi
 
     for control_root in \
         "$TEST_TEMP/control-root"$'\n''## U-99: forged' \
@@ -1828,7 +2068,7 @@ test_cli_platform_selection_and_reports() (
         command_output="$("$scanner_copy/bin/kisa-cce-scan" \
             --root "$control_root" --checks U-01 --no-runtime 2>&1)" || command_status=$?
         assert_equal 2 "$command_status" "separated root control-character rejection"
-        assert_contains "$command_output" "--root 경로에 허용되지 않는 제어 문자가 포함되어 있습니다." \
+        assert_contains "$command_output" "--root contains a disallowed control character" \
             "separated root control-character message"
         case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "rejected root produced report paths" ;; esac
 
@@ -1836,7 +2076,7 @@ test_cli_platform_selection_and_reports() (
         command_output="$("$scanner_copy/bin/kisa-cce-scan" \
             "--root=$control_root" --checks U-01 --no-runtime 2>&1)" || command_status=$?
         assert_equal 2 "$command_status" "attached root control-character rejection"
-        assert_contains "$command_output" "--root 경로에 허용되지 않는 제어 문자가 포함되어 있습니다." \
+        assert_contains "$command_output" "--root contains a disallowed control character" \
             "attached root control-character message"
         case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "rejected attached root produced report paths" ;; esac
     done
@@ -1849,17 +2089,27 @@ test_cli_platform_selection_and_reports() (
         --no-runtime 2>&1)"
     command_status="$?"
     assert_equal 0 "$command_status" "supported CLI scan exit status"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
-    jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
+    text_report="$(scanner_console_value markdown_report "$command_output")"
+    jsonl_report="$(scanner_console_value jsonl_report "$command_output")"
     [ -f "$text_report" ] || fail "CLI Markdown report was not created"
     [ -f "$jsonl_report" ] || fail "CLI JSONL report was not created"
     assert_file_contains "$text_report" "| 전체 | 1 |" "selected CLI result count"
     assert_file_contains "$text_report" "runtime_collection: off" "offline runtime state"
     assert_equal 600 "$(mode_of "$text_report")" "CLI Markdown report mode"
     assert_equal 600 "$(mode_of "$jsonl_report")" "CLI JSONL report mode"
-    assert_contains "$command_output" "VERBOSE: platform=ubuntu version=26.04 family=debian" "verbose platform line"
-    assert_contains "$command_output" "VERBOSE: check=U-01 status=GOOD" "verbose check line"
-    assert_contains "$command_output" "VERBOSE: summary total=1 good=1" "verbose summary line"
+    assert_contains "$command_output" "kisa-cce-scan: platform=ubuntu version=26.04 family=debian" "verbose platform line"
+    assert_contains "$command_output" \
+        "kisa-cce-scan: check=U-01 status=GOOD title=Restrict remote login for the root account" \
+        "verbose check line"
+    assert_contains "$command_output" "kisa-cce-scan: summary total=1 good=1" "verbose summary line"
+    if ! printf '%s\n' "$command_output" |
+        grep -Eq '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: check=U-01 status=GOOD title=Restrict remote login for the root account$'; then
+        fail "verbose output did not use the dmesg-style timestamp format"
+    fi
+    if printf '%s\n' "$command_output" |
+        grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
+        fail "scanner output contains a line without the console prefix"
+    fi
 
     mkdir -p -- "$direct_output_target" "$ancestor_output_target/existing"
     ln -s -- "$direct_output_target" "$direct_output_link"
@@ -1870,7 +2120,7 @@ test_cli_platform_selection_and_reports() (
         command_output="$("$scanner_copy/bin/kisa-cce-scan" \
             --root "$supported_root" --output-dir "$output_dir" --checks U-01 --no-runtime 2>&1)" || command_status=$?
         assert_equal 2 "$command_status" "output symlink rejection for $output_dir"
-        assert_contains "$command_output" "심볼릭 링크가 포함" "output symlink rejection message for $output_dir"
+        assert_contains "$command_output" "output directory path contains a symbolic link" "output symlink rejection message for $output_dir"
     done
     [ ! -e "$ancestor_output_target/missing" ] || fail "ancestor output symlink created a missing target child"
 
@@ -1881,14 +2131,14 @@ test_cli_platform_selection_and_reports() (
         --root "$supported_root" --output-dir "$untrusted_output_parent/reports" \
         --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 2 "$command_status" "untrusted output ancestor rejection"
-    assert_contains "$command_output" "상위 경로가 신뢰할 수 없습니다" "untrusted output ancestor message"
+    assert_contains "$command_output" "output directory parent path is not trusted" "untrusted output ancestor message"
     [ ! -e "$untrusted_output_parent/reports" ] || fail "untrusted output ancestor created a report directory"
 
     command_status=0
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
         --root "$supported_root" --output-dir "$nested_output" --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "normal nested output directory"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+    text_report="$(scanner_console_value markdown_report "$command_output")"
     [ -f "$text_report" ] || fail "normal nested output report was not created"
 
     command_status=0
@@ -1899,8 +2149,10 @@ test_cli_platform_selection_and_reports() (
         -v > "$short_verbose_stdout" 2> "$short_verbose_stderr" || command_status=$?
     short_verbose_output="$(< "$short_verbose_stderr")"
     assert_equal 0 "$command_status" "short verbose option exit status"
-    assert_contains "$short_verbose_output" "VERBOSE: check=U-01 status=GOOD" "short verbose option output"
-    if grep -Fq -- "VERBOSE:" "$short_verbose_stdout"; then
+    assert_contains "$short_verbose_output" \
+        "kisa-cce-scan: check=U-01 status=GOOD title=Restrict remote login for the root account" \
+        "short verbose option output"
+    if grep -Fq -- "kisa-cce-scan: check=" "$short_verbose_stdout"; then
         fail "verbose diagnostics were written to standard output"
     fi
     assert_file_contains "$short_verbose_stdout" "markdown_report=" "short verbose report path output"
@@ -1915,7 +2167,7 @@ test_cli_platform_selection_and_reports() (
         --root "$injection_root" --output-dir "$injection_output_dir" \
         --checks U-25 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "literal backslash-n evidence scan exit status"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+    text_report="$(scanner_console_value markdown_report "$command_output")"
     [ -f "$text_report" ] || fail "literal backslash-n evidence Markdown report was not created"
     injection_result_count="$(grep -Ec '^## U-[0-9]{2}: ' "$text_report")"
     assert_equal 1 "$injection_result_count" "literal backslash-n evidence result count"
@@ -1935,7 +2187,7 @@ test_cli_platform_selection_and_reports() (
         --root "$header_root" --output-dir "$header_output" \
         --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 0 "$command_status" "header control-byte sanitization scan"
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+    text_report="$(scanner_console_value markdown_report "$command_output")"
     [ -f "$text_report" ] || fail "header control-byte Markdown report was not created"
     # shellcheck disable=SC2094 # cmp only reads the original file; it does not overwrite pipeline input.
     if ! LC_ALL=C tr -d '\000-\011\013-\037\177' < "$text_report" | cmp -s - "$text_report"; then
@@ -1955,8 +2207,8 @@ test_cli_platform_selection_and_reports() (
             --root "$matrix_root" --output-dir "$matrix_output" --checks U-01 --no-runtime 2>&1)"
         command_status=$?
         assert_equal 0 "$command_status" "$matrix_id $matrix_version CLI scan exit status"
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
-        jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
+        text_report="$(scanner_console_value markdown_report "$command_output")"
+        jsonl_report="$(scanner_console_value jsonl_report "$command_output")"
         [ -f "$text_report" ] || fail "$matrix_id $matrix_version CLI Markdown report was not created"
         [ -f "$jsonl_report" ] || fail "$matrix_id $matrix_version CLI JSONL report was not created"
         assert_equal 600 "$(mode_of "$text_report")" "$matrix_id $matrix_version Markdown report mode"
@@ -1976,7 +2228,7 @@ EOF
     command_output="$("$scanner_copy/bin/kisa-cce-scan" --root "$unsupported_root" --checks U-01 2>&1)"
     command_status="$?"
     assert_equal 2 "$command_status" "unsupported platform rejection"
-    assert_contains "$command_output" "지원되지 않은 플랫폼" "unsupported platform message"
+    assert_contains "$command_output" "unsupported platform" "unsupported platform message"
 
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
         --root "$unsupported_root" \
@@ -1995,13 +2247,17 @@ EOF
     assert_equal 0 "$command_status" "sysctl explanation exit status"
     assert_contains "$command_output" "persistent=0" "sysctl persistent explanation"
     assert_contains "$command_output" "runtime=unavailable" "offline sysctl runtime explanation"
+    if printf '%s\n' "$command_output" |
+        grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' >/dev/null; then
+        fail "sysctl explanation contains a line without the console prefix"
+    fi
     [ ! -e "$explain_output_dir" ] || fail "sysctl explanation created an output directory"
     case "$command_output" in *markdown_report=*|*jsonl_report=*) fail "sysctl explanation produced a report path" ;; esac
 
     command_output="$("$scanner_copy/bin/kisa-cce-scan" --root "$supported_root" --checks U-99 2>&1)"
     command_status="$?"
     assert_equal 2 "$command_status" "unknown check rejection"
-    assert_contains "$command_output" "판정 기준에 없는 점검 코드" "unknown check message"
+    assert_contains "$command_output" "check code not found in the criteria file" "unknown check message"
 
     cp -- "$scanner_copy/data/criteria.tsv" "$catalog_backup"
     awk 'NR == 2 {first=$0; next} NR == 3 {print; print first; next} {print}' \
@@ -2011,7 +2267,7 @@ EOF
     command_output="$("$scanner_copy/bin/kisa-cce-scan" \
         --root "$supported_root" --checks U-01 --no-runtime 2>&1)" || command_status=$?
     assert_equal 2 "$command_status" "out-of-order criterion catalog rejection"
-    assert_contains "$command_output" "판정 기준 파일 형식이 유효하지 않습니다." "out-of-order catalog message"
+    assert_contains "$command_output" "invalid criteria file format" "out-of-order catalog message"
     cp -- "$catalog_backup" "$scanner_copy/data/criteria.tsv"
 )
 
@@ -2048,24 +2304,46 @@ test_installed_layouts() (
             fail "$layout_name staged installation failed"
         {
             printf '%s\n' '#!/bin/bash'
-            printf '%s\n' 'check_u_01() { set_result GOOD "installed fixture" "layout=true"; }'
+            printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "layout=true"; }'
         } > "$private_library_path/checks_fixture.sh"
 
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-scan")" \
             "$layout_name installed command mode"
+        assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-collect")" \
+            "$layout_name installed collector mode"
         assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-scan-main.sh")" \
             "$layout_name private main mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/criteria.tsv")" \
             "$layout_name criterion data mode"
+        assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/locale/en/LC_MESSAGES/kisa-cce-linux-scanner.po")" \
+            "$layout_name English catalog mode"
+        assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/locale/ko/LC_MESSAGES/kisa-cce-linux-scanner.po")" \
+            "$layout_name Korean catalog mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-scan.8")" \
             "$layout_name installed manual page mode"
+        assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-collect.8")" \
+            "$layout_name installed collector manual mode"
         [ ! -e "$installed_prefix/share/doc/kisa-cce-linux-scanner" ] ||
             fail "$layout_name install unexpectedly copied repository documentation"
         command_output="$(CDPATH='' cd -P -- "$TEST_TEMP" &&
-            "$installed_prefix/bin/kisa-cce-scan" --version 2>&1)" ||
+            env -u LANG "$installed_prefix/bin/kisa-cce-scan" --version 2>&1)" ||
             fail "$layout_name installed version command failed"
-        assert_equal "kisa-cce-scan $(sed -n '1p' "$PROJECT_DIR/data/VERSION")" \
-            "$command_output" "$layout_name installed version"
+        assert_contains "$command_output" \
+            "kisa-cce-scan: kisa-cce-scan $(sed -n '1p' "$PROJECT_DIR/data/VERSION")" \
+            "$layout_name installed version"
+        command_output="$("$installed_prefix/bin/kisa-cce-collect" --version 2>&1)" ||
+            fail "$layout_name installed collector version command failed"
+        assert_contains "$command_output" \
+            "kisa-cce-collect: kisa-cce-collect evidence-schema-1" \
+            "$layout_name installed collector version"
+        command_status=0
+        command_output="$("$installed_prefix/bin/kisa-cce-collect" \
+            --output-dir $'relative\nforged-line' 2>&1)" || command_status=$?
+        assert_equal 2 "$command_status" "$layout_name multiline collector path rejection"
+        if printf '%s\n' "$command_output" |
+            grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-collect: .*$' >/dev/null; then
+            fail "$layout_name multiline collector error produced an unframed terminal line"
+        fi
 
         environment_file="$stage_root/untrusted-environment.sh"
         environment_marker="$stage_root/environment-was-loaded"
@@ -2078,15 +2356,32 @@ test_installed_layouts() (
 
         write_os_release "$supported_root" ubuntu 26.04 "Ubuntu 26.04 LTS"
         command_status=0
-        command_output="$("$installed_prefix/bin/kisa-cce-scan" \
+        command_output="$(env -u LANG "$installed_prefix/bin/kisa-cce-scan" \
             --root "$supported_root" \
             --output-dir "$output_dir" \
             --checks U-01 \
             --no-runtime 2>&1)" || command_status=$?
         assert_equal 0 "$command_status" "$layout_name installed scan exit status"
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
+        text_report="$(scanner_console_value markdown_report "$command_output")"
         [ -f "$text_report" ] || fail "$layout_name installed scan did not create a Markdown report"
-        assert_file_contains "$text_report" "installed fixture" "$layout_name installed library lookup"
+        assert_file_contains "$text_report" "SSH의 root 직접 접속이 차단되어 있습니다." \
+            "$layout_name installed Korean catalog lookup"
+
+        rm -rf -- "$output_dir"
+        command_status=0
+        command_output="$(LANG=en_US.UTF-8 "$installed_prefix/bin/kisa-cce-scan" \
+            --root "$supported_root" \
+            --output-dir "$output_dir" \
+            --checks U-01 \
+            --no-runtime 2>&1)" || command_status=$?
+        assert_equal 0 "$command_status" "$layout_name installed English scan exit status"
+        text_report="$(scanner_console_value markdown_report "$command_output")"
+        assert_file_contains "$text_report" "# KISA CCE 2026 Linux Security Assessment Report" \
+            "$layout_name installed English report title"
+        assert_file_contains "$text_report" "Restrict remote login for the root account" \
+            "$layout_name installed English criterion title"
+        assert_file_contains "$text_report" "Direct root login over SSH is disabled." \
+            "$layout_name installed English summary"
     done
 )
 
@@ -2102,6 +2397,17 @@ test_full_catalog_produces_one_result_per_criterion() (
     local rhel_version=""
     local rhel_root=""
     local rhel_output_dir=""
+    local bundle="$TEST_TEMP/full-evidence-bundle"
+    local bundle_output="$TEST_TEMP/full-bundle-output"
+    local policy_directory="$TEST_TEMP/full-policy.d"
+    local policy_file="$policy_directory/50-complete.tsv"
+    local complete_output="$TEST_TEMP/full-complete-output"
+    local complete_json=""
+    local complete_markdown=""
+    local english_output="$TEST_TEMP/full-english-output"
+    local english_markdown=""
+    local english_json=""
+    local policy_count=0
 
     write_os_release "$root" ubuntu 26.04 "Ubuntu 26.04 LTS"
     mkdir -p -- \
@@ -2173,14 +2479,77 @@ test_full_catalog_produces_one_result_per_criterion() (
         0|1) ;;
         *) fail "full catalog scan exited unexpectedly: $command_status" ;;
     esac
-    text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
-    jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
+    text_report="$(scanner_console_value markdown_report "$command_output")"
+    jsonl_report="$(scanner_console_value jsonl_report "$command_output")"
     [ -f "$text_report" ] || fail "full scan Markdown report was not created: $command_output"
     [ -f "$jsonl_report" ] || fail "full scan JSONL report was not created"
     assert_full_catalog_contract "$text_report" "$jsonl_report" "full catalog"
     if grep -Fq -- 'fixture-secret-that-must-not-leak' "$text_report" "$jsonl_report"; then
         fail "a fixture password hash escaped into a report"
     fi
+
+    command_status=0
+    command_output="$(LANG=en_US.UTF-8 "$PROJECT_DIR/bin/kisa-cce-scan" \
+        --root "$root" --output-dir "$english_output" --no-runtime 2>&1)" || command_status=$?
+    case "$command_status" in
+        0|1) ;;
+        *) fail "English full catalog scan exited unexpectedly: $command_status: $command_output" ;;
+    esac
+    english_markdown="$(scanner_console_value markdown_report "$command_output")"
+    english_json="$(scanner_console_value jsonl_report "$command_output")"
+    [ -f "$english_markdown" ] || fail "English full scan Markdown report was not created"
+    [ -f "$english_json" ] || fail "English full scan JSONL report was not created"
+    assert_file_contains "$english_markdown" '# KISA CCE 2026 Linux Security Assessment Report' \
+        "English full report title"
+    assert_file_contains "$english_markdown" '| Error | 0 |' "English full report error count"
+    assert_file_contains "$english_json" '"type":"summary","total":67' "English full result count"
+
+    write_evidence_bundle "$bundle" "$root"
+    command_status=0
+    command_output="$("$PROJECT_DIR/bin/kisa-cce-scan" \
+        --root "$root" --evidence-bundle "$bundle" --output-dir "$bundle_output" 2>&1)" || command_status=$?
+    case "$command_status" in 0|1|2) ;; *) fail "bundle audit exited unexpectedly: $command_status" ;; esac
+    jsonl_report="$(scanner_console_value jsonl_report "$command_output")"
+    [ -f "$jsonl_report" ] || fail "bundle audit JSONL report was not created: $command_output"
+
+    mkdir -p -- "$policy_directory"
+    chmod 0700 -- "$policy_directory"
+    awk '
+        BEGIN {OFS="\t"; print "code", "decision", "review_id", "ticket", "approver", "expires"}
+        /"technical_status":"MANUAL"/ {
+            code=$0
+            sub(/^.*"code":"/, "", code)
+            sub(/".*/, "", code)
+            review=$0
+            sub(/^.*"review_id":"/, "", review)
+            sub(/".*/, "", review)
+            if (review == "") exit 2
+            print code, "GOOD", review, "TEST-" code, "test-governance", "2099-12-31"
+            count++
+        }
+        END {if (count == 0) exit 3}
+    ' "$jsonl_report" > "$policy_file" || fail "complete policy fixture was not generated"
+    chmod 0600 -- "$policy_file"
+    policy_count="$(awk 'END {print NR-1}' "$policy_file")"
+    [ "$policy_count" -gt 0 ] || fail "complete policy fixture has no attestations"
+
+    command_status=0
+    command_output="$("$PROJECT_DIR/bin/kisa-cce-scan" \
+        --root "$root" --mode complete --policy-dir "$policy_directory" \
+        --evidence-bundle "$bundle" --output-dir "$complete_output" 2>&1)" || command_status=$?
+    case "$command_status" in 0|1|2) ;; *) fail "complete scan exited unexpectedly: $command_status" ;; esac
+    complete_markdown="$(scanner_console_value markdown_report "$command_output")"
+    complete_json="$(scanner_console_value jsonl_report "$command_output")"
+    [ -f "$complete_markdown" ] || fail "complete Markdown report was not created: $command_output"
+    [ -f "$complete_json" ] || fail "complete JSONL report was not created: $command_output"
+    assert_file_contains "$complete_json" '"type":"summary","total":67' "complete result count"
+    assert_file_contains "$complete_json" '"manual":0' "complete manual count"
+    assert_file_contains "$complete_json" "\"policy_resolved\":${policy_count}" "complete resolved policy count"
+    if grep -Fq -- '"status":"MANUAL"' "$complete_json"; then
+        fail "complete report retained a MANUAL final result"
+    fi
+    assert_file_contains "$complete_markdown" 'scan_mode: complete' "complete report mode"
+    assert_file_contains "$complete_markdown" '| 수동 확인 | 0 |' "complete Markdown manual count"
 
     for rhel_version in 8.10 9.8 10.2; do
         rhel_root="$TEST_TEMP/full-rhel-${rhel_version}"
@@ -2204,8 +2573,8 @@ test_full_catalog_produces_one_result_per_criterion() (
             0|1) ;;
             *) fail "RHEL $rhel_version full catalog scan exited unexpectedly: $command_status" ;;
         esac
-        text_report="$(printf '%s\n' "$command_output" | sed -n 's/^markdown_report=//p')"
-        jsonl_report="$(printf '%s\n' "$command_output" | sed -n 's/^jsonl_report=//p')"
+        text_report="$(scanner_console_value markdown_report "$command_output")"
+        jsonl_report="$(scanner_console_value jsonl_report "$command_output")"
         [ -f "$text_report" ] || fail "RHEL $rhel_version Markdown report was not created: $command_output"
         [ -f "$jsonl_report" ] || fail "RHEL $rhel_version JSONL report was not created"
         assert_full_catalog_contract "$text_report" "$jsonl_report" "RHEL $rhel_version full catalog"
@@ -5502,6 +5871,7 @@ run_test() {
 
 run_test "shell syntax" test_shell_syntax
 run_test "manual page contract" test_manpage_contract
+run_test "policy and evidence contracts" test_policy_and_evidence_contracts
 run_test "supported platform matrix" test_platform_support_matrix
 run_test "PAM facility and platform capabilities" test_pam_facility_scoping_and_platform_capabilities
 run_test "time and sysctl platform adapters" test_time_and_sysctl_platform_adapters

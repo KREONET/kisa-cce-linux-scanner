@@ -1,4 +1,6 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # shellcheck shell=bash
+# shellcheck disable=SC2034
 
 # Core runtime and reporting helpers for the KISA CCE Linux scanner.
 
@@ -9,6 +11,12 @@ RUNTIME_MODE="${RUNTIME_MODE:-auto}"
 OUTPUT_PARENT="${OUTPUT_PARENT:-}"
 SELECTED_CHECKS="${SELECTED_CHECKS:-}"
 VERBOSE="${VERBOSE:-0}"
+SCAN_MODE="${SCAN_MODE:-audit}"
+POLICY_DIRECTORY="${POLICY_DIRECTORY:-}"
+EVIDENCE_BUNDLE_PATH="${EVIDENCE_BUNDLE_PATH:-}"
+EVIDENCE_BUNDLE_ACTIVE="${EVIDENCE_BUNDLE_ACTIVE:-0}"
+EVIDENCE_MAX_AGE_SECONDS="${EVIDENCE_MAX_AGE_SECONDS:-3600}"
+EVIDENCE_AGE_SECONDS="${EVIDENCE_AGE_SECONDS:-}"
 # shellcheck disable=SC2034
 ORIGINAL_PATH="${KISA_CCE_CALLER_PATH:-${PATH:-}}"
 # shellcheck disable=SC2034
@@ -32,6 +40,12 @@ OUTPUT_DIRECTORY_FD=""
 OUTPUT_DIRECTORY_FD_PATH=""
 OUTPUT_DIRECTORY_DEVICE_INODE=""
 RESULT_STATUS=""
+RESULT_TECHNICAL_STATUS=""
+RESULT_DECISION_BASIS=""
+RESULT_REVIEW_ID=""
+RESULT_ATTESTATION_TICKET=""
+RESULT_ATTESTATION_APPROVER=""
+RESULT_ATTESTATION_EXPIRES=""
 RESULT_SUMMARY=""
 RESULT_EVIDENCE=""
 RESULT_APPLICABLE="true"
@@ -42,7 +56,37 @@ COUNT_MANUAL=0
 COUNT_NOT_APPLICABLE=0
 COUNT_ERROR=0
 COUNT_TOTAL=0
+COUNT_POLICY_RESOLVED=0
 REPORT_WRITE_ERROR=0
+
+REPORT_LABEL_REPORT_TITLE="KISA CCE 2026 Linux 보안 점검 보고서"
+REPORT_LABEL_SCAN_INFORMATION="점검 정보"
+REPORT_LABEL_FIELD="항목"
+REPORT_LABEL_VALUE="값"
+REPORT_LABEL_CATEGORY="분류"
+REPORT_LABEL_SEVERITY="중요도"
+REPORT_LABEL_TECHNICAL_STATUS="기술 판정"
+REPORT_LABEL_FINAL_STATUS="최종 판정"
+REPORT_LABEL_DECISION_BASIS="판정 근거"
+REPORT_LABEL_APPLICABLE="적용 여부"
+REPORT_LABEL_REVIEW_ID="검토 ID"
+REPORT_LABEL_ATTESTATION_TICKET="승인 티켓"
+REPORT_LABEL_ATTESTATION_APPROVER="승인자"
+REPORT_LABEL_ATTESTATION_EXPIRES="승인 만료일"
+REPORT_LABEL_SUMMARY="요약"
+REPORT_LABEL_EVIDENCE="근거"
+REPORT_LABEL_REFERENCE="기준"
+REPORT_LABEL_RESULT_SUMMARY="판정 요약"
+REPORT_LABEL_STATUS="판정"
+REPORT_LABEL_COUNT="개수"
+REPORT_LABEL_TOTAL="전체"
+REPORT_LABEL_GOOD="양호"
+REPORT_LABEL_VULNERABLE="취약"
+REPORT_LABEL_MANUAL="수동 확인"
+REPORT_LABEL_NOT_APPLICABLE="해당 없음"
+REPORT_LABEL_ERROR="오류"
+REPORT_LABEL_POLICY_RESOLVED="정책 승인으로 확정"
+REPORT_LABEL_COMPLETED_AT="완료 시각"
 
 declare -A TRUSTED_COMMAND_CACHE=()
 TRUSTED_COMMAND_CACHE_FILE=""
@@ -58,18 +102,133 @@ PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 umask 077
 
+console_uptime_into() {
+    local __kisa_console_destination="$1"
+    local uptime_value=""
+    local uptime_seconds=""
+    local uptime_fraction=""
+
+    if [ -r /proc/uptime ]; then
+        IFS=' ' read -r uptime_value _ < /proc/uptime || uptime_value=""
+    fi
+    case "$uptime_value" in
+        *.*)
+            uptime_seconds="${uptime_value%%.*}"
+            uptime_fraction="${uptime_value#*.}"
+            case "$uptime_seconds:$uptime_fraction" in
+                :*|*:|*[!0-9:]*) uptime_seconds="" ;;
+            esac
+            ;;
+        *) uptime_seconds="" ;;
+    esac
+    if [ -z "$uptime_seconds" ]; then
+        uptime_seconds="${SECONDS:-0}"
+        case "$uptime_seconds" in
+            ''|*[!0-9]*) uptime_seconds=0 ;;
+        esac
+        uptime_fraction=""
+    fi
+    uptime_fraction="${uptime_fraction}000000"
+    uptime_fraction="${uptime_fraction:0:6}"
+    printf -v "$__kisa_console_destination" '%6s.%s' "$uptime_seconds" "$uptime_fraction"
+}
+
+console_emit() {
+    local payload="${1-}"
+    local line=""
+    local sanitized_line=""
+    local uptime=""
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        console_sanitize_line_into "$line" sanitized_line
+        console_uptime_into uptime
+        printf '[%s] kisa-cce-scan: %s\n' "$uptime" "$sanitized_line"
+    done <<< "$payload"
+}
+
+console_sanitize_line_into() {
+    local input_line="$1"
+    local destination_name="$2"
+    local character=""
+    local escaped_character=""
+    local sanitized=""
+    local index_value=0
+    local byte_value=0
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|input_line|destination_name|character|escaped_character|sanitized|index_value|byte_value)
+            return 2
+            ;;
+    esac
+    for ((index_value = 0; index_value < ${#input_line}; index_value++)); do
+        character="${input_line:index_value:1}"
+        case "$character" in
+            $'\t') sanitized+='\\t' ;;
+            $'\r') sanitized+='\\r' ;;
+            [[:cntrl:]])
+                printf -v byte_value '%d' "'$character"
+                printf -v escaped_character '\\x%02x' "$byte_value"
+                sanitized+="$escaped_character"
+                ;;
+            *) sanitized+="$character" ;;
+        esac
+    done
+    printf -v "$destination_name" '%s' "$sanitized"
+}
+
+console_emit_lines() {
+    local content="${1-}"
+    local line=""
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        console_emit "$line"
+    done <<< "$content"
+}
+
 die() {
-    printf 'ERROR: %s\n' "$*" >&2
+    console_emit "ERROR: $*" >&2
     exit 2
 }
 
 warn() {
-    printf 'WARNING: %s\n' "$*" >&2
+    console_emit "WARNING: $*" >&2
 }
 
 verbose() {
     [ "$VERBOSE" -eq 1 ] || return 0
-    printf 'VERBOSE: %s\n' "$*" >&2
+    console_emit "$*" >&2
+}
+
+initialize_report_labels() {
+    declare -F i18n_ui_label_into >/dev/null 2>&1 || return 2
+    i18n_ui_label_into report_title REPORT_LABEL_REPORT_TITLE || return 2
+    i18n_ui_label_into scan_information REPORT_LABEL_SCAN_INFORMATION || return 2
+    i18n_ui_label_into field REPORT_LABEL_FIELD || return 2
+    i18n_ui_label_into value REPORT_LABEL_VALUE || return 2
+    i18n_ui_label_into category REPORT_LABEL_CATEGORY || return 2
+    i18n_ui_label_into severity REPORT_LABEL_SEVERITY || return 2
+    i18n_ui_label_into technical_status REPORT_LABEL_TECHNICAL_STATUS || return 2
+    i18n_ui_label_into final_status REPORT_LABEL_FINAL_STATUS || return 2
+    i18n_ui_label_into decision_basis REPORT_LABEL_DECISION_BASIS || return 2
+    i18n_ui_label_into applicable REPORT_LABEL_APPLICABLE || return 2
+    i18n_ui_label_into review_id REPORT_LABEL_REVIEW_ID || return 2
+    i18n_ui_label_into attestation_ticket REPORT_LABEL_ATTESTATION_TICKET || return 2
+    i18n_ui_label_into attestation_approver REPORT_LABEL_ATTESTATION_APPROVER || return 2
+    i18n_ui_label_into attestation_expires REPORT_LABEL_ATTESTATION_EXPIRES || return 2
+    i18n_ui_label_into summary REPORT_LABEL_SUMMARY || return 2
+    i18n_ui_label_into evidence REPORT_LABEL_EVIDENCE || return 2
+    i18n_ui_label_into reference REPORT_LABEL_REFERENCE || return 2
+    i18n_ui_label_into result_summary REPORT_LABEL_RESULT_SUMMARY || return 2
+    i18n_ui_label_into status REPORT_LABEL_STATUS || return 2
+    i18n_ui_label_into count REPORT_LABEL_COUNT || return 2
+    i18n_ui_label_into total REPORT_LABEL_TOTAL || return 2
+    i18n_ui_label_into good REPORT_LABEL_GOOD || return 2
+    i18n_ui_label_into vulnerable REPORT_LABEL_VULNERABLE || return 2
+    i18n_ui_label_into manual REPORT_LABEL_MANUAL || return 2
+    i18n_ui_label_into not_applicable REPORT_LABEL_NOT_APPLICABLE || return 2
+    i18n_ui_label_into error REPORT_LABEL_ERROR || return 2
+    i18n_ui_label_into policy_resolved REPORT_LABEL_POLICY_RESOLVED || return 2
+    i18n_ui_label_into completed_at REPORT_LABEL_COMPLETED_AT || return 2
 }
 
 trim() {
@@ -263,6 +422,11 @@ runtime_enabled() {
     [ "$SCAN_ROOT" = "/" ] || return 1
     [ "$RUNTIME_MODE" != "off" ] || return 1
     return 0
+}
+
+runtime_snapshot_available() {
+    runtime_enabled && return 0
+    [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && [ -n "${EVIDENCE_BUNDLE_DIRECTORY:-}" ]
 }
 
 trusted_command() {
@@ -675,6 +839,12 @@ set_result() {
     esac
 
     RESULT_STATUS="$status"
+    RESULT_TECHNICAL_STATUS="$status"
+    RESULT_DECISION_BASIS="technical"
+    RESULT_REVIEW_ID=""
+    RESULT_ATTESTATION_TICKET=""
+    RESULT_ATTESTATION_APPROVER=""
+    RESULT_ATTESTATION_EXPIRES=""
     RESULT_SUMMARY="$summary"
     RESULT_EVIDENCE="$evidence"
     RESULT_APPLICABLE="$applicable"
@@ -697,7 +867,7 @@ evidence_requires_redaction() {
     return "$match_status"
 }
 
-redact_and_limit_evidence_into() {
+redact_evidence_into() {
     local __kisa_evidence_input="$1"
     local __kisa_evidence_destination="$2"
 
@@ -721,13 +891,26 @@ redact_and_limit_evidence_into() {
             -e 's/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
             <<< "$__kisa_evidence_input")"
     fi
-    if [ "${#__kisa_evidence_input}" -gt 8192 ]; then
-        __kisa_evidence_input="${__kisa_evidence_input:0:8192}"
-    fi
     while [[ "$__kisa_evidence_input" == *$'\n' ]]; do
         __kisa_evidence_input="${__kisa_evidence_input%$'\n'}"
     done
     printf -v "$__kisa_evidence_destination" '%s' "$__kisa_evidence_input"
+}
+
+limit_evidence_into() {
+    local input_value="$1"
+    local destination_name="$2"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|input_value|destination_name) return 2 ;;
+    esac
+    if [ "${#input_value}" -gt 8192 ]; then
+        input_value="${input_value:0:8192}"
+    fi
+    while [[ "$input_value" == *$'\n' ]]; do
+        input_value="${input_value%$'\n'}"
+    done
+    printf -v "$destination_name" '%s' "$input_value"
 }
 
 indent_markdown_evidence_into() {
@@ -881,6 +1064,69 @@ sanitize_header_field_into() {
     printf -v "$destination_name" '%s' "$sanitized_value"
 }
 
+trusted_sha256sum_command() {
+    local candidate=""
+    local candidate_owner=""
+    local candidate_mode=""
+
+    for candidate in /usr/bin/sha256sum /bin/sha256sum; do
+        [ -x "$candidate" ] || continue
+        candidate_owner="$(stat_owner "$candidate" 2>/dev/null || true)"
+        candidate_mode="$(stat_mode "$candidate" 2>/dev/null || true)"
+        [ "$candidate_owner" = "root" ] || continue
+        mode_has_untrusted_write "$candidate_mode" && continue
+        trusted_parent_chain "$candidate" || continue
+        printf '%s\n' "$candidate"
+        return 0
+    done
+    return 1
+}
+
+result_review_id_into() {
+    local code="$1"
+    local category="$2"
+    local severity="$3"
+    local title="$4"
+    local applicable="$5"
+    local summary="$6"
+    local evidence="$7"
+    local destination_name="$8"
+    local sha256sum_path=""
+    local review_file=""
+    local review_directory=""
+    local hash_output=""
+    local digest=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|code|category|severity|title|applicable|summary|evidence|destination_name) return 2 ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    sha256sum_path="$(trusted_sha256sum_command 2>/dev/null || true)"
+    [ -n "$sha256sum_path" ] || return 2
+    review_directory="${SCRATCH_DIR:-${TMPDIR:-/tmp}}"
+    [ -d "$review_directory" ] && [ ! -L "$review_directory" ] || return 2
+    review_file="$(mktemp "$review_directory/kisa-cce-review.XXXXXXXX")" || return 2
+    if ! printf 'review_schema:1\nscanner_version:%s\nplatform:%s:%s\nplatform_base:%s:%s\nevidence_capture:%s:%s:%s:%s\ncode:%d:%s\ncategory:%d:%s\nseverity:%d:%s\ntitle:%d:%s\napplicable:%s\nsummary:%d:%s\nevidence:%d:%s\n' \
+        "$KISA_CCE_VERSION" "${PLATFORM_ID:-unknown}" "${PLATFORM_VERSION:-unknown}" \
+        "${PLATFORM_BASE_ID:-unknown}" "${PLATFORM_BASE_VERSION:-unknown}" \
+        "${EVIDENCE_MACHINE_ID:-none}" "${EVIDENCE_BOOT_ID:-none}" "${EVIDENCE_CAPTURED_AT:-none}" "${EVIDENCE_BUNDLE_DIGEST:-none}" \
+        "${#code}" "$code" "${#category}" "$category" "${#severity}" "$severity" \
+        "${#title}" "$title" "$applicable" "${#summary}" "$summary" \
+        "${#evidence}" "$evidence" > "$review_file"; then
+        rm -f -- "$review_file"
+        return 2
+    fi
+    hash_output="$("$sha256sum_path" "$review_file" 2>/dev/null)" || {
+        rm -f -- "$review_file"
+        return 2
+    }
+    rm -f -- "$review_file"
+    digest="${hash_output%% *}"
+    [ "${#digest}" -eq 64 ] || return 2
+    case "$digest" in *[!0-9a-f]*) return 2 ;; esac
+    printf -v "$destination_name" 'sha256:%s' "$digest"
+}
+
 increment_status() {
     case "$1" in
         GOOD) COUNT_GOOD=$((COUNT_GOOD + 1)) ;;
@@ -902,6 +1148,7 @@ record_result() {
     local normalized_title="$title"
     local normalized_summary="$RESULT_SUMMARY"
     local normalized_evidence="$RESULT_EVIDENCE"
+    local full_redacted_evidence=""
     local normalized_json_evidence=""
     local normalized_bundle=""
     local remaining_bundle=""
@@ -912,9 +1159,21 @@ record_result() {
     local escaped_severity=""
     local escaped_summary=""
     local escaped_evidence=""
+    local escaped_technical_status=""
+    local escaped_decision_basis=""
+    local escaped_review_id=""
+    local escaped_attestation_ticket=""
+    local escaped_attestation_approver=""
+    local escaped_attestation_expires=""
     local markdown_title=""
     local markdown_summary=""
     local markdown_evidence=""
+    local markdown_attestation_ticket=""
+    local markdown_attestation_approver=""
+    local manual_summary=""
+    local manual_review_id=""
+    local policy_status=1
+    local console_title=""
 
     criterion_slug="u-${code#U-}"
     criterion_url="${KISA_CCE_GUIDE_BASE}/unix/${criterion_slug}/"
@@ -943,7 +1202,72 @@ record_result() {
                 ;;
         esac
     fi
-    redact_and_limit_evidence_into "$normalized_evidence" normalized_evidence
+    redact_evidence_into "$normalized_evidence" full_redacted_evidence
+    if [ "$RESULT_STATUS" = "MANUAL" ]; then
+        manual_summary="$normalized_summary"
+        result_review_id_into "$code" "$category" "$severity" "$normalized_title" "$RESULT_APPLICABLE" \
+            "$normalized_summary" "$full_redacted_evidence" manual_review_id || manual_review_id=""
+        RESULT_REVIEW_ID="$manual_review_id"
+        if [ "$SCAN_MODE" = "complete" ]; then
+            if [ -z "$manual_review_id" ]; then
+                RESULT_STATUS="ERROR"
+                RESULT_DECISION_BASIS="missing_review_id"
+                normalized_summary="완전 검사에 필요한 검토 ID를 생성하지 못했습니다."
+                printf -v normalized_evidence 'decision_basis=missing_review_id\nmanual_summary=%s\n%s' \
+                    "$manual_summary" "$full_redacted_evidence"
+            elif ! declare -F policy_lookup >/dev/null 2>&1; then
+                RESULT_STATUS="ERROR"
+                RESULT_DECISION_BASIS="policy_module_unavailable"
+                normalized_summary="완전 검사 정책 모듈을 사용할 수 없습니다."
+                printf -v normalized_evidence 'decision_basis=policy_module_unavailable\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
+                    "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
+            else
+                policy_lookup "$code" "$manual_review_id" >/dev/null 2>&1
+                policy_status=$?
+                if [ "$policy_status" -eq 0 ]; then
+                    RESULT_STATUS="$POLICY_MATCH_DECISION"
+                    RESULT_DECISION_BASIS="policy_attestation"
+                    RESULT_ATTESTATION_TICKET="$POLICY_MATCH_TICKET"
+                    RESULT_ATTESTATION_APPROVER="$POLICY_MATCH_APPROVER"
+                    RESULT_ATTESTATION_EXPIRES="$POLICY_MATCH_EXPIRES"
+                    COUNT_POLICY_RESOLVED=$((COUNT_POLICY_RESOLVED + 1))
+                    normalized_summary="정책 attestation과 현재 검토 ID가 일치하여 ${RESULT_STATUS}으로 확정했습니다."
+                    printf -v normalized_evidence 'decision_basis=policy_attestation\nmanual_review_id=%s\npolicy_ticket=%s\npolicy_approver=%s\npolicy_expires=%s\nmanual_summary=%s\n%s' \
+                        "$manual_review_id" "$POLICY_MATCH_TICKET" "$POLICY_MATCH_APPROVER" \
+                        "$POLICY_MATCH_EXPIRES" "$manual_summary" "$full_redacted_evidence"
+                elif [ "$policy_status" -eq 1 ]; then
+                    RESULT_STATUS="ERROR"
+                    RESULT_DECISION_BASIS="missing_policy_attestation"
+                    normalized_summary="완전 검사에 필요한 정책 attestation이 없습니다."
+                    printf -v normalized_evidence 'decision_basis=missing_policy_attestation\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
+                        "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
+                else
+                    RESULT_STATUS="ERROR"
+                    RESULT_DECISION_BASIS="invalid_policy_attestation"
+                    normalized_summary="정책 attestation이 현재 증적과 일치하지 않거나 만료됐습니다."
+                    printf -v normalized_evidence 'decision_basis=invalid_policy_attestation\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
+                        "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
+                fi
+            fi
+        else
+            RESULT_DECISION_BASIS="manual_review"
+            normalized_evidence="$full_redacted_evidence"
+        fi
+        redact_evidence_into "$normalized_evidence" full_redacted_evidence
+        RESULT_SUMMARY="$normalized_summary"
+    fi
+    if declare -F i18n_criterion_title_into >/dev/null 2>&1; then
+        i18n_criterion_title_into "$code" "$normalized_title" normalized_title || {
+            REPORT_WRITE_ERROR=1
+            return 1
+        }
+        i18n_summary_into "$normalized_summary" normalized_summary || {
+            REPORT_WRITE_ERROR=1
+            return 1
+        }
+        RESULT_SUMMARY="$normalized_summary"
+    fi
+    limit_evidence_into "$full_redacted_evidence" normalized_evidence
     RESULT_EVIDENCE="$normalized_evidence"
     normalized_json_evidence="$normalized_evidence"
     if [ "$iconv_normalized" -eq 1 ]; then
@@ -963,20 +1287,39 @@ record_result() {
         REPORT_WRITE_ERROR=1
         return 1
     }
+    escape_markdown_scalar_into "$RESULT_ATTESTATION_TICKET" markdown_attestation_ticket || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
+    escape_markdown_scalar_into "$RESULT_ATTESTATION_APPROVER" markdown_attestation_approver || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
 
     if {
         printf '## %s: %s\n\n' "$code" "$markdown_title"
-        printf '| 항목 | 값 |\n'
+        printf '| %s | %s |\n' "$REPORT_LABEL_FIELD" "$REPORT_LABEL_VALUE"
         printf '|---|---|\n'
-        printf "| 분류 | \`%s\` |\n" "$category"
-        printf "| 중요도 | \`%s\` |\n" "$severity"
-        printf "| 판정 | \`%s\` |\n" "$RESULT_STATUS"
-        printf "| 적용 여부 | \`%s\` |\n\n" "$RESULT_APPLICABLE"
-        printf '### 요약\n\n%s\n\n' "$markdown_summary"
-        if [ -n "$RESULT_EVIDENCE" ]; then
-            printf '### 근거\n\n%s\n\n' "$markdown_evidence"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_CATEGORY" "$category"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_SEVERITY" "$severity"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_TECHNICAL_STATUS" "$RESULT_TECHNICAL_STATUS"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_FINAL_STATUS" "$RESULT_STATUS"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_DECISION_BASIS" "$RESULT_DECISION_BASIS"
+        printf "| %s | \`%s\` |\n" "$REPORT_LABEL_APPLICABLE" "$RESULT_APPLICABLE"
+        if [ -n "$RESULT_REVIEW_ID" ]; then
+            printf "| %s | \`%s\` |\n" "$REPORT_LABEL_REVIEW_ID" "$RESULT_REVIEW_ID"
         fi
-        printf '### 기준\n\n'
+        if [ "$RESULT_DECISION_BASIS" = "policy_attestation" ]; then
+            printf '| %s | %s |\n' "$REPORT_LABEL_ATTESTATION_TICKET" "$markdown_attestation_ticket"
+            printf '| %s | %s |\n' "$REPORT_LABEL_ATTESTATION_APPROVER" "$markdown_attestation_approver"
+            printf "| %s | \`%s\` |\n" "$REPORT_LABEL_ATTESTATION_EXPIRES" "$RESULT_ATTESTATION_EXPIRES"
+        fi
+        printf '\n'
+        printf '### %s\n\n%s\n\n' "$REPORT_LABEL_SUMMARY" "$markdown_summary"
+        if [ -n "$RESULT_EVIDENCE" ]; then
+            printf '### %s\n\n%s\n\n' "$REPORT_LABEL_EVIDENCE" "$markdown_evidence"
+        fi
+        printf '### %s\n\n' "$REPORT_LABEL_REFERENCE"
         printf '[KISA CCE %s](%s)\n\n' "$code" "$criterion_url"
         printf '%s\n\n' '---'
     } >> "$REPORT_TEXT"; then
@@ -991,15 +1334,26 @@ record_result() {
     json_escape_into "$severity" escaped_severity
     json_escape_into "$normalized_summary" escaped_summary
     json_escape_into "$normalized_json_evidence" escaped_evidence
-    if ! printf '{"code":"%s","category":"%s","severity":"%s","title":"%s","status":"%s","applicable":%s,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
-        "$code" "$escaped_category" "$escaped_severity" "$escaped_title" "$RESULT_STATUS" "$RESULT_APPLICABLE" \
-        "$escaped_summary" "$escaped_evidence" "$criterion_url" >> "$REPORT_JSONL"; then
+    json_escape_into "$RESULT_TECHNICAL_STATUS" escaped_technical_status
+    json_escape_into "$RESULT_DECISION_BASIS" escaped_decision_basis
+    json_escape_into "$RESULT_REVIEW_ID" escaped_review_id
+    json_escape_into "$RESULT_ATTESTATION_TICKET" escaped_attestation_ticket
+    json_escape_into "$RESULT_ATTESTATION_APPROVER" escaped_attestation_approver
+    json_escape_into "$RESULT_ATTESTATION_EXPIRES" escaped_attestation_expires
+    if ! printf '{"code":"%s","category":"%s","severity":"%s","title":"%s","status":"%s","technical_status":"%s","decision_basis":"%s","review_id":"%s","attestation_ticket":"%s","attestation_approver":"%s","attestation_expires":"%s","applicable":%s,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
+        "$code" "$escaped_category" "$escaped_severity" "$escaped_title" "$RESULT_STATUS" \
+        "$escaped_technical_status" "$escaped_decision_basis" "$escaped_review_id" \
+        "$escaped_attestation_ticket" "$escaped_attestation_approver" "$escaped_attestation_expires" \
+        "$RESULT_APPLICABLE" "$escaped_summary" "$escaped_evidence" "$criterion_url" >> "$REPORT_JSONL"; then
         REPORT_WRITE_ERROR=1
         return 1
     fi
 
     increment_status "$RESULT_STATUS"
-    verbose "check=${code} status=${RESULT_STATUS} title=${title}"
+    if [ "$VERBOSE" -eq 1 ]; then
+        i18n_console_translate_into "$title" console_title || console_title="unavailable"
+        verbose "check=${code} status=${RESULT_STATUS} title=${console_title}"
+    fi
     return 0
 }
 
@@ -1022,11 +1376,15 @@ run_one_check() {
 
     check_selected "$code" || return 0
 
-    if [ "$LISTENER_SNAPSHOT_CACHE_ENABLED" -eq 1 ]; then
-        LISTENER_SNAPSHOT_GENERATION=$((LISTENER_SNAPSHOT_GENERATION + 1))
-    fi
+    SCAN_ACTIVE_CRITERION="$code"
     function_name="check_u_${code#U-}"
     RESULT_STATUS=""
+    RESULT_TECHNICAL_STATUS=""
+    RESULT_DECISION_BASIS=""
+    RESULT_REVIEW_ID=""
+    RESULT_ATTESTATION_TICKET=""
+    RESULT_ATTESTATION_APPROVER=""
+    RESULT_ATTESTATION_EXPIRES=""
     RESULT_SUMMARY=""
     RESULT_EVIDENCE=""
     RESULT_APPLICABLE="true"
@@ -1042,9 +1400,11 @@ run_one_check() {
     fi
 
     if ! record_result "$code" "$category" "$severity" "$title"; then
-        warn "보고서 기록에 실패했습니다: $code"
+        warn "failed to write report data for $code"
+        SCAN_ACTIVE_CRITERION=""
         return 1
     fi
+    SCAN_ACTIVE_CRITERION=""
     return 0
 }
 
@@ -1181,47 +1541,47 @@ initialize_workspace() {
     fi
 
     normalize_output_parent_into "$OUTPUT_PARENT" normalized_output_parent ||
-        die "출력 디렉터리 경로가 안전한 절대 경로가 아닙니다: $OUTPUT_PARENT"
+        die "output directory path is not a safe absolute path: $OUTPUT_PARENT"
     OUTPUT_PARENT="$normalized_output_parent"
     output_path_has_no_symlink_components "$OUTPUT_PARENT" ||
-        die "출력 디렉터리 경로에 심볼릭 링크가 포함되어 있습니다: $OUTPUT_PARENT"
+        die "output directory path contains a symbolic link: $OUTPUT_PARENT"
     output_path_components_are_trusted "$OUTPUT_PARENT" ||
-        die "출력 디렉터리의 상위 경로가 신뢰할 수 없습니다: $OUTPUT_PARENT"
+        die "output directory parent path is not trusted: $OUTPUT_PARENT"
     if [ -e "$OUTPUT_PARENT" ]; then
-        [ -d "$OUTPUT_PARENT" ] || die "출력 경로가 디렉터리가 아닙니다: $OUTPUT_PARENT"
+        [ -d "$OUTPUT_PARENT" ] || die "output path is not a directory: $OUTPUT_PARENT"
     else
-        mkdir -p -- "$OUTPUT_PARENT" || die "출력 디렉터리를 만들 수 없습니다: $OUTPUT_PARENT"
+        mkdir -p -- "$OUTPUT_PARENT" || die "cannot create the output directory: $OUTPUT_PARENT"
     fi
     output_path_has_no_symlink_components "$OUTPUT_PARENT" ||
-        die "출력 디렉터리 경로에 심볼릭 링크가 포함되어 있습니다: $OUTPUT_PARENT"
+        die "output directory path contains a symbolic link: $OUTPUT_PARENT"
     output_path_components_are_trusted "$OUTPUT_PARENT" ||
-        die "출력 디렉터리의 상위 경로가 신뢰할 수 없습니다: $OUTPUT_PARENT"
+        die "output directory parent path is not trusted: $OUTPUT_PARENT"
 
     if ! exec {OUTPUT_DIRECTORY_FD}<"$OUTPUT_PARENT"; then
-        die "출력 디렉터리를 열 수 없습니다: $OUTPUT_PARENT"
+        die "cannot open the output directory: $OUTPUT_PARENT"
     fi
     OUTPUT_DIRECTORY_FD_PATH="/proc/self/fd/$OUTPUT_DIRECTORY_FD"
-    [ -d "$OUTPUT_DIRECTORY_FD_PATH" ] || die "출력 디렉터리 설명자를 확인할 수 없습니다: $OUTPUT_PARENT"
+    [ -d "$OUTPUT_DIRECTORY_FD_PATH" ] || die "cannot verify the output directory descriptor: $OUTPUT_PARENT"
 
     current_uid="$(id -u)"
     output_uid="$(stat_uid "$OUTPUT_DIRECTORY_FD_PATH" 2>/dev/null || true)"
-    [ "$output_uid" = "$current_uid" ] || die "출력 디렉터리 소유자가 현재 사용자와 다릅니다."
+    [ "$output_uid" = "$current_uid" ] || die "output directory owner differs from the current user"
     parent_mode="$(stat_mode "$OUTPUT_DIRECTORY_FD_PATH" 2>/dev/null || true)"
-    mode_has_group_or_other_permissions "$parent_mode" && die "출력 디렉터리는 소유자만 접근 가능한 0700 이하 권한이어야 합니다."
+    mode_has_group_or_other_permissions "$parent_mode" && die "output directory permissions must be 0700 or more restrictive"
     parent_decimal_mode="$(mode_to_decimal "$parent_mode" 2>/dev/null || true)"
     [ -n "$parent_decimal_mode" ] && [ $((parent_decimal_mode & 8#700)) -eq $((8#700)) ] ||
-        die "출력 디렉터리는 소유자 읽기, 쓰기 및 검색 권한이 필요합니다."
+        die "output directory requires owner read, write, and search permissions"
     OUTPUT_DIRECTORY_DEVICE_INODE="$(stat_device_inode "$OUTPUT_DIRECTORY_FD_PATH")" ||
-        die "출력 디렉터리 설명자를 확인할 수 없습니다: $OUTPUT_PARENT"
+        die "cannot verify the output directory descriptor: $OUTPUT_PARENT"
     output_directory_binding_is_current ||
-        die "출력 디렉터리 경로가 검사 중 변경되었습니다: $OUTPUT_PARENT"
+        die "output directory path changed during the scan: $OUTPUT_PARENT"
 
-    SCRATCH_DIR="$(mktemp -d "$OUTPUT_DIRECTORY_FD_PATH/.run.XXXXXXXX")" || die "안전한 임시 디렉터리를 만들 수 없습니다."
-    chmod 0700 "$SCRATCH_DIR" || die "임시 디렉터리 권한을 설정할 수 없습니다."
-    canonical_scan_root_into canonical_root || die "검사 루트를 확인할 수 없습니다: $SCAN_ROOT"
+    SCRATCH_DIR="$(mktemp -d "$OUTPUT_DIRECTORY_FD_PATH/.run.XXXXXXXX")" || die "cannot create a secure temporary directory"
+    chmod 0700 "$SCRATCH_DIR" || die "cannot set temporary directory permissions"
+    canonical_scan_root_into canonical_root || die "cannot resolve the scan root: $SCAN_ROOT"
     TRUSTED_COMMAND_CACHE=()
     TRUSTED_COMMAND_CACHE_FILE="$SCRATCH_DIR/trusted-command-cache"
-    : > "$TRUSTED_COMMAND_CACHE_FILE" || die "명령 경로 캐시를 만들 수 없습니다."
+    : > "$TRUSTED_COMMAND_CACHE_FILE" || die "cannot create the command path cache"
     # This flag is consumed by the listener resolver after all libraries load.
     # shellcheck disable=SC2034
     LISTENER_SNAPSHOT_CACHE_ENABLED=1
@@ -1232,13 +1592,13 @@ initialize_workspace() {
     [ -n "$hostname_value" ] || hostname_value="host"
 
     markdown_report_temp="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.XXXXXXXX")" ||
-        die "Markdown 보고서를 만들 수 없습니다."
+        die "cannot create the Markdown report"
     REPORT_TEXT="${markdown_report_temp}.md"
-    mv -- "$markdown_report_temp" "$REPORT_TEXT" || die "Markdown 보고서 이름을 확정할 수 없습니다."
+    mv -- "$markdown_report_temp" "$REPORT_TEXT" || die "cannot finalize the Markdown report name"
     REPORT_MARKDOWN_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_TEXT##*/}"
-    REPORT_JSONL="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.jsonl.XXXXXXXX")" || die "JSONL 보고서를 만들 수 없습니다."
+    REPORT_JSONL="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.jsonl.XXXXXXXX")" || die "cannot create the JSONL report"
     REPORT_JSONL_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_JSONL##*/}"
-    chmod 0600 "$REPORT_TEXT" "$REPORT_JSONL" || die "보고서 권한을 설정할 수 없습니다."
+    chmod 0600 "$REPORT_TEXT" "$REPORT_JSONL" || die "cannot set report permissions"
 }
 
 cleanup_workspace() {
@@ -1265,6 +1625,15 @@ write_report_header() {
     local header_platform_name=""
     local header_platform_version=""
     local header_runtime_mode=""
+    local header_scan_mode=""
+    local header_policy_directory=""
+    local header_evidence_bundle=""
+    local header_evidence_captured_at=""
+    local header_evidence_machine_id=""
+    local header_evidence_boot_id=""
+    local header_evidence_kernel_release=""
+    local header_evidence_digest=""
+    local header_evidence_age=""
     local header_scan_root=""
     local header_started_at=""
     local header_version=""
@@ -1309,14 +1678,32 @@ write_report_header() {
         REPORT_WRITE_ERROR=1
         return 1
     }
+    sanitize_header_field_into "$SCAN_MODE" header_scan_mode || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
+    sanitize_header_field_into "${POLICY_DIRECTORY:-none}" header_policy_directory || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
+    sanitize_header_field_into "${EVIDENCE_BUNDLE_PATH:-none}" header_evidence_bundle || {
+        REPORT_WRITE_ERROR=1
+        return 1
+    }
+    sanitize_header_field_into "${EVIDENCE_CAPTURED_AT:-none}" header_evidence_captured_at || { REPORT_WRITE_ERROR=1; return 1; }
+    sanitize_header_field_into "${EVIDENCE_MACHINE_ID:-none}" header_evidence_machine_id || { REPORT_WRITE_ERROR=1; return 1; }
+    sanitize_header_field_into "${EVIDENCE_BOOT_ID:-none}" header_evidence_boot_id || { REPORT_WRITE_ERROR=1; return 1; }
+    sanitize_header_field_into "${EVIDENCE_KERNEL_RELEASE:-none}" header_evidence_kernel_release || { REPORT_WRITE_ERROR=1; return 1; }
+    sanitize_header_field_into "${EVIDENCE_BUNDLE_DIGEST:-none}" header_evidence_digest || { REPORT_WRITE_ERROR=1; return 1; }
+    sanitize_header_field_into "${EVIDENCE_AGE_SECONDS:-none}" header_evidence_age || { REPORT_WRITE_ERROR=1; return 1; }
     sanitize_header_field_into "$(date -u +%Y-%m-%dT%H:%M:%SZ)" header_started_at || {
         REPORT_WRITE_ERROR=1
         return 1
     }
 
     if {
-        printf '# KISA CCE 2026 Linux 보안 점검 보고서\n\n'
-        printf '## 점검 정보\n\n'
+        printf '# %s\n\n' "$REPORT_LABEL_REPORT_TITLE"
+        printf '## %s\n\n' "$REPORT_LABEL_SCAN_INFORMATION"
         printf '    scanner_version: %s\n' "$header_version"
         printf '    platform: %s\n' "$header_platform_name"
         printf '    platform_id: %s\n' "$header_platform_id"
@@ -1326,6 +1713,15 @@ write_report_header() {
         printf '    platform_base: %s %s\n' "$header_platform_base_id" "$header_platform_base_version"
         printf '    scan_root: %s\n' "$header_scan_root"
         printf '    runtime_collection: %s\n' "$header_runtime_mode"
+        printf '    scan_mode: %s\n' "$header_scan_mode"
+        printf '    policy_directory: %s\n' "$header_policy_directory"
+        printf '    evidence_bundle: %s\n' "$header_evidence_bundle"
+        printf '    evidence_captured_at: %s\n' "$header_evidence_captured_at"
+        printf '    evidence_machine_id: %s\n' "$header_evidence_machine_id"
+        printf '    evidence_boot_id: %s\n' "$header_evidence_boot_id"
+        printf '    evidence_kernel_release: %s\n' "$header_evidence_kernel_release"
+        printf '    evidence_digest: %s\n' "$header_evidence_digest"
+        printf '    evidence_age_seconds: %s\n' "$header_evidence_age"
         printf '    started_at: %s\n\n' "$header_started_at"
         printf '%s\n\n' '---'
     } >> "$REPORT_TEXT"; then
@@ -1339,16 +1735,17 @@ write_report_header() {
 
 write_report_summary() {
     if {
-        printf '## 판정 요약\n\n'
-        printf '| 판정 | 개수 |\n'
+        printf '## %s\n\n' "$REPORT_LABEL_RESULT_SUMMARY"
+        printf '| %s | %s |\n' "$REPORT_LABEL_STATUS" "$REPORT_LABEL_COUNT"
         printf '|---|---:|\n'
-        printf '| 전체 | %d |\n' "$COUNT_TOTAL"
-        printf '| 양호 | %d |\n' "$COUNT_GOOD"
-        printf '| 취약 | %d |\n' "$COUNT_VULNERABLE"
-        printf '| 수동 확인 | %d |\n' "$COUNT_MANUAL"
-        printf '| 해당 없음 | %d |\n' "$COUNT_NOT_APPLICABLE"
-        printf '| 오류 | %d |\n\n' "$COUNT_ERROR"
-        printf "완료 시각: \`%s\`\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| %s | %d |\n' "$REPORT_LABEL_TOTAL" "$COUNT_TOTAL"
+        printf '| %s | %d |\n' "$REPORT_LABEL_GOOD" "$COUNT_GOOD"
+        printf '| %s | %d |\n' "$REPORT_LABEL_VULNERABLE" "$COUNT_VULNERABLE"
+        printf '| %s | %d |\n' "$REPORT_LABEL_MANUAL" "$COUNT_MANUAL"
+        printf '| %s | %d |\n' "$REPORT_LABEL_NOT_APPLICABLE" "$COUNT_NOT_APPLICABLE"
+        printf '| %s | %d |\n' "$REPORT_LABEL_ERROR" "$COUNT_ERROR"
+        printf '| %s | %d |\n\n' "$REPORT_LABEL_POLICY_RESOLVED" "$COUNT_POLICY_RESOLVED"
+        printf "%s: \`%s\`\n" "$REPORT_LABEL_COMPLETED_AT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -1356,8 +1753,8 @@ write_report_summary() {
         return 1
     fi
 
-    if ! printf '{"type":"summary","total":%d,"good":%d,"vulnerable":%d,"manual":%d,"not_applicable":%d,"error":%d}\n' \
-        "$COUNT_TOTAL" "$COUNT_GOOD" "$COUNT_VULNERABLE" "$COUNT_MANUAL" "$COUNT_NOT_APPLICABLE" "$COUNT_ERROR" >> "$REPORT_JSONL"
+    if ! printf '{"type":"summary","total":%d,"good":%d,"vulnerable":%d,"manual":%d,"not_applicable":%d,"error":%d,"policy_resolved":%d}\n' \
+        "$COUNT_TOTAL" "$COUNT_GOOD" "$COUNT_VULNERABLE" "$COUNT_MANUAL" "$COUNT_NOT_APPLICABLE" "$COUNT_ERROR" "$COUNT_POLICY_RESOLVED" >> "$REPORT_JSONL"
     then
         REPORT_WRITE_ERROR=1
         return 1
@@ -1385,14 +1782,19 @@ validate_reports() {
     markdown_codes="$(sed -n 's/^## \(U-[0-9][0-9]\): .*/\1/p' "$REPORT_TEXT")"
     jsonl_codes="$(sed -n 's/^{"code":"\(U-[0-9][0-9]\)".*/\1/p' "$REPORT_JSONL")"
     [ "$markdown_codes" = "$jsonl_codes" ] || return 1
-    [ "$(grep -Fxc -- '# KISA CCE 2026 Linux 보안 점검 보고서' "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- '## 판정 요약' "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 전체 | $COUNT_TOTAL |" "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 양호 | $COUNT_GOOD |" "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 취약 | $COUNT_VULNERABLE |" "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 수동 확인 | $COUNT_MANUAL |" "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 해당 없음 | $COUNT_NOT_APPLICABLE |" "$REPORT_TEXT")" = 1 ] || return 1
-    [ "$(grep -Fxc -- "| 오류 | $COUNT_ERROR |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "# $REPORT_LABEL_REPORT_TITLE" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "## $REPORT_LABEL_RESULT_SUMMARY" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_TOTAL | $COUNT_TOTAL |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_GOOD | $COUNT_GOOD |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_VULNERABLE | $COUNT_VULNERABLE |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_MANUAL | $COUNT_MANUAL |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_NOT_APPLICABLE | $COUNT_NOT_APPLICABLE |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_ERROR | $COUNT_ERROR |" "$REPORT_TEXT")" = 1 ] || return 1
+    [ "$(grep -Fxc -- "| $REPORT_LABEL_POLICY_RESOLVED | $COUNT_POLICY_RESOLVED |" "$REPORT_TEXT")" = 1 ] || return 1
+    if [ "$SCAN_MODE" = "complete" ]; then
+        [ "$COUNT_TOTAL" -eq 67 ] || return 1
+        [ "$COUNT_MANUAL" -eq 0 ] || return 1
+    fi
     return 0
 }
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # shellcheck shell=bash
 
 # Service checks cover U-34 through U-63 for supported platform families.
@@ -547,16 +548,36 @@ service_activation_state() {
 
     SERVICE_ACTIVATION_EVIDENCE=""
 
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_service_activation_state >/dev/null 2>&1; then
+        evidence_service_activation_state "$@"
+        command_status=$?
+        SERVICE_ACTIVATION_EVIDENCE="${EVIDENCE_SERVICE_ACTIVATION_EVIDENCE:-runtime_bundle_state=unknown}"
+        return "$command_status"
+    fi
+
     if runtime_enabled; then
         systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
         if [ -n "$systemctl_path" ]; then
             for unit_name in "$@"; do
                 command_status=0
-                properties="$($systemctl_path show "$unit_name" \
-                    -p LoadState -p ActiveState -p UnitFileState --no-pager 2>/dev/null)" || command_status=$?
-                load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
-                active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
-                unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+                if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ] &&
+                    declare -F systemd_cached_unit_facts >/dev/null 2>&1; then
+                    systemd_cached_unit_facts "$unit_name" || command_status=$?
+                    properties="$SYSTEMD_CACHE_FACTS"
+                    [ "$command_status" -ne 0 ] || command_status="$SYSTEMD_CACHE_COMMAND_STATUS"
+                else
+                    properties="$($systemctl_path show "$unit_name" \
+                        -p LoadState -p ActiveState -p UnitFileState --no-pager 2>/dev/null)" || command_status=$?
+                fi
+                if declare -F systemd_fact_value_into >/dev/null 2>&1; then
+                    systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+                    systemd_fact_value_into "$properties" ActiveState active_state || active_state=""
+                    systemd_fact_value_into "$properties" UnitFileState unit_file_state || unit_file_state=""
+                else
+                    load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+                    active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
+                    unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+                fi
                 if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
                     runtime_probe_uncertain=1
                     SERVICE_ACTIVATION_EVIDENCE="${SERVICE_ACTIVATION_EVIDENCE}unit=${unit_name},runtime_state=unknown\n"
@@ -637,7 +658,7 @@ service_listener_state() {
             ;;
     esac
     [ "$#" -gt 0 ] || return 2
-    runtime_enabled || return 2
+    runtime_snapshot_available || return 2
 
     for port_number in "$@"; do
         listener_output="$(port_listener_facts "$port_number" "$transport")"
@@ -655,7 +676,7 @@ service_dns_listener_state() {
     local listener_output=""
     local listener_status=0
 
-    runtime_enabled || return 2
+    runtime_snapshot_available || return 2
     listener_output="$(port_listener_facts 53)"
     listener_status=$?
     [ "$listener_status" -eq 0 ] || return 2
@@ -717,8 +738,14 @@ service_units_have_custom_configuration() {
     runtime_enabled || return 2
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in "$@"; do
-        properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_epoch_properties_into "$unit" properties || return 2
+            command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+            systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+        else
+            properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
+            load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        fi
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
             return 2
         fi
@@ -742,8 +769,14 @@ service_ftp_custom_invocation_state() {
     runtime_enabled || return 2
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in vsftpd.service proftpd.service pure-ftpd.service; do
-        properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_epoch_properties_into "$unit" properties || return 2
+            command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+            systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+        else
+            properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
+            load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        fi
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then return 2; fi
         command_status=0
         [ "$load_state" != "not-found" ] || continue
@@ -1374,18 +1407,29 @@ service_bind_custom_invocation_state() {
     for unit in \
         named.service named-chroot.service named-pkcs11.service \
         named-sdb.service named-sdb-chroot.service bind9.service; do
-        properties="$($systemctl_path show "$unit" \
-            -p LoadState -p ActiveState -p UnitFileState -p MainPID \
-            -p ExecStart -p Environment -p EnvironmentFiles --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_epoch_properties_into "$unit" properties || return 2
+            command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+            systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+        else
+            properties="$($systemctl_path show "$unit" \
+                -p LoadState -p ActiveState -p UnitFileState -p MainPID \
+                -p ExecStart -p Environment -p EnvironmentFiles --no-pager 2>/dev/null)" || command_status=$?
+            load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        fi
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
             return 2
         fi
         command_status=0
         [ -n "$load_state" ] && [ "$load_state" != "not-found" ] || continue
 
-        active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
-        unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_fact_value_into "$properties" ActiveState active_state || active_state=""
+            systemd_fact_value_into "$properties" UnitFileState unit_file_state || unit_file_state=""
+        else
+            active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
+            unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+        fi
         case "$active_state" in
             active|activating|reloading) ;;
             *)
@@ -1394,7 +1438,11 @@ service_bind_custom_invocation_state() {
         esac
         saw_relevant_unit=1
 
-        main_pid="$(printf '%s\n' "$properties" | awk -F= '$1 == "MainPID" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_fact_value_into "$properties" MainPID main_pid || main_pid=""
+        else
+            main_pid="$(printf '%s\n' "$properties" | awk -F= '$1 == "MainPID" {print $2; exit}')"
+        fi
         case "$main_pid" in
             ''|0|*[!0-9]*) ;;
             *)
@@ -1700,23 +1748,38 @@ service_snmp_custom_invocation_state() {
 
     runtime_enabled || return 2
     systemctl_path="$(trusted_command systemctl)" || return 2
-    properties="$($systemctl_path show snmpd.service \
-        -p LoadState -p ActiveState -p UnitFileState -p MainPID \
-        -p ExecStart -p Environment -p EnvironmentFiles --no-pager 2>/dev/null)" || command_status=$?
-    load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+        systemd_epoch_properties_into snmpd.service properties || return 2
+        command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+        systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+    else
+        properties="$($systemctl_path show snmpd.service \
+            -p LoadState -p ActiveState -p UnitFileState -p MainPID \
+            -p ExecStart -p Environment -p EnvironmentFiles --no-pager 2>/dev/null)" || command_status=$?
+        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+    fi
     if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
         return 2
     fi
     [ -n "$load_state" ] && [ "$load_state" != "not-found" ] || return 2
-    active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
-    unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+        systemd_fact_value_into "$properties" ActiveState active_state || active_state=""
+        systemd_fact_value_into "$properties" UnitFileState unit_file_state || unit_file_state=""
+    else
+        active_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
+        unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+    fi
     case "$active_state" in
         active|activating|reloading) ;;
         *)
             case "$unit_file_state" in enabled|enabled-runtime) ;; *) return 2 ;; esac
             ;;
     esac
-    main_pid="$(printf '%s\n' "$properties" | awk -F= '$1 == "MainPID" {print $2; exit}')"
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+        systemd_fact_value_into "$properties" MainPID main_pid || main_pid=""
+    else
+        main_pid="$(printf '%s\n' "$properties" | awk -F= '$1 == "MainPID" {print $2; exit}')"
+    fi
     case "$main_pid" in
         ''|0|*[!0-9]*) ;;
         *)

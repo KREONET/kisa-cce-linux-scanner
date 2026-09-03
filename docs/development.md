@@ -7,6 +7,7 @@ bin/                    Public launcher.
 data/                   Version and ordered criterion catalog.
 docs/                   Operator, design, security, development, and packaging documentation.
 lib/                    Private main file, shared helpers, resolvers, and check modules.
+LICENSES/               LGPLv3 and incorporated GPLv3 license texts.
 man/                    Installed section 8 command manual source.
 tests/                  Generated-fixture regression suite.
 Makefile                Validation and installation interface.
@@ -28,7 +29,9 @@ Run ShellCheck separately:
 make lint
 ```
 
-`make check` runs the named regression groups in `tests/run.sh`. The suite creates all fixtures under a protected temporary directory and removes them at exit.
+`make check` runs the named regression groups in `tests/run.sh` and focused epoch-cache tests for sysctl, PAM, systemd, listeners, and dependency propagation. The suite creates all fixtures under a protected temporary directory and removes them at exit.
+
+Performance measurements are separate from correctness gates because they need Linux `strace`, GNU `time`, and a baseline source tree. See [Scan performance architecture](performance.md).
 
 ## Implementing or changing a criterion
 
@@ -135,6 +138,9 @@ Changes to collection or reporting should preserve these invariants:
 - offline absolute symlinks remain within the selected root;
 - installed `/usr/lib` and optional libexec layouts both run from a `DESTDIR` tree;
 - hostile `BASH_ENV` and `ENV` values are not loaded.
+- complete mode records 67 final results with no `MANUAL` status;
+- policy review IDs change when the complete redacted technical basis changes;
+- evidence bundle identity, checksum, freshness, service, listener, and mount contracts remain enforced.
 
 ## Packaging smoke test
 
@@ -175,4 +181,4 @@ Before a release candidate:
 5. Run complete acceptance scans on every listed product and release.
 6. Review reports for false `GOOD` results, missing evidence, and secret exposure.
 
-The repository does not yet include final Debian/RPM metadata, a license declaration, or completed target-platform acceptance evidence.
+The repository does not yet include final Debian/RPM metadata or completed target-platform acceptance evidence.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # shellcheck shell=bash
 
 # shellcheck disable=SC2153
@@ -555,9 +556,16 @@ time_service_persistence_state() {
 
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in "$@"; do
-        properties="$($systemctl_path show "$unit" -p LoadState -p UnitFileState --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
-        unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_epoch_properties_into "$unit" properties || return 2
+            command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+            systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+            systemd_fact_value_into "$properties" UnitFileState unit_file_state || unit_file_state=""
+        else
+            properties="$($systemctl_path show "$unit" -p LoadState -p UnitFileState --no-pager 2>/dev/null)" || command_status=$?
+            load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+            unit_file_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "UnitFileState" {print $2; exit}')"
+        fi
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
             return 2
         fi
@@ -916,7 +924,7 @@ check_u_66() {
     local rsyslogd_path=""
     local rsyslog_main_file=""
 
-    if runtime_enabled; then
+    if runtime_snapshot_available; then
         service_state systemd-journald.service >/dev/null 2>&1
         journald_state=$?
         [ "$journald_state" -eq 0 ] && active_providers="journald"
@@ -1004,6 +1012,8 @@ check_u_67() {
     local scanned_directories=0
     local mount_output=""
     local mount_status=0
+    local mount_inventory_file=""
+    local bundle_mount_inventory=0
     local excluded_mounts=0
     local stat_errors=0
     local symlinks=0
@@ -1043,7 +1053,34 @@ check_u_67() {
         return
     }
     printf '%s\n' "$log_directory" > "$roots_file"
-    if runtime_enabled; then
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_mount_roots >/dev/null 2>&1; then
+        mount_inventory_file="$(new_scratch_file u67-bundle-mounts)" || {
+            set_result ERROR "증적 bundle의 마운트 목록을 저장하지 못했습니다." "path=/var/log"
+            return
+        }
+        evidence_mount_roots > "$mount_inventory_file" || mount_status=$?
+        if [ "$mount_status" -ne 0 ]; then
+            scan_errors=$((scan_errors + 1))
+        else
+            bundle_mount_inventory=1
+            while IFS=$'\t' read -r target filesystem_type; do
+                case "$target" in /var/log/*) ;; *) continue ;; esac
+                case "$filesystem_type" in
+                    nfs|nfs4|cifs|smb3|fuse|fuse.*|sshfs)
+                        excluded_mounts=$((excluded_mounts + 1))
+                        continue
+                        ;;
+                esac
+                target="$(fs_path "$target" 2>/dev/null || true)"
+                target="$(resolve_rooted_directory "$target" 2>/dev/null || true)"
+                if [ -z "$target" ]; then
+                    scan_errors=$((scan_errors + 1))
+                    continue
+                fi
+                printf '%s\n' "$target" >> "$roots_file"
+            done < "$mount_inventory_file"
+        fi
+    elif runtime_enabled; then
         findmnt_path="$(trusted_command findmnt 2>/dev/null || true)"
         if [ -z "$findmnt_path" ]; then
             scan_errors=$((scan_errors + 1))
@@ -1181,14 +1218,14 @@ EOF
         fi
     done < <(logging_expected_destinations 2>/dev/null || true)
 
-    evidence="logging_root=/var/log\nscanned_files=${scanned}\nviolations=${violations}\nscanned_directories=${scanned_directories}\ndirectory_write_violations=${directory_violations}\nsymlinks=${symlinks}\nsymlink_targets_scanned=${symlink_targets_scanned}\nexternal_symlink_targets=${external_symlink_targets}\nsymlink_directories_unscanned=${symlink_directories}\nunresolved_symlinks=${unresolved_symlinks}\nexpected_profile_logs_present=${expected_logs_present}\nexpected_profile_logs_absent=${expected_logs_absent}\nexcluded_network_mounts=${excluded_mounts}\nstat_errors=${stat_errors}\n${evidence}"
+    evidence="logging_root=/var/log\nscanned_files=${scanned}\nviolations=${violations}\nscanned_directories=${scanned_directories}\ndirectory_write_violations=${directory_violations}\nsymlinks=${symlinks}\nsymlink_targets_scanned=${symlink_targets_scanned}\nexternal_symlink_targets=${external_symlink_targets}\nsymlink_directories_unscanned=${symlink_directories}\nunresolved_symlinks=${unresolved_symlinks}\nexpected_profile_logs_present=${expected_logs_present}\nexpected_profile_logs_absent=${expected_logs_absent}\nexcluded_network_mounts=${excluded_mounts}\nbundle_mount_inventory=${bundle_mount_inventory}\nstat_errors=${stat_errors}\n${evidence}"
     if [ "$stat_errors" -gt 0 ]; then
         set_result ERROR "일부 로그 파일 또는 디렉터리의 메타데이터를 수집하지 못했습니다." "$evidence"
     elif [ "$violations" -gt 0 ]; then
         set_result VULNERABLE "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일을 확인했습니다." "$evidence"
     elif [ "$scanned" -eq 0 ]; then
         set_result MANUAL "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다." "$evidence"
-    elif [ "$SCAN_ROOT" != "/" ]; then
+    elif [ "$SCAN_ROOT" != "/" ] && [ "$bundle_mount_inventory" -ne 1 ]; then
         set_result MANUAL "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다." "$evidence"
     elif [ "$directory_violations" -gt 0 ] || [ "$excluded_mounts" -gt 0 ] || [ "$external_symlink_targets" -gt 0 ] || [ "$symlink_directories" -gt 0 ] || [ "$unresolved_symlinks" -gt 0 ]; then
         set_result MANUAL "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다." "$evidence"

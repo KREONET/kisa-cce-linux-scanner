@@ -11,14 +11,21 @@ The implementation separates collection from policy interpretation wherever the 
 | Component | Responsibility |
 |---|---|
 | `bin/kisa-cce-scan` | Public POSIX launcher. Locates the private main file and starts Bash through a clean environment. |
+| `bin/kisa-cce-collect` | Public launcher for the live-runtime evidence collector. |
 | `lib/kisa-cce-scan-main.sh` | Resolves source/installed paths, parses options, validates the catalog, selects the platform, dispatches checks, and finalizes reports. |
+| `lib/kisa-cce-collect-main.sh` | Root-only live evidence collection and bundle finalization. |
 | `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, result normalization, report writing, and exit status. |
+| `lib/policy.sh` | Strict policy-directory loader and review-ID-bound attestation lookup. |
+| `lib/evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
+| `lib/i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
+| `lib/scan_epoch.sh` | Run-scoped snapshot lifecycle, reverse dependencies, dirtiness, and normalized-output propagation. |
 | `lib/resolvers.sh` | Shared configuration precedence, include traversal, path confinement, sysctl resolution, and systemd state helpers. |
 | `lib/checks_account_file.sh` | U-01 through U-33 account and filesystem checks. |
 | `lib/checks_service.sh` | U-34 through U-63 service checks. |
 | `lib/checks_system.sh` | U-64 through U-67 patch, time, and logging checks. |
 | `data/criteria.tsv` | Ordered 67-row criterion catalog and report metadata. |
 | `data/VERSION` | Runtime and package version source. |
+| `share/kisa-cce-linux-scanner/locale` | Korean and English report catalogs in a package-specific data path. |
 | `tests/run.sh` | Generated-fixture regression suite and staged-installation checks. |
 | `Makefile` | Syntax, test, lint, and `DESTDIR` installation entry points. |
 
@@ -32,6 +39,7 @@ lib/kisa-cce-scan-main.sh
 lib/*.sh
 data/criteria.tsv
 data/VERSION
+share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po
 ```
 
 With `prefix=/usr`, the default installed layout is:
@@ -41,7 +49,9 @@ With `prefix=/usr`, the default installed layout is:
 /usr/lib/kisa-cce-linux-scanner/*.sh
 /usr/share/kisa-cce-linux-scanner/criteria.tsv
 /usr/share/kisa-cce-linux-scanner/VERSION
+/usr/share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po
 /usr/share/man/man8/kisa-cce-scan.8
+/usr/share/man/man8/kisa-cce-collect.8
 ```
 
 The main file derives the data directory from its own private-library location. It does not accept a caller-controlled module path. The same relative-prefix rule allows a command inside a `DESTDIR` staging tree to execute before the package is built, provided the command, private library, and data retain one of the supported relative layouts.
@@ -49,14 +59,18 @@ The main file derives the data directory from its own private-library location. 
 ## Execution flow
 
 1. The POSIX launcher locates the private Bash main file in the source, private-lib, or supported libexec layout.
-2. The launcher invokes `/bin/bash` through `/usr/bin/env -i` with a fixed system `PATH`.
-3. The main file resolves its data directory and loads the version, core, resolvers, and check modules.
+2. The launcher selects English reports only for an English `LANG`, otherwise selects the default Korean report catalog, then invokes `/bin/bash` through `/usr/bin/env -i` with a fixed system `PATH`.
+3. The main file resolves its data directory and loads the version, strict PO catalog, core, resolvers, and check modules.
 4. CLI arguments and `data/criteria.tsv` are validated before collection begins.
 5. `/etc/os-release` inside the selected scan root determines the product identity, configuration family, and upstream base release.
 6. An offline root disables runtime collection. A live-root scan requires UID 0.
-7. Normal scans validate the output path, pin the output directory by file descriptor, and create protected report and scratch files through that descriptor. Sysctl explanation mode creates only a protected temporary workspace.
+7. Normal scans validate the output path, pin the output directory by file descriptor, create protected report and scratch files through that descriptor, and start one immutable scan epoch. Sysctl explanation mode creates only a protected temporary workspace and its own epoch.
 8. Catalog rows are read in order. Each `U-NN` row dispatches to `check_u_nn` and produces exactly one result when selected.
 9. The scanner appends a summary, verifies report ownership, permissions, record counts, and the pinned output-directory binding, prints both report paths, and returns the aggregate exit status.
+
+In complete mode, `record_result` computes a SHA-256 review ID over the full redacted technical basis before the display-size limit. The review basis includes scanner and platform identity, bundle identity and digest, criterion metadata, technical summary, and evidence. A matching unexpired attestation can resolve only that exact `MANUAL` basis. Other technical states are never overridden.
+
+An offline evidence bundle is validated and bound to the root by exact `machine-id` and `os-release` matches. Central service, activation, listener, and mount helpers consume validated bundle state without enabling host command execution against the analysis machine.
 
 ## Platform profiles
 
@@ -106,9 +120,11 @@ U-67 uses a separate single-pass tagged traversal because its `/var/log` mount s
 
 ## Execution-cost controls
 
-Hot path helpers return values through caller-supplied variables, avoiding command-substitution subshells while retaining compatibility wrappers for non-hot paths. The scanner caches the canonical scan root and validated native-command locations for one run. Service checks share one listener snapshot for all ports of the requested transport within a criterion, then refresh it for the next criterion so unrelated checks do not consume indefinitely stale runtime state.
+Hot path helpers return values through caller-supplied variables, avoiding command-substitution subshells while retaining compatibility wrappers for non-hot paths. The scanner caches the canonical scan root and validated native-command locations for one run. Layered sysctl files and PAM files are parsed once per scan epoch. Service facts use an epoch-scoped systemd snapshot, and every listener query shares one mixed transport snapshot until the next epoch.
 
 Report normalization expands evidence separators and normalizes the title, summary, and evidence in one framed external conversion. Evidence without a sensitive-keyword marker bypasses the external redaction pass. Metadata-heavy checks use NUL-delimited GNU `find` records, so one traversal supplies multiple fields without a per-file `stat` process. These choices follow the process model described by the [Bash command-substitution](https://www.gnu.org/software/bash/manual/html_node/Command-Substitution.html) and [builtin-command](https://www.gnu.org/software/bash/manual/html_node/Shell-Builtin-Commands.html) documentation and the batching facilities in the [GNU find format directives](https://www.gnu.org/software/findutils/manual/html_node/find_html/Format-Directives.html).
+
+Source-to-resolver and resolver-to-criterion reverse maps retain successful, absent, ambiguous, and failed states. A source change dirties its resolver; only a changed normalized resolver output propagates dirtiness to a criterion. See [Scan performance architecture](performance.md).
 
 ## Configuration resolution
 
@@ -165,6 +181,7 @@ Before success, `validate_reports` verifies:
 - JSONL line count equals result count plus one summary line;
 - Markdown result headings match the JSONL criterion codes and recorded result count;
 - the Markdown header and status-summary rows occur exactly once with the recorded counts.
+- complete mode contains exactly 67 results and zero final `MANUAL` states.
 
 JSON schema validation is not currently part of the runtime finalization path. The test suite optionally parses JSONL with `jq` when it is installed.
 

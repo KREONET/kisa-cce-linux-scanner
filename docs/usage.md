@@ -16,7 +16,7 @@ Other platforms are rejected unless `--allow-unsupported` is supplied. That opti
 
 ## Running from the source tree
 
-Run a complete live scan as root:
+Run a live audit of all 67 criteria as root:
 
 ```bash
 sudo ./bin/kisa-cce-scan
@@ -60,6 +60,10 @@ The installation layout and package staging interface are documented in [Packagi
 | `--root PATH` | Reads an offline filesystem rooted at the absolute `PATH`. Runtime collection is disabled automatically. |
 | `--output-dir PATH` | Writes both reports below the absolute `PATH`. |
 | `--checks U-01,U-02` | Runs only the comma-separated criterion codes. Input is case-insensitive and duplicate codes are removed. |
+| `--mode audit\|complete` | Preserves `MANUAL` for review or requires all 67 criteria to reach a final result. |
+| `--policy-dir PATH` | Loads strict review attestations from an absolute directory. Required by complete mode. |
+| `--evidence-bundle PATH` | Uses a validated live-runtime directory with an offline root. |
+| `--evidence-max-age SEC` | Rejects evidence older than `SEC`; default `3600`, maximum `604800`. |
 | `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. |
 | `--explain-sysctl KEY` | Prints the effective persistent and runtime interpretation for one sysctl key instead of producing a CCE report. |
 | `--allow-unsupported` | Continues after an unsupported platform warning. |
@@ -71,16 +75,24 @@ Options that require values accept both `--option VALUE` and `--option=VALUE`. E
 
 Selected results are always emitted in `data/criteria.tsv` order, not in the order supplied to `--checks`.
 
-Verbose output never includes result summaries or evidence. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
+One invocation uses one immutable scan epoch. Repeated checks share parse-once
+configuration snapshots and one runtime listener snapshot. A new invocation
+collects runtime state again; no cache persists across process runs.
+
+Every terminal line uses `[    12.345678] kisa-cce-scan: payload`, based on the scanner host's Linux uptime with six fractional digits. A safe process-time or zero fallback is used when `/proc/uptime` is unavailable. This framing applies to help, version, errors, warnings, verbose progress, sysctl explanations, and report paths. Automation keys such as `markdown_report`, `jsonl_report`, and the sysctl `key=value` fields remain unchanged inside the payload. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
+
+CLI help, progress, warning, and error output is always English. Reports are Korean by default. An explicit English `LANG`, such as `en_US.UTF-8`, selects English Markdown titles, summaries, and labels. See [Localization](localization.md).
 
 ## Scan modes
 
 | Mode | Invocation | Root required | Runtime evidence |
 |---|---|---:|---|
-| Live, complete | `kisa-cce-scan` | Yes | Enabled. |
+| Live audit, all criteria | `kisa-cce-scan` | Yes | Enabled. |
 | Live, static-only | `kisa-cce-scan --no-runtime` | Yes | Disabled. |
 | Offline root | `kisa-cce-scan --root /absolute/root` | No | Disabled automatically. |
 | Sysctl explanation | `kisa-cce-scan --explain-sysctl KEY` | Yes for the live root | Enabled for a live root unless `--no-runtime` is supplied; disabled for an offline root. |
+| Complete live | `kisa-cce-scan --mode complete --policy-dir PATH` | Yes | Current host runtime state. |
+| Complete offline | `kisa-cce-scan --root ROOT --mode complete --policy-dir PATH --evidence-bundle PATH` | Bundle owner | Captured bundle state. |
 
 Even with `--no-runtime`, scanning `/` requires root. Use an offline root for non-root analysis.
 
@@ -97,13 +109,24 @@ Even with `--no-runtime`, scanning `/` requires root. Use an offline root for no
 
 Offline analysis can evaluate persistent files and metadata. It does not require UID 0, but the invoking user still needs read and directory-search access to the selected image. It cannot prove the current service state, open listeners, manager-normalized configuration, PAM/authselect runtime integration, loaded sysctl values, or current time synchronization. Checks return `MANUAL`, `NOT_APPLICABLE`, or `ERROR` when those distinctions cannot be established safely.
 
+### Complete-mode workflow
+
+1. Run `kisa-cce-collect` on the live host immediately before creating the offline image.
+2. Run an audit scan with the matching bundle and review every `MANUAL` result and `review_id`.
+3. Record approved `GOOD` or `VULNERABLE` decisions in `policy.d/*.tsv` with a ticket, approver, and expiry date.
+4. Run complete mode against the same root and bundle.
+
+Complete mode rejects partial selection, unsupported-platform overrides, live `--no-runtime`, stale bundles, and missing policy input. A technical `MANUAL` with a matching attestation becomes the approved final decision. Missing, expired, or mismatched attestations become `ERROR`. `NOT_APPLICABLE` remains a conclusive final state.
+
+See [Policy format](policy-format.md) and [Runtime evidence bundle](evidence-bundle.md).
+
 ## Reports
 
 Every normal scan produces two files and prints their absolute paths:
 
 ```text
-markdown_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.RANDOM.md
-jsonl_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.jsonl.RANDOM
+[    12.345678] kisa-cce-scan: markdown_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.RANDOM.md
+[    12.345679] kisa-cce-scan: jsonl_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.jsonl.RANDOM
 ```
 
 When `--output-dir` is omitted, a root invocation uses `/var/log/kisa-cce-scanner`; a non-root offline invocation uses `/tmp/kisa-cce-scanner-<uid>`. The hostname component always identifies the machine running the scanner, not the offline image. The randomized suffix prevents predictable-name collisions. Temporary working files remain in a mode-`0700` directory below the output directory and are removed on normal exit and handled signals.
@@ -121,10 +144,10 @@ Dynamic titles and summaries are escaped before entering Markdown. Evidence sepa
 The JSONL report contains one JSON object per selected criterion followed by one summary object. Result objects use these fields:
 
 ```json
-{"code":"U-01","category":"account","severity":"high","title":"...","status":"GOOD","applicable":true,"summary":"...","evidence":"...","criterion_url":"..."}
+{"code":"U-01","category":"account","severity":"high","title":"...","status":"GOOD","technical_status":"MANUAL","decision_basis":"policy_attestation","review_id":"sha256:...","attestation_ticket":"SEC-2026-0142","attestation_approver":"security-governance","attestation_expires":"2026-12-31","applicable":true,"summary":"...","evidence":"...","criterion_url":"..."}
 ```
 
-The final line has `type` set to `summary` and contains all status counts. Consumers must parse the file as JSON Lines, not as one JSON array.
+The final line has `type` set to `summary` and contains all status counts plus `policy_resolved`. Consumers must parse the file as JSON Lines, not as one JSON array.
 
 The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or timestamp header stored in the Markdown report. Retain the Markdown and JSONL files together when those provenance fields are required.
 
@@ -160,7 +183,7 @@ Use the diagnostic mode to inspect one key:
 sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 ```
 
-The output distinguishes the filesystem model, the active loader model where available, the runtime value, and drift between them. It also reports an observed `sysctl.extra` credential override and the nonstandard `/etc/sysctl.conf.d` directory.
+The prefixed output retains one `key=value` payload per line. It distinguishes the filesystem model, the active loader model where available, the runtime value, and drift between them. It also reports an observed `sysctl.extra` credential override and the nonstandard `/etc/sysctl.conf.d` directory.
 
 The standard drop-in path is `/etc/sysctl.d/*.conf`. Configuration ordering and masking follow `sysctl.d(5)` semantics, not a recursive grep. See the [systemd sysctl.d specification](https://www.freedesktop.org/software/systemd/man/latest/sysctl.d.html) and [RHEL 10 kernel parameter documentation](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/managing_monitoring_and_updating_the_kernel/configuring-kernel-parameters-at-runtime).
 

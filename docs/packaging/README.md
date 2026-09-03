@@ -7,10 +7,13 @@ The source tree exposes one relocatable install interface for Debian-family and 
 | Path | Purpose | Mode |
 |---|---|---:|
 | `/usr/bin/kisa-cce-scan` | User-facing command | `0755` |
+| `/usr/bin/kisa-cce-collect` | Live runtime evidence collector | `0755` |
 | `/usr/lib/kisa-cce-linux-scanner/*.sh` | Private Bash scanner and sourced modules | `0644` |
 | `/usr/share/kisa-cce-linux-scanner/criteria.tsv` | Criterion catalog | `0644` |
 | `/usr/share/kisa-cce-linux-scanner/VERSION` | Runtime version | `0644` |
+| `/usr/share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po` | Korean and English report catalogs | `0644` |
 | `/usr/share/man/man8/kisa-cce-scan.8` | System administration manual | `0644` |
+| `/usr/share/man/man8/kisa-cce-collect.8` | Evidence collector manual | `0644` |
 
 The project deliberately uses the requested cross-distribution path `/usr/lib/kisa-cce-linux-scanner`. Debian permits this location, although its policy recommends `/usr/share` when a directory is entirely architecture-independent. An RPM spec must not substitute `%{_libdir}`, because that macro can select `/usr/lib64`; use the exact noarch private path instead. The launcher also supports `/usr/libexec/kisa-cce-linux-scanner` as an RPM packaging override:
 
@@ -68,13 +71,14 @@ Repository Markdown under `docs/` is not part of `make install`. Debian or RPM m
 
 Do not publish Debian or RPM package metadata until all of the following values are reviewed:
 
-- Project license and the copyright/license text required by each package format.
 - Package maintainer, vendor, source URL, and release ownership.
 - Exact mandatory and optional runtime dependency sets for each supported platform group.
 - Package upgrade, removal, and report-retention policy.
 - Real-package installation and execution results on every listed product and release.
 
 The current tree provides the filesystem and build interface, but it does not yet claim a policy-complete `.deb` or `.rpm` package.
+
+The project license is `LGPL-3.0-or-later`. Debian metadata must reproduce the applicable copyright and license information. RPM metadata should use `License: LGPL-3.0-or-later` and install `LICENSE`, `NOTICE`, and both files under `LICENSES/` through `%license` without adding them to the upstream runtime install target.
 
 ## References
 

@@ -1,8 +1,77 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # shellcheck shell=bash
 
 # shellcheck disable=SC2016
 
 # Configuration resolvers preserve subsystem-specific precedence and provenance.
+
+SCAN_EPOCH="${SCAN_EPOCH:-0}"
+SCAN_EPOCH_ACTIVE="${SCAN_EPOCH_ACTIVE:-0}"
+RESOLVER_CACHE_EPOCH=""
+SYSCTL_STATIC_NAMESPACE="${SYSCTL_STATIC_NAMESPACE:-filesystem}"
+
+declare -gA SYSCTL_SNAPSHOT_READY=()
+declare -gA SYSCTL_SNAPSHOT_STATUS=()
+declare -gA SYSCTL_EXACT_TYPE=()
+declare -gA SYSCTL_EXACT_VALUE=()
+declare -gA SYSCTL_EXACT_SOURCE=()
+declare -gA SYSCTL_GLOB_FILE=()
+declare -gA SYSCTL_QUERY_READY=()
+declare -gA SYSCTL_QUERY_STATUS=()
+declare -gA SYSCTL_QUERY_VALUE=()
+declare -gA SYSCTL_RUNTIME_READY=()
+declare -gA SYSCTL_RUNTIME_STATUS=()
+declare -gA SYSCTL_RUNTIME_VALUE=()
+
+SYSTEMD_CACHE_EPOCH=""
+SYSTEMD_CACHE_SCRATCH_DIR=""
+SYSTEMD_CACHE_RESET_SEQUENCE=0
+SYSTEMD_CACHE_NAMESPACE=""
+SYSTEMD_CACHE_FACTS=""
+SYSTEMD_CACHE_COMMAND_STATUS=2
+SYSTEMD_BULK_STATUS=2
+SYSTEMD_PROPERTIES_COMMAND_STATUS=2
+
+LISTENER_CACHE_EPOCH=""
+LISTENER_CACHE_SCRATCH_DIR=""
+LISTENER_CACHE_RESET_SEQUENCE=0
+LISTENER_CACHE_NAMESPACE=""
+LISTENER_CACHE_COMMAND_STATUS=2
+LISTENER_CACHE_FACTS_FILE=""
+
+resolver_reset_epoch_caches() {
+    SYSCTL_SNAPSHOT_READY=()
+    SYSCTL_SNAPSHOT_STATUS=()
+    SYSCTL_EXACT_TYPE=()
+    SYSCTL_EXACT_VALUE=()
+    SYSCTL_EXACT_SOURCE=()
+    SYSCTL_GLOB_FILE=()
+    SYSCTL_QUERY_READY=()
+    SYSCTL_QUERY_STATUS=()
+    SYSCTL_QUERY_VALUE=()
+    SYSCTL_RUNTIME_READY=()
+    SYSCTL_RUNTIME_STATUS=()
+    SYSCTL_RUNTIME_VALUE=()
+    RESOLVER_CACHE_EPOCH="${SCAN_EPOCH:-0}"
+}
+
+sysctl_reset_epoch_cache() {
+    resolver_reset_epoch_caches
+}
+
+resolver_ensure_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH:-0}"
+
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0) return 0 ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    case "$current_epoch" in ''|*[!0-9]*) return 2 ;; esac
+    if [ "$RESOLVER_CACHE_EPOCH" != "$current_epoch" ]; then
+        resolver_reset_epoch_caches
+    fi
+}
 
 new_scratch_file() {
     local name="$1"
@@ -42,6 +111,9 @@ select_layered_files() {
     local basename_value=""
     local candidate_file=""
     local unresolved_directory=""
+    local sorted_selection_file=""
+    local -a physical_directories=()
+    declare -A selected_basenames=()
 
     selection_file="$(new_scratch_file layered)" || return 1
 
@@ -56,20 +128,31 @@ select_layered_files() {
         }
         [ -d "$physical_directory" ] || continue
         [ -r "$physical_directory" ] && [ -x "$physical_directory" ] || return 2
+        physical_directories+=("$physical_directory")
+    done
+
+    if [ "${#physical_directories[@]}" -gt 0 ]; then
         candidate_file="$(new_scratch_file layered-candidates)" || return 1
-        find -P "$physical_directory" -maxdepth 1 \( -type f -o -type l \) -name "*${suffix}" -print0 > "$candidate_file" 2>/dev/null || return 2
+        find -P "${physical_directories[@]}" -maxdepth 1 \( -type f -o -type l \) \
+            -name "*${suffix}" -print0 > "$candidate_file" 2>/dev/null || return 2
         while IFS= read -r -d '' candidate; do
             basename_value="${candidate##*/}"
             case "$basename_value" in
                 *$'\n'*|*$'\t'*) return 2 ;;
             esac
-            if ! cut -f1 "$selection_file" 2>/dev/null | grep -Fqx -- "$basename_value"; then
+            if [ "${selected_basenames[$basename_value]+present}" != "present" ]; then
+                selected_basenames["$basename_value"]=1
                 printf '%s\t%s\n' "$basename_value" "$candidate" >> "$selection_file" || return 1
             fi
         done < "$candidate_file"
-    done
+    fi
 
-    LC_ALL=C sort -t "$(printf '\t')" -k1,1 "$selection_file" | cut -f2-
+    sorted_selection_file="$(new_scratch_file layered-sorted)" || return 1
+    LC_ALL=C sort -t $'\t' -k1,1 "$selection_file" > "$sorted_selection_file" || return 1
+    while IFS=$'\t' read -r basename_value candidate || [ -n "$basename_value$candidate" ]; do
+        [ -n "$basename_value" ] || continue
+        printf '%s\n' "$candidate"
+    done < "$sorted_selection_file"
 }
 
 assignment_from_files_last_wins() {
@@ -508,125 +591,649 @@ pam_legacy_configuration_file() {
     optional_rooted_read_path /etc/pam.conf
 }
 
-pam_expand_service_recursive() {
-    local service="$1"
-    local pam_type="$2"
-    local depth="$3"
-    local active_stack="$4"
-    local recursion_key="${service}:${pam_type}"
-    local service_file=""
-    local logical_lines_file=""
-    local line=""
-    local line_type=""
-    local control=""
-    local include_service=""
-    local source_mode="pamd"
-    local configuration_status=0
-    local record_service=""
+PAM_CACHE_EPOCH_ID=""
+PAM_FILE_PARSE_COUNT=0
+PAM_EXPANSION_BUILD_COUNT=0
+PAM_NODE_LAST_CLASS=""
+PAM_NODE_LAST_REASON=""
+PAM_FILE_LAST_STATE=""
+PAM_FILE_LAST_REASON=""
 
-    [ "$depth" -lt 16 ] || return 2
+declare -gA PAM_SERVICE_STATE=()
+declare -gA PAM_SERVICE_PATH=()
+declare -gA PAM_SERVICE_MODE=()
+declare -gA PAM_FILE_STATE=()
+declare -gA PAM_FILE_INTERMEDIATE_PATH=()
+declare -gA PAM_FILE_REASON=()
+declare -gA PAM_NODE_STATE=()
+declare -gA PAM_NODE_OUTPUT_PATH=()
+declare -gA PAM_NODE_MAXIMUM_DEPTH=()
+declare -gA PAM_NODE_REASON=()
+declare -gA PAM_EFFECTIVE_STATE=()
+declare -gA PAM_EFFECTIVE_OUTPUT_PATH=()
+declare -gA PAM_EFFECTIVE_REASON=()
+declare -gA PAM_DFS_COLOR=()
+
+pam_reset_epoch_cache() {
+    PAM_SERVICE_STATE=()
+    PAM_SERVICE_PATH=()
+    PAM_SERVICE_MODE=()
+    PAM_FILE_STATE=()
+    PAM_FILE_INTERMEDIATE_PATH=()
+    PAM_FILE_REASON=()
+    PAM_NODE_STATE=()
+    PAM_NODE_OUTPUT_PATH=()
+    PAM_NODE_MAXIMUM_DEPTH=()
+    PAM_NODE_REASON=()
+    PAM_EFFECTIVE_STATE=()
+    PAM_EFFECTIVE_OUTPUT_PATH=()
+    PAM_EFFECTIVE_REASON=()
+    PAM_DFS_COLOR=()
+    PAM_FILE_PARSE_COUNT=0
+    PAM_EXPANSION_BUILD_COUNT=0
+    PAM_NODE_LAST_CLASS=""
+    PAM_NODE_LAST_REASON=""
+    PAM_FILE_LAST_STATE=""
+    PAM_FILE_LAST_REASON=""
+    PAM_CACHE_EPOCH_ID="${SCAN_EPOCH_ID:-0}"
+}
+
+pam_ensure_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH_ID:-0}"
+
+    case "$current_epoch" in ''|*[!0-9]*) return 2 ;; esac
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -ne 1 ] || [ "$PAM_CACHE_EPOCH_ID" != "$current_epoch" ]; then
+        pam_reset_epoch_cache
+    fi
+}
+
+pam_pair_key_into() {
+    local first_value="$1"
+    local second_value="$2"
+    local destination_name="$3"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|first_value|second_value|destination_name) return 2 ;;
+    esac
+    printf -v "$destination_name" '%d:%s%d:%s' \
+        "${#first_value}" "$first_value" "${#second_value}" "$second_value"
+}
+
+pam_service_reference_is_valid() {
+    local service="$1"
+
     case "$service" in
         /*)
-            case "$service" in *$'\n'*|*$'\r'*|*$'\t'*|*/../*|*/..|*/./*|*/.) return 2 ;; esac
+            case "$service" in *$'\n'*|*$'\r'*|*$'\t'*|*/../*|*/..|*/./*|*/.) return 1 ;; esac
             ;;
-        ''|*[!A-Za-z0-9_.+@-]*) return 2
-            ;;
+        ''|*[!A-Za-z0-9_.+@-]*) return 1 ;;
     esac
-    case "|$active_stack|" in *"|$recursion_key|"*) return 2 ;; esac
-    active_stack="${active_stack:+$active_stack|}${recursion_key}"
+}
+
+pam_resolve_service_source_into() {
+    local service="$1"
+    local path_destination="$2"
+    local mode_destination="$3"
+    local service_key=""
+    local service_path=""
+    local resolved_source_mode="pamd"
+    local configuration_status=0
+    local source_status=0
+
+    case "$path_destination:$mode_destination" in
+        *[!A-Za-z0-9_:]*|:*|*:) return 2 ;;
+    esac
+    printf -v "$path_destination" '%s' ""
+    printf -v "$mode_destination" '%s' ""
+    pam_service_reference_is_valid "$service" || return 2
+    pam_pair_key_into service "$service" service_key || return 2
+
+    if [ -n "${PAM_SERVICE_STATE[$service_key]+present}" ]; then
+        case "${PAM_SERVICE_STATE[$service_key]}" in
+            ready)
+                printf -v "$path_destination" '%s' "${PAM_SERVICE_PATH[$service_key]}"
+                printf -v "$mode_destination" '%s' "${PAM_SERVICE_MODE[$service_key]}"
+                return 0
+                ;;
+            absent) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
 
     if [ "${service#/}" != "$service" ]; then
-        service_file="$(pam_service_file "$service")" || return $?
+        service_path="$(pam_service_file "$service" 2>/dev/null)" || source_status=$?
     else
         pam_directory_configuration_present || configuration_status=$?
         case "$configuration_status" in
             0)
-                service_file="$(pam_service_file "$service")" || return $?
+                service_path="$(pam_service_file "$service" 2>/dev/null)" || source_status=$?
                 ;;
             1)
-                service_file="$(pam_legacy_configuration_file 2>/dev/null)" || return $?
-                source_mode="pam.conf"
+                resolved_source_mode="pam.conf"
+                service_path="$(pam_legacy_configuration_file 2>/dev/null)" || source_status=$?
                 ;;
-            *)
-                return 2
-                ;;
+            *) source_status=2 ;;
         esac
     fi
-    logical_lines_file="$(new_scratch_file pam-logical-lines)" || return 2
-    awk '
+
+    case "$source_status" in
+        0)
+            PAM_SERVICE_STATE["$service_key"]="ready"
+            PAM_SERVICE_PATH["$service_key"]="$service_path"
+            PAM_SERVICE_MODE["$service_key"]="$resolved_source_mode"
+            printf -v "$path_destination" '%s' "$service_path"
+            printf -v "$mode_destination" '%s' "$resolved_source_mode"
+            return 0
+            ;;
+        1)
+            PAM_SERVICE_STATE["$service_key"]="absent"
+            return 1
+            ;;
+        *)
+            PAM_SERVICE_STATE["$service_key"]="error"
+            return 2
+            ;;
+    esac
+}
+
+pam_parse_file_once() {
+    local service_file="$1"
+    local source_mode="$2"
+    local destination_name="$3"
+    local pam_file_key=""
+    local pam_intermediate_file=""
+    local pam_displayed_source=""
+    local pam_parser_status=0
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|service_file|source_mode|destination_name|pam_file_key|pam_intermediate_file|pam_displayed_source|pam_parser_status)
+            return 2
+            ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    PAM_FILE_LAST_STATE=""
+    PAM_FILE_LAST_REASON=""
+    case "$source_mode" in pamd|pam.conf) ;; *) return 2 ;; esac
+    pam_pair_key_into "$source_mode" "$service_file" pam_file_key || return 2
+
+    if [ -n "${PAM_FILE_STATE[$pam_file_key]+present}" ]; then
+        PAM_FILE_LAST_STATE="${PAM_FILE_STATE[$pam_file_key]}"
+        PAM_FILE_LAST_REASON="${PAM_FILE_REASON[$pam_file_key]}"
+        if [ "$PAM_FILE_LAST_STATE" = "ready" ]; then
+            printf -v "$destination_name" '%s' "${PAM_FILE_INTERMEDIATE_PATH[$pam_file_key]}"
+            return 0
+        fi
+        return 2
+    fi
+
+    pam_intermediate_file="$(new_scratch_file pam-file-intermediate)" || {
+        PAM_FILE_STATE["$pam_file_key"]="error"
+        PAM_FILE_REASON["$pam_file_key"]="scratch"
+        PAM_FILE_LAST_STATE="error"
+        PAM_FILE_LAST_REASON="scratch"
+        return 2
+    }
+    pam_displayed_source="$(display_path "$service_file" 2>/dev/null)" || {
+        PAM_FILE_STATE["$pam_file_key"]="error"
+        PAM_FILE_REASON["$pam_file_key"]="display-path"
+        PAM_FILE_LAST_STATE="error"
+        PAM_FILE_LAST_REASON="display-path"
+        return 2
+    }
+    PAM_FILE_PARSE_COUNT=$((PAM_FILE_PARSE_COUNT + 1))
+    awk -v source_mode="$source_mode" -v source_path="$pam_displayed_source" '
+        function emit(kind, selector, facility, control_kind, control_text,
+                      payload, arguments, first_line, last_line, rendered) {
+            printf "%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c%d%c%d%c%s%c", \
+                kind, 0, selector, 0, facility, 0, control_kind, 0, control_text, 0, \
+                payload, 0, arguments, 0, source_path, 0, first_line, 0, last_line, 0, rendered, 0
+        }
+        function process_record(rendered, first_line, last_line, field_count, field_index,
+                                selector, facility, control, control_kind, control_text,
+                                module_index, payload, arguments, rebuilt, trimmed, parse_line) {
+            sub(/[[:space:]]#.*$/, "", rendered)
+            trimmed=rendered
+            sub(/^[[:space:]]+/, "", trimmed)
+            if (trimmed == "" || trimmed ~ /^#/) return
+
+            parse_line=trimmed
+            field_count=split(parse_line, fields, /[[:space:]]+/)
+            selector=""
+            if (source_mode == "pam.conf") {
+                selector=tolower(fields[1])
+                rebuilt=""
+                for (field_index=2; field_index<=field_count; field_index++)
+                    rebuilt=rebuilt (rebuilt == "" ? "" : " ") fields[field_index]
+                rendered=rebuilt
+                if (rendered == "") {
+                    emit("malformed", selector, "*", "none", "", "empty-pam-conf-record", "", first_line, last_line, rendered)
+                    return
+                }
+                field_count=split(rendered, fields, /[[:space:]]+/)
+            }
+
+            facility=tolower(fields[1])
+            sub(/^-/, "", facility)
+            if (facility == "@include") {
+                payload=(field_count >= 2 ? fields[2] : "")
+                arguments=""
+                for (field_index=3; field_index<=field_count; field_index++)
+                    arguments=arguments (arguments == "" ? "" : " ") fields[field_index]
+                emit("at_include", selector, "*", "edge", "@include", payload, arguments,
+                     first_line, last_line, rendered)
+                return
+            }
+
+            control=tolower(fields[2])
+            if (control == "include" || control == "substack") {
+                payload=(field_count >= 3 ? fields[3] : "")
+                arguments=""
+                for (field_index=4; field_index<=field_count; field_index++)
+                    arguments=arguments (arguments == "" ? "" : " ") fields[field_index]
+                emit(control, selector, facility, "edge", control, payload, arguments,
+                     first_line, last_line, rendered)
+                return
+            }
+
+            control_kind="simple"
+            control_text=control
+            module_index=3
+            if (fields[2] ~ /^\[/) {
+                control_kind="bracket"
+                control_text=""
+                module_index=2
+                while (module_index <= field_count) {
+                    control_text=control_text (control_text == "" ? "" : " ") tolower(fields[module_index])
+                    if (fields[module_index] ~ /\]$/) break
+                    module_index++
+                }
+                module_index++
+                if (control_text !~ /\]$/) control_kind="malformed-bracket"
+            }
+            payload=(module_index <= field_count ? fields[module_index] : "")
+            arguments=""
+            for (field_index=module_index + 1; field_index<=field_count; field_index++)
+                arguments=arguments (arguments == "" ? "" : " ") fields[field_index]
+            emit("module", selector, facility, control_kind, control_text, payload, arguments,
+                 first_line, last_line, rendered)
+        }
         {
-            if (continued) record=record $0
-            else record=$0
+            if (!continued) {
+                record=$0
+                record_start=FNR
+            } else {
+                record=record $0
+            }
             if (record ~ /\\[[:space:]]*$/) {
                 sub(/\\[[:space:]]*$/, "", record)
                 record=record " "
                 continued=1
                 next
             }
-            print record
+            process_record(record, record_start, FNR)
             record=""
             continued=0
         }
         END {if (continued) exit 2}
-    ' "$service_file" > "$logical_lines_file" || return 2
-    # The loop writes only to stdout and never modifies the PAM source file.
-    # shellcheck disable=SC2094
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="$(printf '%s\n' "$line" | sed 's/[[:space:]]#.*$//')"
-        printf '%s\n' "$line" | grep -Eq '^[[:space:]]*(#|$)' && continue
-        if [ "$source_mode" = "pam.conf" ]; then
-            record_service="$(printf '%s\n' "$line" | awk '{print tolower($1); exit}')"
-            [ "$record_service" = "$(printf '%s' "$service" | tr '[:upper:]' '[:lower:]')" ] || continue
-            line="$(printf '%s\n' "$line" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')"
-            [ -n "$line" ] || return 2
-        fi
-        line_type="$(printf '%s\n' "$line" | awk '{type=tolower($1); sub(/^-/, "", type); print type; exit}')"
-        if [ "$line_type" = "@include" ]; then
-            platform_is_debian_family || return 2
-            include_service="$(printf '%s\n' "$line" | awk '{print $2; exit}')"
-            [ -n "$include_service" ] || return 2
-            if [ "$source_mode" = "pam.conf" ] && [ "${include_service#/}" = "$include_service" ]; then
-                return 2
-            fi
-            pam_expand_service_recursive "$include_service" "$pam_type" $((depth + 1)) "$active_stack" || return 2
-            continue
-        fi
-        [ "$line_type" = "$pam_type" ] || continue
-        control="$(printf '%s\n' "$line" | awk '{print tolower($2); exit}')"
-        case "$control" in
-            include|substack)
-                include_service="$(printf '%s\n' "$line" | awk '{print $3; exit}')"
-                [ -n "$include_service" ] || return 2
-                if [ "$source_mode" = "pam.conf" ] && [ "${include_service#/}" = "$include_service" ]; then
+    ' "$service_file" > "$pam_intermediate_file" || pam_parser_status=$?
+
+    case "$pam_parser_status" in
+        0)
+            PAM_FILE_STATE["$pam_file_key"]="ready"
+            PAM_FILE_INTERMEDIATE_PATH["$pam_file_key"]="$pam_intermediate_file"
+            PAM_FILE_REASON["$pam_file_key"]=""
+            PAM_FILE_LAST_STATE="ready"
+            printf -v "$destination_name" '%s' "$pam_intermediate_file"
+            return 0
+            ;;
+        2)
+            PAM_FILE_STATE["$pam_file_key"]="ambiguous"
+            PAM_FILE_REASON["$pam_file_key"]="dangling-continuation"
+            PAM_FILE_LAST_STATE="ambiguous"
+            PAM_FILE_LAST_REASON="dangling-continuation"
+            return 2
+            ;;
+        *)
+            PAM_FILE_STATE["$pam_file_key"]="error"
+            PAM_FILE_REASON["$pam_file_key"]="parser"
+            PAM_FILE_LAST_STATE="error"
+            PAM_FILE_LAST_REASON="parser"
+            return 2
+            ;;
+    esac
+}
+
+pam_commit_node_result() {
+    local node_key="$1"
+    local normalized_output=""
+    local commit_status=0
+
+    declare -F scan_resolver_commit >/dev/null 2>&1 || return 0
+    [ "${SCAN_INCREMENTAL_REEVALUATION_ACTIVE:-0}" -eq 1 ] || return 0
+    printf -v normalized_output 'state=%s\nreason=%s\nmaximum_depth=%s' \
+        "${PAM_NODE_STATE[$node_key]-unknown}" "${PAM_NODE_REASON[$node_key]-}" \
+        "${PAM_NODE_MAXIMUM_DEPTH[$node_key]-0}"
+    if [ -n "${PAM_NODE_OUTPUT_PATH[$node_key]-}" ] &&
+        [ -f "${PAM_NODE_OUTPUT_PATH[$node_key]}" ] &&
+        [ ! -L "${PAM_NODE_OUTPUT_PATH[$node_key]}" ]; then
+        normalized_output+=$'\n'"$(< "${PAM_NODE_OUTPUT_PATH[$node_key]}")"
+    fi
+    scan_resolver_commit "pam-node:$node_key" "$normalized_output" || commit_status=$?
+    case "$commit_status" in 0|1) return 0 ;; *) return 2 ;; esac
+}
+
+pam_cache_node_failure() {
+    local node_key="$1"
+    local failure_class="$2"
+    local failure_reason="$3"
+
+    PAM_NODE_STATE["$node_key"]="$failure_class"
+    PAM_NODE_REASON["$node_key"]="$failure_reason"
+    PAM_DFS_COLOR["$node_key"]="black"
+    PAM_NODE_LAST_CLASS="$failure_class"
+    PAM_NODE_LAST_REASON="$failure_reason"
+    pam_commit_node_result "$node_key" || return 2
+    return 2
+}
+
+pam_expand_node() {
+    local service="$1"
+    local pam_type="$2"
+    local depth="$3"
+    local node_key=""
+    local service_file=""
+    local source_mode=""
+    local source_status=0
+    local intermediate_path=""
+    local output_path=""
+    local record_kind=""
+    local selector=""
+    local record_type=""
+    local _ignored_control_kind=""
+    local _ignored_control_text=""
+    local payload=""
+    local _ignored_arguments=""
+    local source_path=""
+    local _ignored_first_line=""
+    local _ignored_last_line=""
+    local rendered_line=""
+    local requested_service_lower=""
+    local child_key=""
+    local child_status=0
+    local child_depth=0
+    local maximum_depth=0
+    local failure_class=""
+    local failure_reason=""
+
+    PAM_NODE_LAST_CLASS=""
+    PAM_NODE_LAST_REASON=""
+    case "$pam_type" in auth|account|password|session) ;; *) PAM_NODE_LAST_CLASS="ambiguous"; PAM_NODE_LAST_REASON="invalid-facility"; return 2 ;; esac
+    case "$depth" in ''|*[!0-9]*) PAM_NODE_LAST_CLASS="ambiguous"; PAM_NODE_LAST_REASON="invalid-depth"; return 2 ;; esac
+    if [ "$depth" -ge 16 ]; then
+        PAM_NODE_LAST_CLASS="ambiguous"
+        PAM_NODE_LAST_REASON="depth"
+        return 2
+    fi
+    pam_service_reference_is_valid "$service" || {
+        PAM_NODE_LAST_CLASS="ambiguous"
+        PAM_NODE_LAST_REASON="invalid-service"
+        return 2
+    }
+    pam_pair_key_into "$service" "$pam_type" node_key || return 2
+
+    if [ -n "${PAM_NODE_STATE[$node_key]+present}" ]; then
+        PAM_NODE_LAST_CLASS="${PAM_NODE_STATE[$node_key]}"
+        PAM_NODE_LAST_REASON="${PAM_NODE_REASON[$node_key]}"
+        case "${PAM_NODE_STATE[$node_key]}" in
+            ready)
+                maximum_depth="${PAM_NODE_MAXIMUM_DEPTH[$node_key]}"
+                if [ $((depth + maximum_depth)) -ge 16 ]; then
+                    PAM_NODE_LAST_CLASS="ambiguous"
+                    PAM_NODE_LAST_REASON="depth"
                     return 2
                 fi
-                pam_expand_service_recursive "$include_service" "$pam_type" $((depth + 1)) "$active_stack" || return 2
+                return 0
                 ;;
-            *)
-                printf '%s\t%s\n' "$(display_path "$service_file")" "$line"
+            absent) return 1 ;;
+            *) return 2 ;;
+        esac
+    fi
+    if [ "${PAM_DFS_COLOR[$node_key]-white}" = "gray" ]; then
+        pam_cache_node_failure "$node_key" ambiguous cycle
+        return 2
+    fi
+    PAM_DFS_COLOR["$node_key"]="gray"
+
+    if declare -F scan_dependency_register >/dev/null 2>&1; then
+        scan_dependency_register "pam-service:$service" "pam-node:$node_key" || {
+            pam_cache_node_failure "$node_key" error dependency-registration
+            return 2
+        }
+    fi
+
+    pam_resolve_service_source_into "$service" service_file source_mode || source_status=$?
+    case "$source_status" in
+        0) ;;
+        1)
+            PAM_NODE_STATE["$node_key"]="absent"
+            PAM_NODE_REASON["$node_key"]="source-absent"
+            PAM_DFS_COLOR["$node_key"]="black"
+            PAM_NODE_LAST_CLASS="absent"
+            PAM_NODE_LAST_REASON="source-absent"
+            pam_commit_node_result "$node_key" || return 2
+            return 1
+            ;;
+        *)
+            pam_cache_node_failure "$node_key" error source-resolution
+            return 2
+            ;;
+    esac
+
+    if declare -F scan_dependency_register >/dev/null 2>&1; then
+        scan_dependency_register "pam-source:$service_file" "pam-node:$node_key" || {
+            pam_cache_node_failure "$node_key" error dependency-registration
+            return 2
+        }
+    fi
+    pam_parse_file_once "$service_file" "$source_mode" intermediate_path || {
+        failure_class="${PAM_FILE_LAST_STATE:-error}"
+        case "$failure_class" in ambiguous|error) ;; *) failure_class="error" ;; esac
+        pam_cache_node_failure "$node_key" "$failure_class" "${PAM_FILE_LAST_REASON:-file-parse}"
+        return 2
+    }
+    output_path="$(new_scratch_file pam-node-output)" || {
+        pam_cache_node_failure "$node_key" error scratch
+        return 2
+    }
+    requested_service_lower="${service,,}"
+
+    while IFS= read -r -d '' record_kind &&
+        IFS= read -r -d '' selector &&
+        IFS= read -r -d '' record_type &&
+        IFS= read -r -d '' _ignored_control_kind &&
+        IFS= read -r -d '' _ignored_control_text &&
+        IFS= read -r -d '' payload &&
+        IFS= read -r -d '' _ignored_arguments &&
+        IFS= read -r -d '' source_path &&
+        IFS= read -r -d '' _ignored_first_line &&
+        IFS= read -r -d '' _ignored_last_line &&
+        IFS= read -r -d '' rendered_line; do
+        [ -z "$selector" ] || [ "$selector" = "$requested_service_lower" ] || continue
+        case "$record_kind" in
+            module)
+                [ "$record_type" = "$pam_type" ] || continue
+                printf '%s\t%s\n' "$source_path" "$rendered_line" >> "$output_path" || {
+                    pam_cache_node_failure "$node_key" error output-write
+                    return 2
+                }
+                ;;
+            at_include|include|substack)
+                if [ "$record_kind" = "at_include" ]; then
+                    platform_is_debian_family || {
+                        pam_cache_node_failure "$node_key" ambiguous unsupported-at-include
+                        return 2
+                    }
+                    [ -n "$payload" ] || {
+                        pam_cache_node_failure "$node_key" ambiguous missing-include-target
+                        return 2
+                    }
+                    if [ "$source_mode" = "pam.conf" ] && [ "${payload#/}" = "$payload" ]; then
+                        pam_cache_node_failure "$node_key" ambiguous relative-pam-conf-include
+                        return 2
+                    fi
+                else
+                    [ "$record_type" = "$pam_type" ] || continue
+                    [ -n "$payload" ] || {
+                        pam_cache_node_failure "$node_key" ambiguous missing-include-target
+                        return 2
+                    }
+                    if [ "$source_mode" = "pam.conf" ] && [ "${payload#/}" = "$payload" ]; then
+                        pam_cache_node_failure "$node_key" ambiguous relative-pam-conf-include
+                        return 2
+                    fi
+                fi
+                child_status=0
+                pam_expand_node "$payload" "$pam_type" $((depth + 1)) || child_status=$?
+                pam_pair_key_into "$payload" "$pam_type" child_key || {
+                    pam_cache_node_failure "$node_key" error child-key
+                    return 2
+                }
+                if [ "$child_status" -eq 1 ]; then
+                    pam_cache_node_failure "$node_key" ambiguous missing-include-source
+                    return 2
+                elif [ "$child_status" -eq 2 ]; then
+                    failure_class="${PAM_NODE_LAST_CLASS:-ambiguous}"
+                    failure_reason="${PAM_NODE_LAST_REASON:-child-expansion}"
+                    if [ "$failure_reason" = "depth" ]; then
+                        unset 'PAM_DFS_COLOR[$node_key]'
+                        PAM_NODE_LAST_CLASS="ambiguous"
+                        PAM_NODE_LAST_REASON="depth"
+                        return 2
+                    fi
+                    pam_cache_node_failure "$node_key" "$failure_class" "$failure_reason"
+                    return 2
+                fi
+                cat "${PAM_NODE_OUTPUT_PATH[$child_key]}" >> "$output_path" || {
+                    pam_cache_node_failure "$node_key" error child-output-read
+                    return 2
+                }
+                child_depth=$((PAM_NODE_MAXIMUM_DEPTH[$child_key] + 1))
+                [ "$child_depth" -le "$maximum_depth" ] || maximum_depth="$child_depth"
+                ;;
+            malformed)
+                if [ "$record_type" = "*" ] || [ "$record_type" = "$pam_type" ]; then
+                    pam_cache_node_failure "$node_key" ambiguous "$payload"
+                    return 2
+                fi
                 ;;
         esac
-    done < "$logical_lines_file"
+    done < "$intermediate_path"
+
+    PAM_NODE_STATE["$node_key"]="ready"
+    PAM_NODE_OUTPUT_PATH["$node_key"]="$output_path"
+    PAM_NODE_MAXIMUM_DEPTH["$node_key"]="$maximum_depth"
+    PAM_NODE_REASON["$node_key"]=""
+    PAM_DFS_COLOR["$node_key"]="black"
+    PAM_NODE_LAST_CLASS="ready"
+    PAM_NODE_LAST_REASON=""
+    pam_commit_node_result "$node_key" || return 2
+    return 0
+}
+
+pam_expand_service_recursive() {
+    local service="$1"
+    local pam_type="$2"
+    local depth="$3"
+    local active_stack="$4"
+    local recursion_key="${service}:${pam_type}"
+    local node_key=""
+
+    case "|$active_stack|" in *"|$recursion_key|"*) return 2 ;; esac
+    pam_expand_node "$service" "$pam_type" "$depth" || return $?
+    pam_pair_key_into "$service" "$pam_type" node_key || return 2
+    cat "${PAM_NODE_OUTPUT_PATH[$node_key]}"
+}
+
+pam_emit_effective_cache() {
+    local effective_key="$1"
+
+    PAM_NODE_LAST_REASON="${PAM_EFFECTIVE_REASON[$effective_key]-}"
+    case "${PAM_EFFECTIVE_STATE[$effective_key]}" in
+        ready)
+            cat "${PAM_EFFECTIVE_OUTPUT_PATH[$effective_key]}"
+            return $?
+            ;;
+        absent) return 1 ;;
+        *) return 2 ;;
+    esac
 }
 
 pam_expand_service() {
     local service="$1"
     local pam_type="$2"
-    local expanded_file=""
+    local effective_key=""
+    local node_key=""
+    local other_key=""
+    local effective_output=""
     local expansion_status=0
 
     case "$pam_type" in auth|account|password|session) ;; *) return 2 ;; esac
     case "$service" in ''|/*|*[!A-Za-z0-9_.+@-]*) return 2 ;; esac
-    service="$(printf '%s' "$service" | tr '[:upper:]' '[:lower:]')"
-    expanded_file="$(new_scratch_file pam-expanded)" || return 2
-    pam_expand_service_recursive "$service" "$pam_type" 0 "" > "$expanded_file" || expansion_status=$?
-    [ "$expansion_status" -ne 2 ] || return 2
-    if [ -s "$expanded_file" ]; then
-        cat "$expanded_file"
-        return 0
+    service="${service,,}"
+    pam_ensure_epoch_cache || return 2
+    pam_pair_key_into "$service" "$pam_type" effective_key || return 2
+    if [ -n "${PAM_EFFECTIVE_STATE[$effective_key]+present}" ]; then
+        pam_emit_effective_cache "$effective_key"
+        return $?
     fi
-    [ "$service" != "other" ] || return 1
-    pam_expand_service_recursive other "$pam_type" 0 ""
+
+    PAM_EXPANSION_BUILD_COUNT=$((PAM_EXPANSION_BUILD_COUNT + 1))
+    effective_output="$(new_scratch_file pam-effective-output)" || {
+        PAM_EFFECTIVE_STATE["$effective_key"]="error"
+        PAM_EFFECTIVE_REASON["$effective_key"]="scratch"
+        return 2
+    }
+    pam_expand_node "$service" "$pam_type" 0 || expansion_status=$?
+    pam_pair_key_into "$service" "$pam_type" node_key || return 2
+    if [ "$expansion_status" -eq 2 ]; then
+        PAM_EFFECTIVE_STATE["$effective_key"]="${PAM_NODE_LAST_CLASS:-error}"
+        PAM_EFFECTIVE_REASON["$effective_key"]="${PAM_NODE_LAST_REASON:-expansion}"
+        return 2
+    fi
+    if [ "$expansion_status" -eq 0 ] && [ -s "${PAM_NODE_OUTPUT_PATH[$node_key]}" ]; then
+        cat "${PAM_NODE_OUTPUT_PATH[$node_key]}" > "$effective_output" || return 2
+        PAM_EFFECTIVE_STATE["$effective_key"]="ready"
+        PAM_EFFECTIVE_OUTPUT_PATH["$effective_key"]="$effective_output"
+        pam_emit_effective_cache "$effective_key"
+        return $?
+    fi
+    if [ "$service" = "other" ]; then
+        PAM_EFFECTIVE_STATE["$effective_key"]="absent"
+        PAM_EFFECTIVE_REASON["$effective_key"]="empty-other"
+        return 1
+    fi
+
+    expansion_status=0
+    pam_expand_node other "$pam_type" 0 || expansion_status=$?
+    pam_pair_key_into other "$pam_type" other_key || return 2
+    case "$expansion_status" in
+        0)
+            cat "${PAM_NODE_OUTPUT_PATH[$other_key]}" > "$effective_output" || return 2
+            PAM_EFFECTIVE_STATE["$effective_key"]="ready"
+            PAM_EFFECTIVE_OUTPUT_PATH["$effective_key"]="$effective_output"
+            pam_emit_effective_cache "$effective_key"
+            ;;
+        1)
+            PAM_EFFECTIVE_STATE["$effective_key"]="absent"
+            PAM_EFFECTIVE_REASON["$effective_key"]="service-and-other-absent"
+            return 1
+            ;;
+        *)
+            PAM_EFFECTIVE_STATE["$effective_key"]="${PAM_NODE_LAST_CLASS:-error}"
+            PAM_EFFECTIVE_REASON["$effective_key"]="${PAM_NODE_LAST_REASON:-other-expansion}"
+            return 2
+            ;;
+    esac
 }
 
 sshd_effective_config() {
@@ -653,8 +1260,17 @@ sshd_manager_has_custom_invocation() {
 
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in ssh.service sshd.service ssh@.service sshd@.service; do
-        properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+            systemd_epoch_properties_into "$unit" properties || return 2
+            command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+        else
+            properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
+        fi
+        if declare -F systemd_fact_value_into >/dev/null 2>&1; then
+            systemd_fact_value_into "$properties" LoadState load_state || load_state=""
+        else
+            load_state="$(printf '%s\n' "$properties" | awk -F= '$1 == "LoadState" {print $2; exit}')"
+        fi
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
             return 2
         fi
@@ -718,7 +1334,12 @@ systemd_sysctl_unit_binary() {
     local unit_binary=""
 
     systemctl_path="$(trusted_command systemctl)" || return 2
-    properties="$($systemctl_path show systemd-sysctl.service -p ExecStart --no-pager 2>/dev/null)" || return 2
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+        systemd_epoch_properties_into systemd-sysctl.service properties || return 2
+        [ "$SYSTEMD_PROPERTIES_COMMAND_STATUS" -eq 0 ] || return 2
+    else
+        properties="$($systemctl_path show systemd-sysctl.service -p ExecStart --no-pager 2>/dev/null)" || return 2
+    fi
     unit_binary="$(systemd_sysctl_execstart_binary "$properties")" || return 2
     systemd_sysctl_binary "$unit_binary"
 }
@@ -734,6 +1355,7 @@ systemd_sysctl_value() (
     local key="$1"
     local stream_file=""
 
+    SYSCTL_STATIC_NAMESPACE="systemd-loader"
     stream_file="$(new_scratch_file sysctl-loader-stream)" || return 2
     systemd_sysctl_stream > "$stream_file" || return 2
     sysctl_static_files() {
@@ -917,72 +1539,132 @@ sysctl_file_is_masked() {
     return 1
 }
 
-sysctl_static_value() {
-    local key="$1"
+sysctl_normalize_name_into() {
+    local input_name="$1"
+    local destination_name="$2"
+    local dot_prefix=""
+    local slash_prefix=""
+    local normalized_name=""
+    local character=""
+    local index_value=0
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|input_name|destination_name|dot_prefix|slash_prefix|normalized_name|character|index_value)
+            return 2
+            ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    [ -n "$input_name" ] || return 2
+
+    if [[ "$input_name" == */* ]]; then
+        slash_prefix="${input_name%%/*}"
+        if [[ "$input_name" != *.* ]]; then
+            printf -v "$destination_name" '%s' "$input_name"
+            return 0
+        fi
+        dot_prefix="${input_name%%.*}"
+        if [ "${#slash_prefix}" -lt "${#dot_prefix}" ]; then
+            printf -v "$destination_name" '%s' "$input_name"
+            return 0
+        fi
+    fi
+
+    for ((index_value = 0; index_value < ${#input_name}; index_value++)); do
+        character="${input_name:index_value:1}"
+        case "$character" in
+            .) normalized_name+="/" ;;
+            /) normalized_name+="." ;;
+            *) normalized_name+="$character" ;;
+        esac
+    done
+    printf -v "$destination_name" '%s' "$normalized_name"
+}
+
+sysctl_cache_key_into() {
+    local namespace="$1"
+    local normalized_name="$2"
+    local destination_name="$3"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|namespace|normalized_name|destination_name) return 2 ;;
+    esac
+    printf -v "$destination_name" '%s' "${#namespace}:$namespace$normalized_name"
+}
+
+sysctl_query_dependency_source_into() {
+    local namespace="$1"
+    local destination_name="$2"
+
+    case "$destination_name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 2 ;; esac
+    case "$namespace" in
+        filesystem) printf -v "$destination_name" '%s' file-set:sysctl.d ;;
+        systemd-loader) printf -v "$destination_name" '%s' runtime:systemd-sysctl-loader ;;
+        ufw) printf -v "$destination_name" '%s' file:ufw-sysctl ;;
+        *) printf -v "$destination_name" 'sysctl-source:%s' "$namespace" ;;
+    esac
+}
+
+sysctl_commit_query_result() {
+    local resolver_id="$1"
+    local status_value="$2"
+    local result_value="$3"
+    local commit_status=0
+
+    declare -F scan_resolver_commit >/dev/null 2>&1 || return 0
+    scan_resolver_commit "$resolver_id" "status=$status_value"$'\n'"value=$result_value" || commit_status=$?
+    case "$commit_status" in 0|1) return 0 ;; *) return 2 ;; esac
+}
+
+_sysctl_prepare_static_snapshot() {
+    local namespace="${1:-filesystem}"
     local files=""
     local file=""
-    local normalized_target=""
+    local read_path=""
+    local display_source=""
+    local parsed_file=""
+    local glob_file=""
     local directive_name=""
     local directive_type=""
     local line_number=""
     local directive_value=""
-    local explicit_type=""
-    local explicit_value=""
-    local explicit_source=""
-    local glob_value=""
-    local glob_source=""
-    local read_path=""
-
+    local cache_key=""
     local files_status=0
+
+    resolver_ensure_epoch_cache || return 2
+    case "$namespace" in
+        ''|*[!A-Za-z0-9_.-]*) return 2 ;;
+    esac
+    if [ "${SYSCTL_SNAPSHOT_READY[$namespace]+present}" = "present" ]; then
+        return "${SYSCTL_SNAPSHOT_STATUS[$namespace]}"
+    fi
+    SYSCTL_SNAPSHOT_READY["$namespace"]=1
+    SYSCTL_SNAPSHOT_STATUS["$namespace"]=2
+
     files="$(sysctl_static_files)" || files_status=$?
-    [ "$files_status" -eq 0 ] || return "$files_status"
-    [ -n "$files" ] || return 1
-
-    normalized_target="$(printf '%s\n' "$key" | awk '
-        function canonical(name, first_dot, first_slash, index_value, character, result) {
-            first_dot = index(name, ".")
-            first_slash = index(name, "/")
-            if (first_slash > 0 && (first_dot == 0 || first_slash < first_dot)) return name
-
-            result = ""
-            for (index_value = 1; index_value <= length(name); index_value++) {
-                character = substr(name, index_value, 1)
-                if (character == ".") character = "/"
-                else if (character == "/") character = "."
-                result = result character
-            }
-            return result
-        }
-        { print canonical($0) }
-    ')"
+    case "$files_status" in
+        0) ;;
+        1)
+            SYSCTL_SNAPSHOT_STATUS["$namespace"]=1
+            return 1
+            ;;
+        *) return 2 ;;
+    esac
+    if [ -z "$files" ]; then
+        SYSCTL_SNAPSHOT_STATUS["$namespace"]=1
+        return 1
+    fi
+    glob_file="$(new_scratch_file "sysctl-${namespace}-globs")" || return 2
+    SYSCTL_GLOB_FILE["$namespace"]="$glob_file"
 
     while IFS= read -r file; do
+        [ -n "$file" ] || continue
         read_path="$(resolve_sysctl_read_path "$file" 2>/dev/null)" || {
             sysctl_file_is_masked "$file" && continue
             return 2
         }
-        while IFS="$(printf '\t')" read -r directive_name directive_type line_number directive_value; do
-            [ -n "$directive_name" ] || continue
-
-            case "$directive_name" in
-                *'*'*|*'?'*|*'['*)
-                    [ "$directive_type" = "assignment" ] || continue
-                    # The unquoted expansion is the validated sysctl glob pattern.
-                    # shellcheck disable=SC2254
-                    case "$normalized_target" in
-                        $directive_name)
-                            glob_value="$directive_value"
-                            glob_source="$(display_path "$file"):$line_number"
-                            ;;
-                    esac
-                    ;;
-                "$normalized_target")
-                    explicit_type="$directive_type"
-                    explicit_value="$directive_value"
-                    explicit_source="$(display_path "$file"):$line_number"
-                    ;;
-            esac
-        done < <(awk '
+        display_source="$(display_path "$file")" || return 2
+        parsed_file="$(new_scratch_file "sysctl-${namespace}-parsed")" || return 2
+        awk '
             function trim(value) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); return value}
             function canonical(name, first_dot, first_slash, index_value, character, result) {
                 first_dot = index(name, ".")
@@ -1007,7 +1689,7 @@ sysctl_static_value() {
                     if (substr(raw, 1, 1) != "-") next
                     name=trim(substr(raw, 2))
                     if (name == "" || name ~ /[[:space:]]/) next
-                    print canonical(name) "\texclusion\t" FNR "\t"
+                    printf "%s%c%s%c%d%c%c", canonical(name), 0, "exclusion", 0, FNR, 0, 0
                     next
                 }
 
@@ -1015,25 +1697,215 @@ sysctl_static_value() {
                 sub(/^-/, "", name)
                 if (name == "" || name ~ /[[:space:]]/) next
                 value=trim(substr(raw,separator+1))
-                print canonical(name) "\tassignment\t" FNR "\t" value
+                printf "%s%c%s%c%d%c%s%c", canonical(name), 0, "assignment", 0, FNR, 0, value, 0
             }
-        ' "$read_path")
+        ' "$read_path" > "$parsed_file" || return 2
+        while IFS= read -r -d '' directive_name &&
+            IFS= read -r -d '' directive_type &&
+            IFS= read -r -d '' line_number &&
+            IFS= read -r -d '' directive_value; do
+            case "$directive_name" in
+                *'*'*|*'?'*|*'['*)
+                    [ "$directive_type" = "assignment" ] || continue
+                    printf '%s\0%s\0%s\0%s\0' "$directive_name" "$directive_value" \
+                        "$display_source" "$line_number" >> "$glob_file" || return 2
+                    ;;
+                *)
+                    sysctl_cache_key_into "$namespace" "$directive_name" cache_key || return 2
+                    SYSCTL_EXACT_TYPE["$cache_key"]="$directive_type"
+                    SYSCTL_EXACT_VALUE["$cache_key"]="$directive_value"
+                    SYSCTL_EXACT_SOURCE["$cache_key"]="$display_source:$line_number"
+                    ;;
+            esac
+        done < "$parsed_file"
     done <<EOF
 $files
 EOF
 
-    if [ "$explicit_type" = "assignment" ]; then
-        printf '%s\t%s\n' "$explicit_value" "$explicit_source"
-        return 0
+    SYSCTL_SNAPSHOT_STATUS["$namespace"]=0
+    return 0
+}
+
+sysctl_prepare_static_snapshot() {
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0) resolver_reset_epoch_caches ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    _sysctl_prepare_static_snapshot "${1:-filesystem}"
+}
+
+sysctl_prepare_filesystem_snapshot() {
+    sysctl_prepare_static_snapshot filesystem
+}
+
+sysctl_namespace_value_into() {
+    local namespace="$1"
+    local key="$2"
+    local destination_name="$3"
+    local previous_namespace="${SYSCTL_STATIC_NAMESPACE:-filesystem}"
+    local lookup_status=0
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|namespace|key|destination_name|previous_namespace|lookup_status)
+            return 2
+            ;;
+    esac
+    SYSCTL_STATIC_NAMESPACE="$namespace"
+    sysctl_static_value_into "$key" "$destination_name" || lookup_status=$?
+    SYSCTL_STATIC_NAMESPACE="$previous_namespace"
+    return "$lookup_status"
+}
+
+sysctl_static_value_into() {
+    local key="$1"
+    local destination_name="$2"
+    local namespace="${SYSCTL_STATIC_NAMESPACE:-filesystem}"
+    local normalized_target=""
+    local cache_key=""
+    local exact_type=""
+    local glob_file=""
+    local directive_name=""
+    local directive_value=""
+    local directive_source=""
+    local line_number=""
+    local result_value=""
+    local snapshot_status=0
+    local dependency_source=""
+    local resolver_id=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|key|destination_name|namespace|normalized_target|cache_key|exact_type|glob_file|directive_name|directive_value|directive_source|line_number|result_value|snapshot_status|dependency_source|resolver_id)
+            return 2
+            ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0) resolver_reset_epoch_caches ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    resolver_ensure_epoch_cache || return 2
+    sysctl_normalize_name_into "$key" normalized_target || return 2
+    sysctl_cache_key_into "$namespace" "$normalized_target" cache_key || return 2
+    resolver_id="sysctl:$namespace:$normalized_target"
+    if declare -F scan_dependency_register >/dev/null 2>&1; then
+        sysctl_query_dependency_source_into "$namespace" dependency_source || return 2
+        scan_dependency_register "$dependency_source" "$resolver_id" || return 2
     fi
-    [ -z "$explicit_type" ] || return 1
-    [ -n "$glob_source" ] || return 1
-    printf '%s\t%s\n' "$glob_value" "$glob_source"
+
+    if [ "${SYSCTL_QUERY_READY[$cache_key]+present}" = "present" ]; then
+        printf -v "$destination_name" '%s' "${SYSCTL_QUERY_VALUE[$cache_key]}"
+        return "${SYSCTL_QUERY_STATUS[$cache_key]}"
+    fi
+
+    _sysctl_prepare_static_snapshot "$namespace" || snapshot_status=$?
+    if [ "$snapshot_status" -ne 0 ]; then
+        SYSCTL_QUERY_READY["$cache_key"]=1
+        SYSCTL_QUERY_STATUS["$cache_key"]="$snapshot_status"
+        SYSCTL_QUERY_VALUE["$cache_key"]=""
+        sysctl_commit_query_result "$resolver_id" "$snapshot_status" "" || return 2
+        return "$snapshot_status"
+    fi
+
+    if [ "${SYSCTL_EXACT_TYPE[$cache_key]+present}" = "present" ]; then
+        exact_type="${SYSCTL_EXACT_TYPE[$cache_key]}"
+        if [ "$exact_type" = "assignment" ]; then
+            result_value="${SYSCTL_EXACT_VALUE[$cache_key]}"$'\t'"${SYSCTL_EXACT_SOURCE[$cache_key]}"
+            SYSCTL_QUERY_STATUS["$cache_key"]=0
+        else
+            SYSCTL_QUERY_STATUS["$cache_key"]=1
+        fi
+    else
+        glob_file="${SYSCTL_GLOB_FILE[$namespace]}"
+        while IFS= read -r -d '' directive_name &&
+            IFS= read -r -d '' directive_value &&
+            IFS= read -r -d '' directive_source &&
+            IFS= read -r -d '' line_number; do
+            # The unquoted expansion is the validated sysctl glob pattern.
+            # shellcheck disable=SC2254
+            case "$normalized_target" in
+                $directive_name) result_value="$directive_value"$'\t'"$directive_source:$line_number" ;;
+            esac
+        done < "$glob_file"
+        if [ -n "$result_value" ]; then
+            SYSCTL_QUERY_STATUS["$cache_key"]=0
+        else
+            SYSCTL_QUERY_STATUS["$cache_key"]=1
+        fi
+    fi
+
+    SYSCTL_QUERY_READY["$cache_key"]=1
+    SYSCTL_QUERY_VALUE["$cache_key"]="$result_value"
+    printf -v "$destination_name" '%s' "$result_value"
+    sysctl_commit_query_result "$resolver_id" "${SYSCTL_QUERY_STATUS[$cache_key]}" "$result_value" || return 2
+    return "${SYSCTL_QUERY_STATUS[$cache_key]}"
+}
+
+sysctl_static_value() {
+    local resolved_value=""
+
+    sysctl_static_value_into "$1" resolved_value || return $?
+    printf '%s\n' "$resolved_value"
+}
+
+sysctl_runtime_value_into() {
+    local key="$1"
+    local destination_name="$2"
+    local cache_key=""
+    local runtime_file=""
+    local runtime_value=""
+    local runtime_line=""
+    local runtime_separator=""
+    local runtime_status=0
+    local resolver_id=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|key|destination_name|cache_key|runtime_file|runtime_value|runtime_line|runtime_separator|runtime_status|resolver_id)
+            return 2
+            ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0) resolver_reset_epoch_caches ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    resolver_ensure_epoch_cache || return 2
+    sysctl_cache_key_into runtime "$key" cache_key || return 2
+    resolver_id="sysctl:runtime:$key"
+    if declare -F scan_dependency_register >/dev/null 2>&1; then
+        scan_dependency_register runtime:sysctl "$resolver_id" || return 2
+    fi
+    if [ "${SYSCTL_RUNTIME_READY[$cache_key]+present}" = "present" ]; then
+        printf -v "$destination_name" '%s' "${SYSCTL_RUNTIME_VALUE[$cache_key]}"
+        return "${SYSCTL_RUNTIME_STATUS[$cache_key]}"
+    fi
+
+    runtime_file="$(new_scratch_file sysctl-runtime)" || return 2
+    capture_command sysctl -n "$key" > "$runtime_file" 2>/dev/null || runtime_status=$?
+    if [ "$runtime_status" -eq 0 ]; then
+        while IFS= read -r runtime_line || [ -n "$runtime_line" ]; do
+            runtime_value+="$runtime_separator$runtime_line"
+            runtime_separator=$'\n'
+        done < "$runtime_file"
+        while [[ "$runtime_value" == *$'\n' ]]; do
+            runtime_value="${runtime_value%$'\n'}"
+        done
+    fi
+    SYSCTL_RUNTIME_READY["$cache_key"]=1
+    SYSCTL_RUNTIME_STATUS["$cache_key"]="$runtime_status"
+    SYSCTL_RUNTIME_VALUE["$cache_key"]="$runtime_value"
+    printf -v "$destination_name" '%s' "$runtime_value"
+    sysctl_commit_query_result "$resolver_id" "$runtime_status" "$runtime_value" || return 2
+    return "$runtime_status"
 }
 
 sysctl_runtime_value() {
-    local key="$1"
-    capture_command sysctl -n "$key" 2>/dev/null
+    local resolved_value=""
+
+    sysctl_runtime_value_into "$1" resolved_value || return $?
+    printf '%s\n' "$resolved_value"
 }
 
 sysctl_loader_kind() {
@@ -1047,10 +1919,15 @@ sysctl_loader_kind() {
     fi
 
     systemctl_path="$(trusted_command systemctl)" || return 2
-    properties="$($systemctl_path show systemd-sysctl.service \
-        -p LoadState -p ExecStart -p LoadCredential -p LoadCredentialEncrypted \
-        -p SetCredential -p SetCredentialEncrypted -p ImportCredential \
-        --no-pager 2>/dev/null)" || command_status=$?
+    if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
+        systemd_epoch_properties_into systemd-sysctl.service properties || return 2
+        command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
+    else
+        properties="$($systemctl_path show systemd-sysctl.service \
+            -p LoadState -p ExecStart -p LoadCredential -p LoadCredentialEncrypted \
+            -p SetCredential -p SetCredentialEncrypted -p ImportCredential \
+            --no-pager 2>/dev/null)" || command_status=$?
+    fi
     [ "$command_status" -eq 0 ] || return 2
     if printf '%s\n' "$properties" | awk -F= '
         $1 ~ /^(LoadCredential|LoadCredentialEncrypted)$/ && length($2) > 0 && $2 != "sysctl.extra" {found=1}
@@ -1189,6 +2066,7 @@ ufw_sysctl_value() (
     local key="$1"
     local configuration_file=""
 
+    SYSCTL_STATIC_NAMESPACE="ufw"
     ufw_effective_state || return $?
     configuration_file="$(ufw_sysctl_configuration_file)" || return $?
     sysctl_static_files() {
@@ -1220,10 +2098,10 @@ sysctl_explain() {
 
     loader="$(sysctl_loader_kind 2>/dev/null)" || loader_status=$?
     [ "$loader_status" -eq 0 ] || loader="unresolved"
-    filesystem_persistent="$(sysctl_static_value "$key" 2>/dev/null)" || persistent_status=$?
+    sysctl_static_value_into "$key" filesystem_persistent 2>/dev/null || persistent_status=$?
     persistent="$filesystem_persistent"
     if runtime_enabled; then
-        runtime="$(sysctl_runtime_value "$key" 2>/dev/null)" || runtime_status=$?
+        sysctl_runtime_value_into "$key" runtime 2>/dev/null || runtime_status=$?
         if [ "$loader" = "systemd-sysctl" ]; then
             if sysctl_credential_override_present; then
                 credential_override="present"
@@ -1312,21 +2190,353 @@ sysctl_explain() {
     return 0
 }
 
+systemd_reset_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH_ID:-0}"
+
+    case "$current_epoch" in ''|*[!0-9]*) current_epoch=0 ;; esac
+    SYSTEMD_CACHE_RESET_SEQUENCE=$((SYSTEMD_CACHE_RESET_SEQUENCE + 1))
+    SYSTEMD_CACHE_EPOCH="$current_epoch"
+    SYSTEMD_CACHE_SCRATCH_DIR="${SCRATCH_DIR:-}"
+    SYSTEMD_CACHE_NAMESPACE="${current_epoch}-${SYSTEMD_CACHE_RESET_SEQUENCE}"
+    SYSTEMD_CACHE_FACTS=""
+    SYSTEMD_CACHE_COMMAND_STATUS=2
+    SYSTEMD_BULK_STATUS=2
+    SYSTEMD_PROPERTIES_COMMAND_STATUS=2
+}
+
+systemd_ensure_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH_ID:-0}"
+
+    case "$current_epoch" in ''|*[!0-9]*) return 2 ;; esac
+    if [ "$SYSTEMD_CACHE_EPOCH" != "$current_epoch" ] ||
+        [ "$SYSTEMD_CACHE_SCRATCH_DIR" != "${SCRATCH_DIR:-}" ] ||
+        [ -z "$SYSTEMD_CACHE_NAMESPACE" ]; then
+        systemd_reset_epoch_cache
+    fi
+    [ -n "${SCRATCH_DIR:-}" ] && [ -d "$SCRATCH_DIR" ] && [ ! -L "$SCRATCH_DIR" ]
+}
+
+systemd_unit_name_is_valid() {
+    local unit="$1"
+
+    case "$unit" in
+        ''|-*|*[!A-Za-z0-9_.@:-]*) return 1 ;;
+        *.service|*.socket) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+systemd_fact_value_into() {
+    local facts="$1"
+    local property_name="$2"
+    local destination_name="$3"
+    local line=""
+
+    case "$property_name" in ''|*[!A-Za-z0-9]*) return 2 ;; esac
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|facts|property_name|destination_name|line) return 2 ;;
+    esac
+    printf -v "$destination_name" '%s' ""
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "$property_name="*)
+                printf -v "$destination_name" '%s' "${line#*=}"
+                return 0
+                ;;
+        esac
+    done <<< "$facts"
+    return 1
+}
+
+systemd_commit_cached_unit() {
+    local unit="$1"
+    local commit_status=0
+
+    declare -F scan_resolver_commit >/dev/null 2>&1 || return 0
+    [ "${SCAN_INCREMENTAL_REEVALUATION_ACTIVE:-0}" -eq 1 ] || return 0
+    scan_resolver_commit "systemd-unit:$unit" \
+        "command_status=${SYSTEMD_CACHE_COMMAND_STATUS}"$'\n'"${SYSTEMD_CACHE_FACTS}" || commit_status=$?
+    case "$commit_status" in 0|1) return 0 ;; *) return 2 ;; esac
+}
+
+systemd_cache_read_status() {
+    local status_file="$1"
+    local status_value=""
+
+    [ -f "$status_file" ] && [ ! -L "$status_file" ] || return 2
+    IFS= read -r status_value < "$status_file" || return 2
+    case "$status_value" in ''|*[!0-9]*) return 2 ;; esac
+    [ "$status_value" -le 255 ] || return 2
+    SYSTEMD_CACHE_COMMAND_STATUS="$status_value"
+}
+
+systemd_cache_write_status() {
+    local status_file="$1"
+    local status_value="$2"
+    local temp_file=""
+
+    case "$status_value" in ''|*[!0-9]*) return 2 ;; esac
+    [ "$status_value" -le 255 ] || return 2
+    temp_file="$(new_scratch_file systemd-status)" || return 2
+    printf '%s\n' "$status_value" > "$temp_file" || return 2
+    chmod 0600 "$temp_file" || return 2
+    mv -f -- "$temp_file" "$status_file" || return 2
+}
+
+systemd_cache_install_facts() {
+    local source_file="$1"
+    local facts_file="$2"
+
+    [ -f "$source_file" ] && [ ! -L "$source_file" ] || return 2
+    chmod 0600 "$source_file" || return 2
+    mv -f -- "$source_file" "$facts_file" || return 2
+}
+
+systemd_show_one_unit() {
+    local systemctl_path="$1"
+    local unit="$2"
+
+    "$systemctl_path" show "$unit" \
+        -p Id -p Names -p LoadState -p ActiveState -p SubState -p UnitFileState \
+        -p FragmentPath -p DropInPaths -p Triggers -p TriggeredBy \
+        -p MainPID -p ExecStart -p Environment -p EnvironmentFiles \
+        -p LoadCredential -p LoadCredentialEncrypted -p SetCredential \
+        -p SetCredentialEncrypted -p ImportCredential --no-pager
+}
+
+systemd_prepare_bulk_cache() {
+    local bulk_file=""
+    local bulk_status_file=""
+    local alias_file=""
+    local temp_file=""
+    local alias_temp_file=""
+    local systemctl_path=""
+    local command_status=0
+
+    systemd_ensure_epoch_cache || return 2
+    bulk_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.facts"
+    bulk_status_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.status"
+    alias_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.aliases"
+
+    if [ -f "$bulk_status_file" ] && [ ! -L "$bulk_status_file" ]; then
+        systemd_cache_read_status "$bulk_status_file" || return 2
+        SYSTEMD_BULK_STATUS="$SYSTEMD_CACHE_COMMAND_STATUS"
+        return 0
+    fi
+    [ ! -e "$bulk_file" ] && [ ! -L "$bulk_file" ] || return 2
+    [ ! -e "$bulk_status_file" ] && [ ! -L "$bulk_status_file" ] || return 2
+    [ ! -e "$alias_file" ] && [ ! -L "$alias_file" ] || return 2
+
+    temp_file="$(new_scratch_file systemd-bulk)" || return 2
+    systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
+    if [ -z "$systemctl_path" ]; then
+        command_status=2
+        : > "$temp_file" || return 2
+    else
+        "$systemctl_path" show --all --type=service --type=socket \
+            -p Id -p Names -p LoadState -p ActiveState -p SubState -p UnitFileState \
+            -p FragmentPath -p DropInPaths -p Triggers -p TriggeredBy \
+            -p MainPID -p ExecStart -p Environment -p EnvironmentFiles \
+            -p LoadCredential -p LoadCredentialEncrypted -p SetCredential \
+            -p SetCredentialEncrypted -p ImportCredential --no-pager \
+            > "$temp_file" 2>/dev/null || command_status=$?
+    fi
+
+    if [ "$command_status" -eq 0 ] && ! grep -Eq '^Id=[A-Za-z0-9_.@:-]+\.(service|socket)$' "$temp_file"; then
+        # Some systemctl versions do not support an unqualified typed show query.
+        command_status=2
+    fi
+
+    alias_temp_file="$(new_scratch_file systemd-aliases)" || return 2
+    if [ "$command_status" -eq 0 ]; then
+        awk '
+            function valid(value) {
+                return value ~ /^[A-Za-z0-9_.@:-]+\.(service|socket)$/
+            }
+            function flush(    count,index_value,name) {
+                if (!valid(identifier)) {identifier=""; names=""; return}
+                print identifier "\t" identifier
+                count=split(names, name_values, /[[:space:]]+/)
+                for (index_value=1; index_value<=count; index_value++) {
+                    name=name_values[index_value]
+                    if (valid(name)) print name "\t" identifier
+                }
+                identifier=""
+                names=""
+            }
+            /^Id=/ {
+                if (identifier != "") flush()
+                identifier=substr($0, 4)
+                next
+            }
+            /^Names=/ {names=substr($0, 7); next}
+            /^[[:space:]]*$/ {flush()}
+            END {flush()}
+        ' "$temp_file" | LC_ALL=C sort -u > "$alias_temp_file" || return 2
+    else
+        : > "$alias_temp_file" || return 2
+    fi
+
+    systemd_cache_install_facts "$temp_file" "$bulk_file" || return 2
+    systemd_cache_install_facts "$alias_temp_file" "$alias_file" || return 2
+    systemd_cache_write_status "$bulk_status_file" "$command_status" || return 2
+    SYSTEMD_BULK_STATUS="$command_status"
+}
+
+systemd_bulk_identifier_for_unit() {
+    local unit="$1"
+    local alias_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.aliases"
+    local identifier=""
+    local match_count=0
+    local result=""
+
+    [ -f "$alias_file" ] && [ ! -L "$alias_file" ] || return 1
+    result="$(awk -F '\t' -v unit="$unit" '
+        $1 == unit && !seen[$2]++ {count++; value=$2}
+        END {
+            if (count == 1) print value
+            else if (count > 1) exit 2
+            else exit 1
+        }
+    ' "$alias_file")"
+    match_count=$?
+    [ "$match_count" -eq 0 ] || return "$match_count"
+    identifier="$result"
+    systemd_unit_name_is_valid "$identifier" || return 2
+    printf '%s\n' "$identifier"
+}
+
+systemd_extract_bulk_record() {
+    local identifier="$1"
+    local destination_file="$2"
+    local bulk_file="$SCRATCH_DIR/.systemd-bulk-${SYSTEMD_CACHE_NAMESPACE}.facts"
+
+    [ -f "$bulk_file" ] && [ ! -L "$bulk_file" ] || return 2
+    awk -v RS='' -v identifier="$identifier" '
+        {
+            count=split($0, lines, /\n/)
+            matched=0
+            for (index_value=1; index_value<=count; index_value++) {
+                if (lines[index_value] == "Id=" identifier) matched=1
+            }
+            if (matched) {
+                print $0
+                found++
+            }
+        }
+        END {exit(found == 1 ? 0 : 1)}
+    ' "$bulk_file" > "$destination_file"
+}
+
+systemd_cached_unit_facts() {
+    local unit="$1"
+    local facts_file=""
+    local status_file=""
+    local temp_file=""
+    local identifier=""
+    local identifier_status=0
+    local systemctl_path=""
+    local command_status=0
+
+    SYSTEMD_CACHE_FACTS=""
+    SYSTEMD_CACHE_COMMAND_STATUS=2
+    systemd_unit_name_is_valid "$unit" || return 2
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0)
+            systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
+            [ -n "$systemctl_path" ] || return 2
+            temp_file="$(new_scratch_file systemd-uncached)" || return 2
+            systemd_show_one_unit "$systemctl_path" "$unit" > "$temp_file" 2>/dev/null || command_status=$?
+            SYSTEMD_CACHE_COMMAND_STATUS="$command_status"
+            SYSTEMD_CACHE_FACTS="$(< "$temp_file")"
+            return 0
+            ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    systemd_ensure_epoch_cache || return 2
+    if declare -F scan_dependency_register >/dev/null 2>&1; then
+        scan_dependency_register runtime:systemd "systemd-unit:$unit" || return 2
+    fi
+
+    facts_file="$SCRATCH_DIR/.systemd-unit-${SYSTEMD_CACHE_NAMESPACE}-${unit}.facts"
+    status_file="$SCRATCH_DIR/.systemd-unit-${SYSTEMD_CACHE_NAMESPACE}-${unit}.status"
+    if [ -f "$status_file" ] && [ ! -L "$status_file" ]; then
+        [ -f "$facts_file" ] && [ ! -L "$facts_file" ] || return 2
+        systemd_cache_read_status "$status_file" || return 2
+        SYSTEMD_CACHE_FACTS="$(< "$facts_file")"
+        systemd_commit_cached_unit "$unit" || return 2
+        return 0
+    fi
+    [ ! -e "$facts_file" ] && [ ! -L "$facts_file" ] || return 2
+    [ ! -e "$status_file" ] && [ ! -L "$status_file" ] || return 2
+
+    systemd_prepare_bulk_cache || return 2
+    temp_file="$(new_scratch_file systemd-unit)" || return 2
+    if [ "$SYSTEMD_BULK_STATUS" -eq 0 ]; then
+        identifier="$(systemd_bulk_identifier_for_unit "$unit")" || identifier_status=$?
+        if [ "$identifier_status" -eq 0 ] && systemd_extract_bulk_record "$identifier" "$temp_file"; then
+            command_status=0
+        else
+            identifier_status=1
+        fi
+    else
+        identifier_status=1
+    fi
+
+    if [ "$identifier_status" -ne 0 ]; then
+        : > "$temp_file" || return 2
+        systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
+        if [ -z "$systemctl_path" ]; then
+            command_status=2
+        else
+            systemd_show_one_unit "$systemctl_path" "$unit" > "$temp_file" 2>/dev/null || command_status=$?
+        fi
+    fi
+
+    systemd_cache_install_facts "$temp_file" "$facts_file" || return 2
+    systemd_cache_write_status "$status_file" "$command_status" || return 2
+    SYSTEMD_CACHE_COMMAND_STATUS="$command_status"
+    SYSTEMD_CACHE_FACTS="$(< "$facts_file")"
+    systemd_commit_cached_unit "$unit" || return 2
+}
+
+systemd_epoch_properties_into() {
+    local unit="$1"
+    local destination_name="$2"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|unit|destination_name) return 2 ;;
+    esac
+    [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ] || return 2
+    systemd_cached_unit_facts "$unit" || return 2
+    SYSTEMD_PROPERTIES_COMMAND_STATUS="$SYSTEMD_CACHE_COMMAND_STATUS"
+    printf -v "$destination_name" '%s' "$SYSTEMD_CACHE_FACTS"
+}
+
 service_state() {
     local unit=""
-    local systemctl_path=""
     local state=""
     local load_state=""
     local active_state=""
     local command_status=0
     local saw_unit=0
 
-    systemctl_path="$(trusted_command systemctl)" || return 2
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_service_state >/dev/null 2>&1; then
+        evidence_service_state "$@"
+        return $?
+    fi
+    if [ "$#" -eq 0 ]; then
+        trusted_command systemctl >/dev/null 2>&1 || return 2
+        return 3
+    fi
 
     for unit in "$@"; do
-        state="$($systemctl_path show "$unit" -p LoadState -p ActiveState --no-pager 2>/dev/null)" || command_status=$?
-        load_state="$(printf '%s\n' "$state" | awk -F= '$1 == "LoadState" {print $2; exit}')"
-        active_state="$(printf '%s\n' "$state" | awk -F= '$1 == "ActiveState" {print $2; exit}')"
+        systemd_cached_unit_facts "$unit" || return 2
+        state="$SYSTEMD_CACHE_FACTS"
+        command_status="$SYSTEMD_CACHE_COMMAND_STATUS"
+        systemd_fact_value_into "$state" LoadState load_state || load_state=""
+        systemd_fact_value_into "$state" ActiveState active_state || active_state=""
         if [ "$command_status" -ne 0 ] && [ "$load_state" != "not-found" ]; then
             return 2
         fi
@@ -1343,16 +2553,124 @@ service_state() {
 
 service_facts() {
     local unit=""
-    local systemctl_path=""
     local output=""
+    local output_line=""
 
-    systemctl_path="$(trusted_command systemctl)" || return 2
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+        [ "${EVIDENCE_RUNTIME_SYSTEMD_UNITS_STATUS:-}" = "collected" ] || return 2
+        for unit in "$@"; do
+            awk -F '\t' -v unit="$unit" 'NR > 1 && $1 == unit {
+                printf "unit=%s LoadState=%s ActiveState=%s SubState=%s UnitFileState=%s\n", $1, $2, $3, $4, $5
+            }' "$EVIDENCE_RUNTIME_SYSTEMD_UNITS_PATH"
+        done
+        return 0
+    fi
+    if [ "$#" -eq 0 ]; then
+        trusted_command systemctl >/dev/null 2>&1 || return 2
+        return 0
+    fi
+
     for unit in "$@"; do
-        output="$($systemctl_path show "$unit" \
-            -p Names -p LoadState -p ActiveState -p SubState -p UnitFileState \
-            -p FragmentPath -p DropInPaths -p Triggers -p TriggeredBy --no-pager 2>/dev/null)" || return 2
-        printf '%s\n' "$output" | sed "s/^/unit=${unit} /"
+        systemd_cached_unit_facts "$unit" || return 2
+        [ "$SYSTEMD_CACHE_COMMAND_STATUS" -eq 0 ] || return 2
+        output="$SYSTEMD_CACHE_FACTS"
+        while IFS= read -r output_line || [ -n "$output_line" ]; do
+            case "$output_line" in Id=*) continue ;; esac
+            printf 'unit=%s %s\n' "$unit" "$output_line"
+        done <<< "$output"
     done
+}
+
+listener_reset_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH_ID:-0}"
+
+    case "$current_epoch" in ''|*[!0-9]*) current_epoch=0 ;; esac
+    LISTENER_CACHE_RESET_SEQUENCE=$((LISTENER_CACHE_RESET_SEQUENCE + 1))
+    LISTENER_CACHE_EPOCH="$current_epoch"
+    LISTENER_CACHE_SCRATCH_DIR="${SCRATCH_DIR:-}"
+    LISTENER_CACHE_NAMESPACE="${current_epoch}-${LISTENER_CACHE_RESET_SEQUENCE}"
+    LISTENER_CACHE_COMMAND_STATUS=2
+    LISTENER_CACHE_FACTS_FILE=""
+}
+
+listener_ensure_epoch_cache() {
+    local current_epoch="${SCAN_EPOCH_ID:-0}"
+
+    case "$current_epoch" in ''|*[!0-9]*) return 2 ;; esac
+    if [ "$LISTENER_CACHE_EPOCH" != "$current_epoch" ] ||
+        [ "$LISTENER_CACHE_SCRATCH_DIR" != "${SCRATCH_DIR:-}" ] ||
+        [ -z "$LISTENER_CACHE_NAMESPACE" ]; then
+        listener_reset_epoch_cache
+    fi
+    [ -n "${SCRATCH_DIR:-}" ] && [ -d "$SCRATCH_DIR" ] && [ ! -L "$SCRATCH_DIR" ]
+}
+
+listener_commit_epoch_snapshot() {
+    local normalized_output="status=${LISTENER_CACHE_COMMAND_STATUS}"
+    local commit_status=0
+
+    declare -F scan_resolver_commit >/dev/null 2>&1 || return 0
+    [ "${SCAN_INCREMENTAL_REEVALUATION_ACTIVE:-0}" -eq 1 ] || return 0
+    if [ -n "$LISTENER_CACHE_FACTS_FILE" ] && [ -f "$LISTENER_CACHE_FACTS_FILE" ] &&
+        [ ! -L "$LISTENER_CACHE_FACTS_FILE" ]; then
+        normalized_output+=$'\n'"$(< "$LISTENER_CACHE_FACTS_FILE")"
+    fi
+    scan_resolver_commit listener:snapshot "$normalized_output" || commit_status=$?
+    case "$commit_status" in 0|1) return 0 ;; *) return 2 ;; esac
+}
+
+listener_prepare_epoch_snapshot() {
+    local snapshot_file=""
+    local status_file=""
+    local temp_file=""
+    local command_status=0
+
+    listener_ensure_epoch_cache || return 2
+    snapshot_file="$SCRATCH_DIR/.listener-snapshot-mixed-${LISTENER_CACHE_NAMESPACE}"
+    status_file="${snapshot_file}.status"
+    LISTENER_CACHE_FACTS_FILE="$snapshot_file"
+
+    if [ -f "$status_file" ] && [ ! -L "$status_file" ]; then
+        [ -f "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
+        IFS= read -r command_status < "$status_file" || return 2
+        case "$command_status" in ''|*[!0-9]*) return 2 ;; esac
+        [ "$command_status" -le 255 ] || return 2
+        LISTENER_CACHE_COMMAND_STATUS="$command_status"
+        listener_commit_epoch_snapshot || return 2
+        return 0
+    fi
+    [ ! -e "$snapshot_file" ] && [ ! -L "$snapshot_file" ] || return 2
+    [ ! -e "$status_file" ] && [ ! -L "$status_file" ] || return 2
+
+    temp_file="$(new_scratch_file listener-mixed)" || return 2
+    capture_command ss -H -lntup > "$temp_file" 2>/dev/null || command_status=$?
+    systemd_cache_install_facts "$temp_file" "$snapshot_file" || return 2
+    systemd_cache_write_status "$status_file" "$command_status" || return 2
+    LISTENER_CACHE_COMMAND_STATUS="$command_status"
+    listener_commit_epoch_snapshot || return 2
+}
+
+listener_epoch_facts_for_port() {
+    local port="$1"
+    local transport="$2"
+
+    listener_prepare_epoch_snapshot || return 2
+    [ "$LISTENER_CACHE_COMMAND_STATUS" -eq 0 ] || return "$LISTENER_CACHE_COMMAND_STATUS"
+    case "$transport" in
+        any)
+            awk -v port=":$port" '$5 ~ port "$" {print}' "$LISTENER_CACHE_FACTS_FILE"
+            ;;
+        tcp|udp)
+            awk -v transport="$transport" -v port=":$port" '
+                $1 == transport && $5 ~ port "$" {
+                    $1=""
+                    sub(/^[[:space:]]+/, "")
+                    print
+                }
+            ' "$LISTENER_CACHE_FACTS_FILE"
+            ;;
+        *) return 2 ;;
+    esac
 }
 
 port_listener_facts() {
@@ -1378,6 +2696,46 @@ port_listener_facts() {
         any)
             ss_arguments=(-H -lntup)
             local_endpoint_field=5
+            ;;
+        *) return 2 ;;
+    esac
+
+    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_listener_facts >/dev/null 2>&1; then
+        local row_transport=""
+        local local_address=""
+        local row_port=""
+        local process_name=""
+        local endpoint=""
+        local process_field=""
+
+        [ "${EVIDENCE_RUNTIME_LISTENERS_STATUS:-}" = "collected" ] || return 2
+        while IFS=$'\t' read -r row_transport local_address row_port process_name; do
+            [ -n "$row_transport" ] || continue
+            case "$local_address" in
+                *:*) endpoint="[${local_address}]:${row_port}" ;;
+                *) endpoint="${local_address}:${row_port}" ;;
+            esac
+            process_field=""
+            [ -z "$process_name" ] || process_field="users:((\"${process_name}\"))"
+            if [ "$transport" = "any" ]; then
+                printf '%s LISTEN 0 0 %s * %s\n' "$row_transport" "$endpoint" "$process_field"
+            else
+                printf 'LISTEN 0 0 %s * %s\n' "$endpoint" "$process_field"
+            fi
+        done < <(evidence_listener_facts "$transport" "$port")
+        return 0
+    fi
+
+    case "${SCAN_EPOCH_ACTIVE:-0}" in
+        0) ;;
+        1)
+            case "$port" in ''|*[!0-9]*) return 2 ;; esac
+            [ "$port" -le 65535 ] || return 2
+            if declare -F scan_dependency_register >/dev/null 2>&1; then
+                scan_dependency_register runtime:listeners listener:snapshot || return 2
+            fi
+            listener_epoch_facts_for_port "$port" "$transport"
+            return $?
             ;;
         *) return 2 ;;
     esac
