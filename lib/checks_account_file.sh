@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 # shellcheck shell=bash
 
 # Account and file-system checks cover U-01 through U-33.

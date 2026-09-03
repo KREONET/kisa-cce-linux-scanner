@@ -1,10 +1,18 @@
-KISA CCE Linux Scanner is licensed under the GNU Lesser General Public
-License, version 3 or any later version (SPDX: LGPL-3.0-or-later).
+KISA CCE Linux Scanner is dual-licensed. You may use, modify, and redistribute
+the original project code and documentation under either of these licenses, at
+your option:
+
+- GNU Lesser General Public License, version 3 or any later version; or
+- BSD 3-Clause License.
+
+SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 
 Copyright (c) 2026 Euiseo Cha <escha@zeroday0619.dev>
 
 The complete LGPLv3 terms are in LICENSES/LGPL-3.0-or-later.txt. LGPLv3
 incorporates GPLv3; the corresponding GPLv3 terms are in
 LICENSES/GPL-3.0-or-later.txt.
+
+The complete BSD 3-Clause terms are in LICENSES/BSD-3-Clause.txt.
 
 Third-party source material and criterion references are identified in NOTICE.

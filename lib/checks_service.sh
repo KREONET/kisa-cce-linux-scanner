@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 # shellcheck shell=bash
 
 # Service checks cover U-34 through U-63 for supported platform families.

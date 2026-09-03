@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 
 # shellcheck disable=SC1091,SC2016,SC2030,SC2031,SC2034,SC2329
 

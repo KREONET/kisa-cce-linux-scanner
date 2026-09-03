@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 # shellcheck disable=SC1091,SC2034
 
 # Verifies run-scoped PAM parsing and expansion cache semantics.

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 
 PACKAGE_NAME = kisa-cce-linux-scanner
 

@@ -7,13 +7,22 @@ bin/                    Public launcher.
 data/                   Version and ordered criterion catalog.
 docs/                   Operator, design, security, development, and packaging documentation.
 lib/                    Private main file, shared helpers, resolvers, and check modules.
-LICENSES/               LGPLv3 and incorporated GPLv3 license texts.
+LICENSES/               LGPLv3, incorporated GPLv3, and BSD 3-Clause license texts.
 man/                    Installed section 8 command manual source.
 tests/                  Generated-fixture regression suite.
 Makefile                Validation and installation interface.
 ```
 
 The project has no generated source code and no production build dependency. Packaging copies the launcher, private shell files, runtime data, and section 8 manual into a staged filesystem. Repository Markdown is not installed by `make install`.
+
+## Contribution licensing
+
+Unless explicitly stated otherwise before submission, contributions intended
+for inclusion in this project must be provided under
+`LGPL-3.0-or-later OR BSD-3-Clause`. Contributors must have the right to submit
+the work under both licenses. KISA CCE GUIDE material and other third-party
+content remain subject to their original terms and are not relicensed by this
+policy.
 
 ## Local validation
 

@@ -126,4 +126,14 @@ The local suite verifies detection and classification for every platform row, fa
 
 ## License
 
-Original project code and documentation are licensed under [`LGPL-3.0-or-later`](LICENSE). The complete LGPLv3 and GPLv3 terms are stored under `LICENSES/`. KISA guide-derived identifiers and references are described separately in [NOTICE](NOTICE).
+Unless otherwise noted, the original source code and documentation in this
+repository are dual-licensed under
+[`LGPL-3.0-or-later OR BSD-3-Clause`](LICENSE). Recipients may choose either
+license. The complete license texts are available in
+[LGPL-3.0-or-later.txt](LICENSES/LGPL-3.0-or-later.txt),
+[GPL-3.0-or-later.txt](LICENSES/GPL-3.0-or-later.txt), and
+[BSD-3-Clause.txt](LICENSES/BSD-3-Clause.txt).
+
+Materials derived from or referring to the KISA CCE GUIDE, including criterion
+identifiers, Korean titles, and source links, remain subject to their original
+terms. See [NOTICE](NOTICE) for attribution and third-party rights information.
