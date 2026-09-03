@@ -16,13 +16,6 @@ groups:
 See the dated [platform support matrix](docs/platform-support.md) for the exact
 supported releases, lifecycle scope, and exclusions.
 
-The scanner collects and evaluates persistent configuration, effective
-configuration, and runtime state without applying remediation. It writes only
-protected reports and temporary workspace files. It does not modify security
-settings, reload services, update package metadata, or initiate an explicit
-network fetch. A live U-15 scan uses the host's configured NSS and may therefore
-consult an external identity backend.
-
 ## Key properties
 
 - Resolves subsystem-specific effective configuration instead of grepping one legacy file.
