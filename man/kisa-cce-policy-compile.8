@@ -52,20 +52,32 @@ The document must begin with the schema declaration and an attestation list:
 .EX
 schema_version: 1
 attestations:
-  - code: U-64
+  - code: U-07
     decision: GOOD
     review_id: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-    ticket: SEC-2026-0142
-    approver: security-governance
+    ticket: IAM-2026-0142
+    approver: identity-governance
     expires: 2026-12-31
 .EE
 .PP
 .B attestations
 is required and may be the explicit empty list
 .BR [] .
+Attestation review IDs must come from a current policy-class audit result.
+Current audits use review-basis schema 2, which binds the resolution class in
+addition to the complete redacted result basis. Review schema 1 IDs do not
+match current results.
 The optional
 .B time_sources
 list uses provider, host, address, ticket, approver, and expires fields.
+Supported provider values are
+.BR chrony ,
+.BR ntpd-rs ,
+.BR ntpsec ,
+and
+.BR systemd-timesyncd .
+The ntpd-rs value approves a selected installation; it does not change the
+Ubuntu 26.04 default from Chrony.
 Omitting it leaves the typed fact set absent.  Writing
 .B "time_sources: []"
 creates an explicit empty approved-source set and is therefore a policy

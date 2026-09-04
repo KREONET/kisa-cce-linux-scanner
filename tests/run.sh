@@ -246,11 +246,13 @@ test_shell_syntax() (
 test_manpage_contract() (
     local manpage="$PROJECT_DIR/man/kisa-cce-scan.8"
     local collector_manpage="$PROJECT_DIR/man/kisa-cce-collect.8"
+    local patcher_manpage="$PROJECT_DIR/man/kisa-cce-patch.8"
     local compiler_manpage="$PROJECT_DIR/man/kisa-cce-policy-compile.8"
     local option=""
 
     [ -r "$manpage" ] || fail "manual page is missing"
     [ -r "$collector_manpage" ] || fail "collector manual page is missing"
+    [ -r "$patcher_manpage" ] || fail "patcher manual page is missing"
     [ -r "$compiler_manpage" ] || fail "policy compiler manual page is missing"
     for option in \
         '\-\-root' \
@@ -274,12 +276,24 @@ test_manpage_contract() (
     grep -Fq -- '\-\-evidence-bundle' "$manpage" || fail "manual page is missing evidence bundle option"
     grep -Fq -- '\-\-policy-dir' "$manpage" || fail "manual page is missing policy directory option"
     grep -Fq -- '\-\-output-dir' "$collector_manpage" || fail "collector manual page is missing output option"
+    for option in \
+        '\-\-root' \
+        '\-\-output-dir' \
+        '\-\-checks' \
+        '\-\-apply' \
+        '\-\-automatic' \
+        '\-\-rollback' \
+        '\-\-help' \
+        '\-\-version'; do
+        grep -Fq -- "$option" "$patcher_manpage" || fail "patcher manual page is missing option: $option"
+    done
     grep -Fq -- '\-\-input' "$compiler_manpage" || fail "policy compiler manual page is missing input option"
     grep -Fq -- '\-\-output-dir' "$compiler_manpage" || fail "policy compiler manual page is missing output option"
 
     if command -v mandoc >/dev/null 2>&1; then
         mandoc -T lint "$manpage" >/dev/null || fail "manual page lint failed"
         mandoc -T lint "$collector_manpage" >/dev/null || fail "collector manual page lint failed"
+        mandoc -T lint "$patcher_manpage" >/dev/null || fail "patcher manual page lint failed"
         mandoc -T lint "$compiler_manpage" >/dev/null || fail "policy compiler manual page lint failed"
     fi
 )
@@ -372,7 +386,7 @@ test_policy_and_evidence_contracts() (
     COUNT_GOOD=0
     COUNT_TOTAL=0
     COUNT_POLICY_RESOLVED=0
-    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete"
+    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete" true policy
     record_result U-64 patch high "주기적 보안 패치 및 벤더 권고사항 적용" || fail "audit manual result failed"
     review_id="$RESULT_REVIEW_ID"
     case "$review_id" in sha256:[0-9a-f][0-9a-f]*) ;; *) fail "audit review ID was not generated" ;; esac
@@ -400,7 +414,7 @@ test_policy_and_evidence_contracts() (
     COUNT_GOOD=0
     COUNT_TOTAL=0
     COUNT_POLICY_RESOLVED=0
-    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete"
+    set_result MANUAL "조직 정책 확인이 필요합니다." "policy_probe=complete" true policy
     record_result U-64 patch high "주기적 보안 패치 및 벤더 권고사항 적용" || fail "complete attestation result failed"
     assert_equal GOOD "$RESULT_STATUS" "matching attestation final decision"
     assert_equal MANUAL "$RESULT_TECHNICAL_STATUS" "matching attestation technical decision"
@@ -410,7 +424,7 @@ test_policy_and_evidence_contracts() (
     assert_file_contains "$complete_json" '"attestation_ticket":"SEC-TEST-64"' "complete policy ticket"
     assert_file_contains "$complete_markdown" '| 최종 판정 | `GOOD` |' "complete Markdown decision"
 
-    set_result MANUAL "다른 정책 확인이 필요합니다." "policy_probe=missing"
+    set_result MANUAL "다른 정책 확인이 필요합니다." "policy_probe=missing" true policy
     record_result U-65 log medium "NTP 및 시각 동기화 설정" || fail "missing attestation result failed"
     assert_equal ERROR "$RESULT_STATUS" "missing attestation becomes error"
     assert_equal MANUAL "$RESULT_TECHNICAL_STATUS" "missing attestation technical status"
@@ -684,7 +698,7 @@ test_pam_facility_scoping_and_platform_capabilities() (
     sed -i 's/sha512/yescrypt/' "$root/etc/pam.d/system-auth"
     sed -i 's/ENCRYPT_METHOD SHA512/ENCRYPT_METHOD YESCRYPT/' "$root/etc/login.defs"
     check_u_13
-    assert_equal MANUAL "$RESULT_STATUS" "RHEL 10 unlisted yescrypt algorithm"
+    assert_equal GOOD "$RESULT_STATUS" "RHEL 10 yescrypt algorithm"
     sed -i 's/yescrypt/md5/' "$root/etc/pam.d/system-auth"
     check_u_13
     assert_equal VULNERABLE "$RESULT_STATUS" "weak PAM hash override"
@@ -1213,7 +1227,7 @@ test_result_normalization_differential() (
         legacy_json_escape_into "$normalized_title" escaped_title
         legacy_json_escape_into "$normalized_summary" escaped_summary
         legacy_json_escape_into "$normalized_evidence" escaped_evidence
-        printf '{"code":"U-61","category":"service","severity":"high","title":"%s","status":"GOOD","technical_status":"GOOD","decision_basis":"technical","review_id":"","attestation_ticket":"","attestation_approver":"","attestation_expires":"","applicable":true,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
+        printf '{"code":"U-61","category":"service","severity":"high","title":"%s","status":"GOOD","technical_status":"GOOD","decision_basis":"technical","review_id":"","attestation_ticket":"","attestation_approver":"","attestation_expires":"","applicable":true,"summary":"%s","evidence":"%s","resolution_class":"technical","remediation_eligible":false,"remediation_rule_id":"","criterion_url":"%s"}\n' \
             "$escaped_title" "$escaped_summary" "$escaped_evidence" "$criterion_url" > "$expected_json"
     }
 
@@ -2682,10 +2696,42 @@ test_installed_layouts() (
             "$layout_name installed command mode"
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-collect")" \
             "$layout_name installed collector mode"
+        assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-patch")" \
+            "$layout_name installed patcher mode"
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-policy-compile")" \
             "$layout_name installed policy compiler mode"
         assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-cli/_scan-main.sh")" \
             "$layout_name private main mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-cli/_patch-main.sh")" \
+            "$layout_name private patcher main mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_engine.sh")" \
+            "$layout_name private patch engine mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_configuration-transaction.sh")" \
+            "$layout_name private configuration transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_coverage.sh")" \
+            "$layout_name private patch coverage mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_desired-state-policy.sh")" \
+            "$layout_name private desired-state policy mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_edge-service-transaction.sh")" \
+            "$layout_name private edge-service transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_pam-transaction.sh")" \
+            "$layout_name private PAM transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_account-transaction.sh")" \
+            "$layout_name private account transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_filesystem-transaction.sh")" \
+            "$layout_name private filesystem transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_inventory-transaction.sh")" \
+            "$layout_name private inventory transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_network-service-transaction.sh")" \
+            "$layout_name private network-service transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_orchestrator.sh")" \
+            "$layout_name private orchestrator mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_service-transaction.sh")" \
+            "$layout_name private service transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_system-transaction.sh")" \
+            "$layout_name private system transaction mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_metadata-rules.sh")" \
+            "$layout_name private patch rules mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/criteria.tsv")" \
             "$layout_name criterion data mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/locale/en/LC_MESSAGES/kisa-cce-linux-scanner.po")" \
@@ -2696,6 +2742,8 @@ test_installed_layouts() (
             "$layout_name installed manual page mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-collect.8")" \
             "$layout_name installed collector manual mode"
+        assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-patch.8")" \
+            "$layout_name installed patcher manual mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-policy-compile.8")" \
             "$layout_name installed policy compiler manual mode"
         [ ! -e "$installed_prefix/share/doc/kisa-cce-linux-scanner" ] ||
@@ -2711,6 +2759,11 @@ test_installed_layouts() (
         assert_contains "$command_output" \
             "kisa-cce-collect: kisa-cce-collect evidence-schema-2" \
             "$layout_name installed collector version"
+        command_output="$("$installed_prefix/bin/kisa-cce-patch" --version 2>&1)" ||
+            fail "$layout_name installed patcher version command failed"
+        assert_contains "$command_output" \
+            "kisa-cce-patch: kisa-cce-patch $(sed -n '1p' "$PROJECT_DIR/data/VERSION")" \
+            "$layout_name installed patcher version"
         command_output="$("$installed_prefix/bin/kisa-cce-policy-compile" --version 2>&1)" ||
             fail "$layout_name installed policy compiler version command failed"
         assert_contains "$command_output" \
@@ -2899,7 +2952,7 @@ test_full_catalog_produces_one_result_per_criterion() (
     chmod 0700 -- "$policy_directory"
     awk '
         BEGIN {OFS="\t"; print "code", "decision", "review_id", "ticket", "approver", "expires"}
-        /"technical_status":"MANUAL"/ {
+        /"technical_status":"MANUAL"/ && /"resolution_class":"policy"/ {
             code=$0
             sub(/^.*"code":"/, "", code)
             sub(/".*/, "", code)
@@ -3128,7 +3181,7 @@ test_conservative_account_regressions() (
     runtime_enabled() { return 1; }
 
     check_u_31
-    assert_equal VULNERABLE "$RESULT_STATUS" "U-31 includes non-login service account homes"
+    assert_equal GOOD "$RESULT_STATUS" "U-31 excludes non-login service account homes"
     check_u_17
     assert_equal GOOD "$RESULT_STATUS" "systemd /dev/null mask handling"
 )
@@ -3287,7 +3340,9 @@ test_chrony_peer_and_empty_log_handling() (
 
     runtime_enabled() { return 1; }
     check_u_67
-    assert_equal MANUAL "$RESULT_STATUS" "empty log directory result"
+    assert_equal VULNERABLE "$RESULT_STATUS" "non-root-owned empty log directory result"
+    assert_contains "$RESULT_EVIDENCE" "directory_write_violations=1" \
+        "empty log directory metadata evidence"
 )
 
 test_u02_rhel_dual_password_stacks() (
@@ -3342,6 +3397,25 @@ test_u02_rhel_dual_password_stacks() (
     assert_contains "$RESULT_EVIDENCE" "system-auth.status=GOOD" "U-02 system-auth strong evidence"
     assert_contains "$RESULT_EVIDENCE" "password-auth.status=GOOD" "U-02 password-auth strong evidence"
 
+    for pam_service in system-auth password-auth; do
+        {
+            printf '%s\n' 'password requisite pam_pwquality.so'
+            printf '%s\n' 'password [default=1 ignore=ignore success=ok] pam_localuser.so'
+            printf '%s\n' 'password required pam_pwhistory.so use_authtok'
+            printf '%s\n' 'password required pam_unix.so use_authtok sha512'
+        } > "$root/etc/pam.d/$pam_service"
+    done
+    check_u_02
+    assert_equal GOOD "$RESULT_STATUS" "U-02 official authselect pam_localuser control"
+    assert_contains "$RESULT_EVIDENCE" "stack_bracket_controls=0" \
+        "U-02 recognized authselect local-user gate"
+
+    sed -i 's/default=1/default=2/' "$root/etc/pam.d/password-auth"
+    check_u_02
+    assert_equal MANUAL "$RESULT_STATUS" "U-02 unknown authselect bracket remains inconclusive"
+
+    write_u02_strong_stack system-auth
+    write_u02_strong_stack password-auth
     {
         printf '%s\n' 'password requisite pam_pwquality.so'
         printf '%s\n' 'password required pam_unix.so use_authtok sha512'
@@ -3575,7 +3649,7 @@ test_kisa_account_platform_goldens() (
     printf '%s\n' 'password required pam_unix.so use_authtok yescrypt' > "$root/etc/pam.d/system-auth"
     printf '%s\n' 'root:$y$j9T$salt$ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq:20000:0:99999:7:::' > "$root/etc/shadow"
     check_u_13
-    assert_equal MANUAL "$RESULT_STATUS" "U-13 RHEL unlisted yescrypt algorithm"
+    assert_equal GOOD "$RESULT_STATUS" "U-13 RHEL 10 yescrypt algorithm"
 
     set_test_platform debian 13 "Debian GNU/Linux 13"
     cp -- "$root/etc/pam.d/system-auth" "$root/etc/pam.d/common-password"
@@ -5040,6 +5114,10 @@ test_account_u04_u19_false_conclusive_paths() (
     check_u_12
     assert_equal MANUAL "$RESULT_STATUS" "U-12 literal policy remains conservative"
     assert_contains "$RESULT_EVIDENCE" "literal_noncompliant=0" "U-12 ignores RHEL-only bashrc on Debian"
+    printf '%s\n' 'TMOUT=600' 'readonly TMOUT' 'export TMOUT' > "$root/etc/profile"
+    check_u_12
+    assert_equal GOOD "$RESULT_STATUS" "U-12 readonly exported timeout"
+    assert_contains "$RESULT_EVIDENCE" "readonly_statements=1" "U-12 readonly evidence"
     printf '%s\n' 'echo TMOUT=600' > "$root/etc/profile"
     check_u_12
     assert_equal MANUAL "$RESULT_STATUS" "U-12 command text is not an assignment"
@@ -5386,7 +5464,7 @@ test_account_u20_u33_false_conclusive_paths() (
 
         printf 'service:x:%s:%s::/home/service:/usr/sbin/nologin\n' "$current_uid" "$current_gid" > "$root/etc/passwd"
         check_u_32
-        assert_equal VULNERABLE "$RESULT_STATUS" "U-32 missing home for non-login account"
+        assert_equal GOOD "$RESULT_STATUS" "U-32 excludes a non-login account home"
 
         : > "$root/etc/passwd"
         check_u_31
@@ -6278,6 +6356,8 @@ test_remaining_criterion_goldens() (
         check_u_37
         assert_equal VULNERABLE "$RESULT_STATUS" "U-37 follows a confined cron symlink"
         assert_contains "$RESULT_EVIDENCE" "violations=1" "U-37 symlink target mode evidence"
+        assert_contains "$RESULT_EVIDENCE" "/etc/cron-targets/daily-job:owner=" \
+            "U-37 records the violating cron target"
         check_u_40
         assert_equal VULNERABLE "$RESULT_STATUS" "U-40 follows a confined exports.d symlink"
         assert_contains "$RESULT_EVIDENCE" "unrestricted_exports=1" "U-40 symlink export evidence"

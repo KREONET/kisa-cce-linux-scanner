@@ -1,0 +1,645 @@
+.\" SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
+.TH KISA-CCE-PATCH 8 "2026-09-04" "KISA CCE Linux Scanner" "System Administration Commands"
+.SH NAME
+kisa-cce-patch \- plan, apply, verify, and roll back bounded KISA CCE
+configuration and file-metadata remediation
+.SH SYNOPSIS
+.B kisa-cce-patch
+.BI \-\-output-dir " NEW_PATH"
+.RI [ \-\-root " PATH" ]
+.RI [ \-\-checks " U-16,U-18" ]
+.RI [ \-\-apply ]
+.PP
+.B kisa-cce-patch
+.B \-\-automatic
+.BI \-\-desired-state " FILE"
+.RI [ \-\-root " PATH" ]
+.RI [ \-\-output-dir " NEW_PATH" ]
+.PP
+.B kisa-cce-patch
+.BI \-\-rollback " TRANSACTION_DIR"
+.RI [ \-\-root " PATH" ]
+.SH DESCRIPTION
+.B kisa-cce-patch
+is the dry-run-first configuration and metadata remediation companion to
+.BR kisa-cce-scan (8).
+Ordinary fixed-rule mode supports U-12, U-16, U-18, U-19, U-22, U-29, U-37,
+U-62, and U-67.
+U-12 and U-62 install fixed managed content. Five metadata rules use one fixed
+logical path. U-37 and U-67 safely enumerate multiple targets within fixed path
+scopes.
+.PP
+The command runs a fresh audit scan before planning and accepts only
+.BR GOOD ,
+.BR VULNERABLE ,
+and
+.B NOT_APPLICABLE
+results.
+Each vulnerable change candidate must also have
+.BR resolution_class=technical ,
+.BR remediation_eligible=true ,
+and the exact versioned
+.B remediation_rule_id
+registered for its criterion.
+The supported IDs are
+.BR configuration.u12.v1 ,
+.BR metadata.u16.v1 ,
+.BR metadata.u18.v1 ,
+.BR metadata.u19.v1 ,
+.BR metadata.u22.v1 ,
+.BR metadata.u29.v1 ,
+.BR metadata.u37.v1 ,
+.BR configuration.u62.v1 ,
+and
+.BR metadata.u67.v1 .
+It completes root, path, configuration, and target metadata preflight for the
+complete selection before making the first change.
+.PP
+Without
+.B \-\-apply
+or
+.BR \-\-automatic ,
+the command writes a protected plan and exits without modifying the assessed
+root.
+Apply mode installs only the fixed U-12 and U-62 content or changes an existing
+metadata target's owner UID and permission bits. Metadata rules preserve GID.
+Every apply runs a new scanner process for post-change verification. The command
+does not accept arbitrary content or reload a service.
+.PP
+.B \-\-automatic
+with
+.B \-\-desired-state
+is an explicit root-only request to assess and orchestrate U-01 through U-67.
+It requires typed domain input, protected transactions, automatic rollback, and
+a complete post-scan before verification.
+.SH OPTIONS
+.TP
+.BI \-\-root " PATH"
+Inspect or modify the filesystem rooted at absolute
+.IR PATH .
+The default is the live root
+.IR / .
+An offline dry run may be performed by a non-root user who can read and search
+the required paths.
+A live-root operation, every apply, and every rollback require effective UID 0.
+.PP
+In rollback mode, omission selects the canonical root recorded in the
+transaction manifest.
+An explicitly supplied root must match the recorded path, device, and inode.
+.TP
+.BI \-\-output-dir " NEW_PATH"
+Create one new dry-run or apply transaction generation at absolute
+.IR NEW_PATH .
+The path must not exist.
+Its physical parent chain must contain no symbolic-link component and must not
+be replaceable by an untrusted writer.
+The patcher creates the directory with mode 0700 and regular artifacts with
+mode 0600.
+This option is required for dry-run and manual apply. It is optional with
+.B \-\-automatic
+and is not used with
+.BR \-\-rollback .
+.TP
+.BI \-\-checks " U-16,U-18"
+Select a comma-separated nonempty subset of supported criteria.
+The default is U-12,U-16,U-18,U-19,U-22,U-29,U-37.
+Values are case-insensitive, whitespace is removed, and duplicates and
+unsupported codes are rejected.
+This option is not accepted with
+.B \-\-automatic
+or
+.BR \-\-rollback .
+.TP
+.B \-\-apply
+Apply the complete current plan, verify each selected postcondition, and run an
+independent post-scan.
+This option is required only for manual apply;
+.B \-\-automatic
+implies the same apply phase.
+It cannot be combined with
+.BR \-\-rollback .
+.TP
+.B \-\-automatic
+Assess and orchestrate U-01 through U-67 from the required desired-state
+profile. This option implies apply and requires effective UID 0 for live and
+offline roots. It cannot be combined with
+.B \-\-checks
+or
+.BR \-\-rollback .
+.PP
+When
+.B \-\-output-dir
+is omitted, atomically create a unique protected transaction below
+.IR /var/lib/kisa-cce-patcher/transactions .
+An explicit output directory retains the normal new-path and trusted-parent
+requirements.
+.TP
+.BI \-\-desired-state " FILE"
+Read a schema-version-2 YAML profile containing exactly one desired state for
+every U-01 through U-67 criterion. This option is required with, and valid only
+with,
+.BR \-\-automatic .
+Fixed rows require input type
+.B none
+and value
+.BR \- .
+Conditional rows require the exact registered input type and a nonempty value.
+The YAML input path must be absolute. It must identify a readable root-owned,
+single-linked, non-symlink regular file with no group or other write bit and a
+parent chain that a non-root writer cannot replace.
+.TP
+.BI \-\-rollback " TRANSACTION_DIR"
+Restore a fixed-rule or all-domain transaction from an absolute directory in an
+eligible apply or recovery state.
+The patcher verifies its schemas, scanner version, immutable-file checksums,
+ownership, modes, root identity, fixed rules, target inodes, and current
+metadata before changing any target.
+.TP
+.BR \-h , " " \-\-help
+Print command help and exit.
+.TP
+.B \-\-version
+Print the patcher version and exit.
+.PP
+Options that take values accept both
+.B "\-\-option VALUE"
+and
+.B "\-\-option=VALUE"
+forms.
+Empty values and positional arguments are rejected.
+.SH FIXED RULES
+.TP
+.B U-12
+Create or replace
+.I /etc/profile.d/99-kisa-cce-session-timeout.sh
+with the fixed 600-second readonly exported TMOUT profile. The configuration
+transaction preserves a fingerprinted backup when a file already exists.
+.TP
+.B U-16
+Set the owner UID of
+.I /etc/passwd
+to 0 and remove permission bits beyond 0644.
+Absence is a preflight error.
+.TP
+.B U-18
+Set the owner UID of
+.I /etc/shadow
+to 0 and remove permission bits beyond 0400.
+The patcher does not create a missing file.
+.TP
+.B U-19
+Set the owner UID of
+.I /etc/hosts
+to 0 and remove permission bits beyond 0644.
+Absence is a preflight error.
+.TP
+.B U-22
+For an existing vulnerable
+.IR /etc/services ,
+set the owner UID to 0 and remove permission bits beyond 0644.
+Absence is non-applicable.
+The scanner also accepts the
+.B bin
+and
+.B sys
+owners; an already conforming file is not added to a transaction.
+These names are resolved from the selected root's
+.I /etc/passwd
+rather than host NSS.
+.TP
+.B U-29
+For an existing vulnerable
+.IR /etc/hosts.lpd ,
+set the owner UID to 0 and remove permission bits beyond 0600.
+Absence is conforming and causes no change.
+.TP
+.B U-37
+Enumerate supported cron and at commands and related configuration and spool
+files. Commands become root-owned, no broader than 0750, and lose set-ID bits.
+Related files become root-owned and no broader than 0640. Every target has a
+separate transaction and rollback record.
+.TP
+.B U-62
+Create or replace
+.IR /etc/issue ,
+.IR /etc/issue.net ,
+and
+.I /etc/motd
+with the fixed authorization warning. This rule requires an explicit live-root
+selection so the post-scan can evaluate active banner surfaces.
+.TP
+.B U-67
+On an explicitly selected live root, enumerate files and directories below
+.IR /var/log .
+Files become root-owned and no broader than 0644. Directories become root-owned
+and lose group and other write permission without gaining any bit. Every target
+has a separate transaction and rollback record. Offline U-67 is not actionable
+because the patcher cannot establish its log mount boundary.
+.PP
+Metadata modes are calculated by masking the current mode with the rule maximum,
+so those rules cannot grant a bit that was absent. Metadata rules preserve the
+existing GID. Managed U-12 and U-62 files use
+root:root ownership and mode 0644 or stricter.
+.SH REMEDIATION COVERAGE
+The installed coverage contract contains 67 unique criterion rows:
+9
+.BR fixed ,
+58
+.BR conditional ,
+and 0
+.BR gated .
+A fixed row needs no organization-supplied value. A conditional row has a typed
+adapter boundary but still requires its registered input, evidence, provider,
+and approval boundaries. Every mutating conditional path requires rollback.
+.PP
+Ordinary dry-run,
+.BR \-\-apply ,
+and
+.B \-\-checks
+dispatch the nine fixed rules listed above; their default selection contains
+seven.
+.B kisa-cce-patch
+with
+.B \-\-automatic
+and
+.B \-\-desired-state
+dispatches the full 67-row contract.
+.SS Private conditional domains
+The installed private transaction modules divide the 58 conditional rows into:
+.TP
+.I _account-transaction.sh
+10 account and group criteria.
+.TP
+.I _pam-transaction.sh
+3 PAM and authselect criteria.
+.TP
+.I _inventory-transaction.sh
+6 evidence-bound inventory criteria.
+.TP
+.I _filesystem-transaction.sh
+8 filesystem criteria.
+.TP
+.I _service-transaction.sh
+9 service-disable criteria.
+.TP
+.I _network-service-transaction.sh
+11 NFS, RPC, mail, and DNS criteria.
+.TP
+.I _edge-service-transaction.sh
+8 OpenSSH, Telnet, firewall, FTP, and SNMP criteria.
+.TP
+.I _system-transaction.sh
+3 package, time, and logging criteria. U-67 delegates to the fixed metadata
+engine.
+.PP
+Conditional adapters can return
+.B NOT_APPLICABLE
+for an absent provider or reject a complex invocation, incomplete evidence, or
+runtime uncertainty before mutation. Operations outside their local boundary
+return
+.B external_action_required
+instead of claiming success. U-64 verifies signed repository and advisory
+evidence and creates a package-manager simulation, but never updates a package.
+.SS Desired-state version 2
+The
+.I _desired-state-policy.sh
+compiler accepts a restricted YAML schema and emits protected TSV. Fixed rows
+require input type
+.B none
+and value
+.BR - .
+Each conditional row requires the exact input type registered by the coverage
+contract and a nonempty value. Risk, domain, postcondition, validator, and
+rollback fields come from the contract rather than YAML.
+.PP
+Automatic mode invokes this compiler internally. The separate
+.BR kisa-cce-policy-compile (8)
+command continues to compile scanner policy schema version 1.
+.SS Automatic all-domain orchestrator
+The automatic command invokes
+.I _orchestrator.sh
+and the domain bridge. It requires a complete 67-row compiled profile and a
+complete 67-result pre-scan JSONL file. It binds those inputs, the canonical
+root device/inode, ordered domain requests, and plan digests. Registered domain
+callbacks are applied in fixed order and rolled back in reverse order.
+.PP
+Successful domain verification reaches
+.BR awaiting_post_scan ,
+not
+.BR verified .
+Only a fresh JSONL report containing every U-01 through U-67 result exactly
+once, with every status equal to
+.B GOOD
+or
+.BR NOT_APPLICABLE ,
+can reach
+.BR verified .
+Any other, missing, duplicate, malformed, or reused result triggers guarded
+rollback.
+.PP
+Complex desired-state values are absolute paths to root-owned, mode-0600 domain
+input TSV files. Symbolic links, repeated separators, explicit dot or parent
+components, invalid records, and untrusted callback paths are rejected.
+.PP
+If U-64 or another prerequisite requires an external action, planning stops
+before mutation, emits
+.BR automatic_status=external_action_required ,
+and exits with status 3.
+.PP
+The orchestrator and domain adapters expose protected transaction loaders and
+cross-process rollback. Strict rollback requires the recorded applied state;
+transition rollback accepts only bounded interrupted-recovery states. Trusted
+orchestrator callbacks are registered functions from loaded private modules.
+Where a domain invokes an external callback, its executable must be an absolute
+root-owned regular file with a root-owned, non-writable parent chain. These APIs
+do not provide a crash-atomic multi-subsystem commit.
+.SH TRANSACTION FLOW
+.SS Fixed-rule preflight
+The command invokes
+.BR kisa-cce-scan (8)
+in audit and verbose mode for exactly the selected criteria.
+A
+.B MANUAL
+or
+.B ERROR
+result blocks the operation.
+The patcher rejects a scanner and engine state disagreement, an unsafe or
+symbolic-link path component, an object type unsupported by its rule, a
+hard-linked regular file, inaccessible metadata, and root or target drift.
+.PP
+A policy result closed to
+.B VULNERABLE
+because an attestation is absent remains remediation-ineligible and is rejected.
+Technical, runtime, or external incomplete evidence is an error rather than a
+patch instruction.
+.PP
+It records the root and target type, device, inode, UID, GID, mode, link count,
+size, mtime, and ctime. Regular files also receive a SHA-256 content digest
+using a stat-hash-stat stable capture; directories use a no-content sentinel.
+Configuration rules additionally bind fixed payloads, original backups, parent
+directories, and an apply journal through a configuration manifest.
+Every target must pass before mutation begins.
+.SS Fixed-rule apply
+Apply compares every target with its snapshot before changing it.
+It first installs selected fixed configuration payloads, then applies metadata
+changes. Metadata operations set the owner UID while retaining the GID and
+apply the reduced mode. Both domains verify their expected content or metadata.
+Ctime must match before the first mutation and is ignored afterward because the
+metadata operations update it.
+The complete rollback payload exists before the first change.
+.SS Automatic apply
+Automatic mode requires a complete desired-state profile, selects U-01 through
+U-67, and implies apply. It runs a full audit and creates one protected child
+transaction per actionable domain. If no output path was supplied, it creates a
+mode-0700 transaction named
+.I transaction-YYYYMMDDTHHMMSSZ.RANDOM
+below
+.IR /var/lib/kisa-cce-patcher/transactions .
+Success emits
+.B "automatic_status=verified transaction=PATH"
+only after the full post-scan gate, and leaves the transaction in
+.B verified
+state. Failure emits
+.B automatic_status=failed
+and returns status 2. A failure after mutation attempts rollback and records
+.B rolled_back
+or
+.B rollback_failed
+according to the restoration result.
+.PP
+An external prerequisite stops before mutation, emits
+.B automatic_status=external_action_required
+with a bounded prerequisite value, and returns status 3. Complete the external
+action and start a new run with fresh evidence.
+.SS Post-scan
+After an ordinary fixed-rule apply, a new scanner process evaluates the selected
+criteria. After automatic domain verification, a new process evaluates all 67.
+A vulnerable, manual, erroneous, missing, duplicate, malformed, or reused result
+causes apply failure and guarded automatic rollback. Full automatic mode accepts
+only a complete report whose 67 statuses are
+.B GOOD
+or
+.BR NOT_APPLICABLE .
+Only a successful post-scan reaches transaction state
+.BR verified .
+.SS Automatic rollback
+An apply precondition, mutation, immediate verification, or post-scan failure
+after the first change starts reverse-order rollback.
+Full automatic rollback visits applied domains and child transactions in
+reverse order.
+Rollback itself is verified.
+If restoration fails, the transaction enters
+.B rollback_failed
+and requires operator inspection.
+.SS Manual rollback
+Manual rollback accepts
+.BR verified ,
+.BR applying ,
+.BR applied ,
+.BR awaiting_post_scan ,
+.BR rollback_in_progress ,
+and
+.B rollback_failed
+states so an interrupted operation remains recoverable.
+It rejects
+.BR planned ,
+.BR external_action_required ,
+.BR rolled_back ,
+and
+.BR failed .
+Each target must retain the recorded type, device, inode, size, and mtime.
+Regular files must also remain single-linked and match their content digest.
+A completed apply must match either the complete post-change metadata or the
+already-restored pre-change metadata.
+Interrupted recovery permits only combinations of the recorded before and after
+UID, GID, and mode values.
+Any other drift blocks the complete rollback instead of overwriting a later
+administrator or content change.
+.PP
+Configuration rollback accepts only the exact managed payload or the exact
+fingerprinted original content and recorded metadata. It restores U-12 and U-62
+configuration before completing metadata rollback.
+.PP
+The patcher checks every target before the first restoration and repeats the
+check during reverse-order rollback.
+A concurrent change after preflight can still cause a partial rollback and
+.B rollback_failed
+state.
+Rollback verifies restored metadata but does not run a new scanner process.
+.SH TRANSACTION DIRECTORY
+A transaction directory can contain:
+.TP
+.I manifest.tsv
+Schema, scanner version, selected criteria, and canonical root identity.
+.TP
+.I plan.tsv
+Every selected rule state, including conforming and non-applicable rules.
+.TP
+.I metadata.tsv
+Immutable before and after UID, GID, and mode, plus device, inode, size, mtime,
+ctime, and regular-file SHA-256 content identity for change targets. Directory
+rows use a no-content sentinel. Records use schema version 2.
+.TP
+.I state
+Mutable lifecycle state.
+.TP
+.I checksums.sha256
+SHA-256 digests for
+.IR manifest.tsv ,
+.IR plan.tsv ,
+and
+.IR metadata.tsv .
+When configuration rules are selected, it also covers
+.I configuration-plan.tsv
+and
+.IR configuration/manifest.tsv .
+.TP
+.I configuration-plan.tsv
+Public create-or-replace plan for selected U-12 and U-62 files.
+.TP
+.I configuration/manifest.tsv
+Fingerprinted original state, desired payload, backup identity, and journal
+binding for the configuration transaction.
+.TP
+.I configuration/{backups,payloads,journal}/
+Owner-only material transitively bound by the configuration manifest.
+.TP
+.I pre-scan/
+Protected Markdown and JSONL reports from preflight.
+.TP
+.I post-scan/
+Protected Markdown and JSONL reports from post-change verification.
+.TP
+.I orchestrator/manifest.tsv
+Full automatic root identity, input bindings, domain order, request digests, and
+plan digests.
+.TP
+.I orchestrator/manifest.sha256
+Integrity digest for the orchestrator manifest.
+.TP
+.I orchestrator/state
+Mutable full automatic lifecycle state.
+.TP
+.I orchestrator/applied.tsv
+Applied-domain recovery order.
+.TP
+.I orchestrator/inputs/
+Protected copies of the compiled desired state and pre-scan JSONL.
+.TP
+.I orchestrator/domains/
+Per-domain requests, plans, applied records, and child transactions.
+.PP
+The lifecycle values are
+.BR planned ,
+.BR external_action_required ,
+.BR applying ,
+.BR applied ,
+.BR awaiting_post_scan ,
+.BR verified ,
+.BR rollback_in_progress ,
+.BR rolled_back ,
+.BR failed ,
+and
+.BR rollback_failed .
+The state file is excluded from immutable payload checksums and is replaced
+atomically during a transition.
+.B planned
+is the successful dry-run state;
+.B verified
+is the only successfully applied final state.
+Automatic rollback success records
+.B rolled_back
+even though the failed patch invocation returns status 2.
+.SH TERMINAL OUTPUT
+Every line uses the scanner dmesg-style prefix with six fractional uptime
+digits:
+.PP
+.EX
+[    12.345678] kisa-cce-patch: payload
+.EE
+.PP
+The patcher always writes English progress and does not implement verbose or
+debug options.
+Automatic lifecycle records use
+.BR "automatic_status=started transaction=PATH" ,
+.BR "automatic_status=verified transaction=PATH" ,
+.BR "automatic_status=external_action_required prerequisite=VALUE" ,
+or
+.BR automatic_status=failed .
+Failure can occur before a transaction path exists.
+The started and failed records use standard error; verified and external-action
+records and validated transaction paths use standard output. Full apply progress
+uses
+.B apply_status=started|verified scope=U-01..U-67
+and publishes the validated orchestrator manifest path.
+Paths and lifecycle states are printed only after the corresponding validation
+succeeds.
+.SH EXIT STATUS
+.TP
+.B 0
+The dry-run plan, verified apply, or guarded rollback completed successfully.
+.TP
+.B 2
+Invocation, scanner execution, result parsing, profile, domain, configuration,
+or metadata preflight, transaction publication, mutation, verification, or
+rollback failed.
+.TP
+.B 3
+A verified external prerequisite is required before mutation.
+.TP
+.B 130
+The process received SIGINT.
+.TP
+.B 143
+The process received SIGTERM.
+.PP
+An active apply attempts automatic rollback before returning a signal status.
+.SH SECURITY
+Run the patcher from a trusted package-managed installation and use a protected
+local filesystem for transactions.
+The command rejects arbitrary rule paths and desired metadata, symbolic links,
+changed target inodes, transaction checksum failures, and unrecorded metadata
+drift.
+.PP
+These checks do not provide a filesystem-wide atomic commit.
+The implementation does not synchronize every operation to stable storage.
+SIGKILL, kernel or storage failure, or power loss can leave a partial apply.
+Retain the prewritten transaction for guarded recovery.
+.PP
+Rollback requires the running scanner version to equal
+.I scanner_version
+in the manifest.
+Complete the rollback window before a package upgrade, or retain a trusted
+matching package artifact for recovery.
+.PP
+The U-12 and U-62 configuration transaction restores its managed content and
+recorded owner and mode. Metadata-rule rollback restores UID, GID, and mode
+only. Replacement inodes, timestamps, extended attributes, POSIX ACLs,
+capabilities, and security labels are outside the transaction record.
+A platform can clear set-ID bits or file capabilities during
+.BR chown (1),
+and
+.BR chmod (1)
+can affect the POSIX ACL mask; the transaction cannot reconstruct those side
+effects.
+.PP
+Full automatic profiles, domain-input TSV files, pre/post reports, callback
+paths, and transaction artifacts are sensitive assessment and change-control
+data. Protect them as root-only local files. The command rejects plaintext
+secrets and does not interpret a profile or domain input as shell code.
+.PP
+No package update is executed by the U-64 adapter. Signed evidence and a
+package-manager simulation can establish only an external-action prerequisite.
+.SH FILES
+.TP
+.I /usr/lib/kisa-cce-linux-scanner/kisa-cce-patcher/
+Installed private configuration, metadata, and transaction engine modules.
+.TP
+.I /var/lib/kisa-cce-patcher/
+Recommended protected parent for operator-selected transaction directories.
+Automatic mode creates protected
+.I transactions/
+and transaction children here when no output directory is supplied. The
+upstream install target does not create this writable path.
+.SH SEE ALSO
+.BR kisa-cce-scan (8)

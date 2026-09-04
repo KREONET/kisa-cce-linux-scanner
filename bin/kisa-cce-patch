@@ -1,0 +1,61 @@
+#!/bin/sh
+
+# SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
+
+# The public wrapper clears the caller environment before Bash loads patcher code.
+
+console_uptime() {
+    wrapper_uptime_value=""
+    wrapper_uptime_seconds=""
+    wrapper_uptime_fraction=""
+
+    if [ -r /proc/uptime ]; then
+        IFS=' ' read -r wrapper_uptime_value _ < /proc/uptime || wrapper_uptime_value=""
+    fi
+    case "$wrapper_uptime_value" in
+        *.*)
+            wrapper_uptime_seconds="${wrapper_uptime_value%%.*}"
+            wrapper_uptime_fraction="${wrapper_uptime_value#*.}"
+            case "$wrapper_uptime_seconds:$wrapper_uptime_fraction" in
+                :*|*:|*[!0-9:]*) wrapper_uptime_seconds="" ;;
+            esac
+            ;;
+    esac
+    if [ -z "$wrapper_uptime_seconds" ]; then
+        wrapper_uptime_seconds=0
+        wrapper_uptime_fraction=""
+    fi
+    wrapper_uptime_fraction="$(printf '%.6s' "${wrapper_uptime_fraction}000000")"
+    printf '%6s.%s' "$wrapper_uptime_seconds" "$wrapper_uptime_fraction"
+}
+
+console_emit() {
+    printf '%s\n' "$1" | while IFS= read -r wrapper_line; do
+        wrapper_uptime="$(console_uptime)"
+        printf '[%s] kisa-cce-patch: %s\n' "$wrapper_uptime" "$wrapper_line"
+    done
+}
+
+case "$0" in
+    /*) patcher_path="$0" ;;
+    *) patcher_path="$PWD/$0" ;;
+esac
+patcher_directory="${patcher_path%/*}"
+
+main_file=""
+for candidate_main_file in \
+    "$patcher_directory/../lib/kisa-cce-cli/_patch-main.sh" \
+    "$patcher_directory/../lib/kisa-cce-linux-scanner/kisa-cce-cli/_patch-main.sh" \
+    "$patcher_directory/../libexec/kisa-cce-linux-scanner/kisa-cce-cli/_patch-main.sh"; do
+    if [ -r "$candidate_main_file" ]; then
+        main_file="$candidate_main_file"
+        break
+    fi
+done
+
+if [ -z "$main_file" ]; then
+    console_emit "ERROR: patcher runtime not found" >&2
+    exit 2
+fi
+
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash "$main_file" "$@"

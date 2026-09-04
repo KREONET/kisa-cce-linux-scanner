@@ -57,6 +57,25 @@ Subscription-only extended support, third-party extended maintenance,
 development releases, point releases retired by their projects when
 superseded, and non-User KDE neon editions are not in the default support
 matrix.
+.PP
+U-13 recognizes yescrypt on Debian-family profiles and Enterprise Linux 10 or
+newer. U-31 and U-32 inspect root plus login-capable accounts whose UID is at
+least the effective
+.B UID_MIN
+and below 65534; system and non-login accounts are excluded from those two home
+directory checks.
+.PP
+Ubuntu 26.04 uses Chrony as its default time daemon. U-65 also supports an
+optionally installed ntpd-rs provider through
+.IR /etc/ntpd-rs/ntp.toml ,
+.IR ntpd-rs.service ,
+live
+.BR "ntp-ctl status" ,
+native
+.BR "ntp-ctl validate -c" ,
+and provider-bound approved facts for every observed network source.
+This is an operational
+extension and does not make ntpd-rs the Ubuntu 26.04 default.
 .SH OPTIONS
 .TP
 .BI \-\-root " PATH"
@@ -199,12 +218,18 @@ Complete mode runs U-01 through U-67 and preserves conclusive
 and
 .B ERROR
 results.
-Each technical
+Each policy-class
 .B MANUAL
-result receives a SHA-256 review ID.
+result receives a SHA-256 review ID generated with review-basis schema 2.
 A matching, unexpired policy attestation converts it to the approved final
 decision; a missing, stale, or mismatched attestation becomes
 .BR ERROR .
+.PP
+A technical, runtime, or external
+.B MANUAL
+also becomes
+.B ERROR
+because an attestation cannot replace incomplete evidence.
 .PP
 A live complete scan requires root and runtime collection.
 An offline complete scan requires both
@@ -219,12 +244,18 @@ sysctl explanation, or a live
 .B \-\-no-runtime
 scan.
 .PP
-Reports are staged in the owner-only workspace.  If a final
+Reports are staged in the owner-only workspace. A policy-class
 .B MANUAL
-or
-.B ERROR
-remains, the scanner exits with status 2, prints no report path, and removes
-the staged files.  Successful reports contain only
+uses a matching attestation. If that attestation is absent, the result closes to
+.B VULNERABLE
+with
+.BR decision_basis=fail_closed_policy ,
+remains remediation-ineligible, and carries no remediation rule ID.
+An invalid attestation or incomplete technical, runtime, or external result
+becomes
+.BR ERROR .
+If an error remains, the scanner exits with status 2, prints no report path,
+and removes the staged files. Successful reports contain only
 .BR GOOD ,
 .BR VULNERABLE ,
 and
@@ -291,6 +322,25 @@ criterion sections, and optional collapsible evidence.
 .I kisa-cce-HOST-TIMESTAMP.jsonl.RANDOM
 One JSON object per selected criterion followed by one summary object.
 .PP
+Each result object includes
+.BR resolution_class ,
+.BR remediation_eligible ,
+and
+.BR remediation_rule_id .
+The resolution class is
+.BR technical ,
+.BR policy ,
+.BR runtime ,
+or
+.BR external .
+These values identify configuration interpretation, organization intent,
+current live state, or an outside authority such as an identity provider or
+vendor advisory, respectively.
+Remediation eligibility can be true only for a technical
+.B VULNERABLE
+result with a nonempty versioned rule ID. Every other result has false
+eligibility and an empty rule ID.
+.PP
 The hostname identifies the machine running the scanner, including during
 offline analysis.
 The command prints prefixed payloads containing
@@ -337,10 +387,13 @@ string.
 .SH RESULT STATES
 .TP
 .B GOOD
-Collected evidence conclusively satisfies the implemented criterion.
+Technical evidence or a matching policy-class attestation satisfies the
+implemented criterion.
 .TP
 .B VULNERABLE
-Collected evidence conclusively violates the implemented criterion.
+Technical evidence violates the criterion, a matching policy attestation
+selects that decision, or automation lacks a required policy attestation.
+Inspect the decision basis and remediation fields before planning a change.
 .TP
 .B MANUAL
 Policy, intent, an approved exception, external state, or unavailable context
@@ -355,6 +408,12 @@ Required evidence could not be collected or parsed reliably.
 A
 .B GOOD
 result is not a certification of the entire host.
+.PP
+The review ID canonical input uses
+.BR review_schema:2 .
+The schema marker is not a JSONL field. Review schema 2 adds the resolution
+class to the full redacted review basis, so review schema 1 attestations must be
+regenerated from a current audit.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -484,6 +543,7 @@ kisa-cce-scan --debug 2>./kisa-cce-debug.log
 .EE
 .SH SEE ALSO
 .BR kisa-cce-collect (8),
+.BR kisa-cce-patch (8),
 .BR kisa-cce-policy-compile (8),
 .BR sysctl (8),
 .BR sysctl.d (5),

@@ -58,6 +58,12 @@ time_sources:
     ticket: TIME-42
     approver: time-owners
     expires: 2099-12-31
+  - provider: ntpd-rs
+    host: rust-time.example
+    address: 192.0.2.40
+    ticket: TIME-43
+    approver: time-owners
+    expires: 2099-12-31
 EOF
 chmod 0600 "$valid_yaml"
 stdout_file="$test_directory/valid.stdout"
@@ -76,6 +82,8 @@ grep -Fq $'U-07\tGOOD\tsha256:00000000000000000000000000000000000000000000000000
     "$output_directory/50-compiled.tsv" || fail "compiled attestation row differs"
 grep -Fq $'chrony\tTime.Example.\t-\tTIME-42\ttime-owners\t2099-12-31' \
     "$output_directory/facts/time-sources.tsv" || fail "compiled time-source row differs"
+grep -Fq $'ntpd-rs\trust-time.example\t192.0.2.40\tTIME-43\ttime-owners\t2099-12-31' \
+    "$output_directory/facts/time-sources.tsv" || fail "compiled ntpd-rs time-source row differs"
 
 neutral_yaml="$test_directory/neutral.yml"
 cp "$project_directory/examples/policy.yml" "$neutral_yaml"

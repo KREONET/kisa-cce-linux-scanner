@@ -15,7 +15,9 @@ This page is the entry point for contributors to the KISA CCE Linux Scanner. It 
 | Korean and English report catalogs | [Localization](../operators/localization.md) |
 | Staged installation and Debian/RPM integration | [Packaging](../packaging/README.md) |
 | Apple `container` distribution-matrix workflow | [macOS container testing](macos-container-testing.md) |
+| Ubuntu 26.04 rust-coreutils capability gate | [Development](development.md#ubuntu-2604-coreutils-compatibility) and `tests/uutils_compatibility.sh` |
 | Operator-visible CLI behavior | [Usage](../operators/usage.md) and `kisa-cce-scan(8)` |
+| Patch rules and transaction safety | [Autopatcher](../design/autopatcher.md) and `kisa-cce-patch(8)` |
 
 When implementation and prose disagree, inspect the relevant code and tests, then update both in one change. Do not weaken a conservative result solely to make a fixture pass.
 
@@ -31,6 +33,7 @@ When implementation and prose disagree, inspect the relevant code and tests, the
 | Evidence bundle | `lib/kisa-cce-runtime/_evidence.sh` or `lib/kisa-cce-cli/_collect-main.sh` | Bundle schema documentation and positive and negative validation fixtures |
 | Policy YAML compiler | `lib/kisa-cce-policy/_policy-yaml.sh` or `lib/kisa-cce-cli/_policy-compile-main.sh` | Policy format, parser rejection fixtures, installed-layout test, and compiler man page |
 | Packaging | `Makefile` and `docs/packaging/README.md` | Staged install, upgrade, removal, and command smoke tests |
+| Metadata patch rule | `lib/kisa-cce-patcher/_metadata-rules.sh` and owning scanner check | Engine failure and rollback fixtures, autopatcher design, command manual, and full platform matrix |
 
 Begin with the narrowest focused test that can reproduce the behavior. Expand to shared consumers before changing a resolver or collection primitive.
 
@@ -70,6 +73,12 @@ Preserve unrelated changes. Do not reformat or move files outside the requested 
 7. Update operator documentation and the section 8 manual when CLI behavior changes.
 
 Do not create a new KISA result for an implementation diagnostic. A selected catalog row must still produce exactly one `GOOD`, `VULNERABLE`, `MANUAL`, `NOT_APPLICABLE`, or `ERROR` result.
+
+Every result also declares a `technical`, `policy`, `runtime`, or `external`
+resolution class. Remediation eligibility is valid only for a technical
+`VULNERABLE` result with a registered versioned rule ID. An unattested
+policy-class result may close to `VULNERABLE` in scanner automation mode, but it
+must remain remediation-ineligible.
 
 ## Check ownership
 
@@ -146,6 +155,7 @@ When manual pages change, lint each changed page:
 mandoc -T lint man/kisa-cce-scan.8
 mandoc -T lint man/kisa-cce-collect.8
 mandoc -T lint man/kisa-cce-policy-compile.8
+mandoc -T lint man/kisa-cce-patch.8
 ```
 
 Run containerized userspace validation on the maintained matrix:
@@ -193,12 +203,25 @@ Do not add a `Signed-off-by` trailer on behalf of another person. A contributor 
 - [ ] The change is limited to the requested subsystem and preserves unrelated work.
 - [ ] Every affected criterion and shared consumer was identified.
 - [ ] Result-state and error precedence remain conservative.
+- [ ] Resolution class, remediation eligibility, and versioned rule ID are
+      consistent with the result and review schema 2.
 - [ ] Rooted paths remain confined, and recursive records remain NUL-delimited.
 - [ ] Resolver precedence, provenance, and cache invalidation are covered by fixtures.
 - [ ] Reports contain minimal evidence and no raw secrets.
 - [ ] Debug events contain only approved metadata and do not alter reports or exit status.
 - [ ] Korean and English catalogs are complete when report text changes.
 - [ ] CLI changes are reflected in usage documentation and the man page.
+- [ ] A patcher change retains dry-run default, all-target preflight,
+      compare-before-change, post-scan verification, tested rollback, and the
+      root-only all-67 `--automatic --desired-state FILE` contract.
+- [ ] Coverage changes retain 67 unique rows and accurately report the current
+      fixed=9, conditional=58, gated=0 split while keeping ordinary fixed-rule
+      and full automatic command paths distinct.
+- [ ] Conditional domain changes validate typed desired-state input, trusted
+      callbacks, `external_action_required`, and strict/transition
+      cross-process rollback as applicable.
+- [ ] An all-domain orchestration change reaches `verified` only after a fresh
+      67-result post-scan contains exclusively `GOOD` and `NOT_APPLICABLE`.
 - [ ] `make check`, `make lint`, relevant `mandoc` checks, and the required container matrix were run and recorded accurately.
 - [ ] Staged `/usr/lib/kisa-cce-linux-scanner` and supported `/usr/libexec` layouts still work.
 - [ ] The contribution is valid under both project license alternatives.

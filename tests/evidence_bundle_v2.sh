@@ -151,6 +151,16 @@ assert_contains "$facts" "stratum=2" "synchronized stratum fact"
 assert_contains "$facts" "leap=normal" "synchronized leap fact"
 assert_contains "$facts" "source_origin=runtime" "synchronized origin fact"
 
+ntpd_rs_bundle="$temporary_directory/v2-ntpd-rs"
+create_bundle "$ntpd_rs_bundle" 2 collected $'ntpd-rs\tyes\ttime.example\t192.0.2.40\t3\tunknown\truntime\tnetwork' ||
+    fail "schema 2 ntpd-rs fixture creation failed"
+validate_evidence_bundle "$ntpd_rs_bundle" ||
+    fail "valid ntpd-rs bundle was rejected: $EVIDENCE_VALIDATION_ERROR"
+facts=""
+evidence_time_sync_facts_into facts || fail "ntpd-rs evidence was not conclusive"
+assert_contains "$facts" "provider=ntpd-rs" "ntpd-rs provider fact"
+assert_contains "$facts" "source=time.example" "ntpd-rs source fact"
+
 unsynchronized_bundle="$temporary_directory/v2-unsynchronized"
 create_bundle "$unsynchronized_bundle" 2 collected $'ntpsec\tno\t-\t-\t-\tunsynchronized\truntime\tunknown' || fail "schema 2 unsynchronized fixture creation failed"
 validate_evidence_bundle "$unsynchronized_bundle" || fail "valid unsynchronized bundle was rejected: $EVIDENCE_VALIDATION_ERROR"

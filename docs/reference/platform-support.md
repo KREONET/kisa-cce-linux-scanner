@@ -74,6 +74,31 @@ The detector assigns a configuration family and a base release separately from t
 - General login-default consumers on RHEL 8 and 9 use legacy `login.defs` duplicate handling. RHEL 9 PAM consumers such as `pam_umask` use libeconf's `/usr/share` and `/etc` roots. RHEL 10-family targets use the implemented `/etc`-only libeconf model and `/etc/login.defs.d/*.defs`.
 - `pwhistory.conf` is active on Debian 13, Ubuntu 24.04 and 26.04, their approved derivatives, and the supported Enterprise Linux targets. Older supported Debian or Ubuntu bases use PAM module arguments instead.
 
+### Ubuntu 26.04 native providers
+
+Ubuntu 26.04 ships rust-coreutils 0.8.0 as the default provider, while `cp`,
+`mv`, and `rm` remain GNU coreutils 9.7. The scanner treats this as a mixed
+command environment and validates the exact option capabilities it consumes
+rather than matching an implementation name. The focused gate is
+`tests/uutils_compatibility.sh`. See Canonical's
+[rust-coreutils update](https://discourse.ubuntu.com/t/an-update-on-rust-coreutils/80773),
+the [Ubuntu 26.04 release notes](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/),
+and the [Resolute GNU package](https://packages.ubuntu.com/resolute/gnu-coreutils).
+
+Chrony, not ntpd-rs, is the default time daemon for new Ubuntu 26.04
+installations. The `ntpd-rs` package is available for optional installation in
+the Resolute archive. Canonical's published target is archive testing in Ubuntu
+26.10 and default adoption in Ubuntu 27.04; those statements are future goals,
+not Ubuntu 26.04 defaults. See the
+[Chrony release note](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/#chrony),
+[ntpd-rs transition plan](https://discourse.ubuntu.com/t/ntpd-rs-its-about-time/79154),
+and [Resolute ntpd-rs package](https://packages.ubuntu.com/resolute/ntpd-rs).
+
+The scanner supports a selected installation of ntpd-rs as an operational
+extension. It recognizes `/etc/ntpd-rs/ntp.toml`, `ntpd-rs.service`, and
+normalized `ntp-ctl status` evidence while retaining Chrony as the expected
+Ubuntu 26.04 provider.
+
 The matrix must be reviewed whenever an upstream publishes a new stable, LTS, Enterprise Linux minor, or derivative release. Update the detector, fixtures, this document, and target-host acceptance evidence together.
 
 ## Acceptance status
@@ -92,14 +117,14 @@ The full root scan results were:
 
 | Container | `GOOD` | `VULNERABLE` | `MANUAL` | `NOT_APPLICABLE` | `ERROR` |
 |---|---:|---:|---:|---:|---:|
-| Debian 12 | 29 | 12 | 5 | 21 | 0 |
-| Debian 13 | 28 | 12 | 6 | 21 | 0 |
-| Ubuntu 22.04 | 28 | 12 | 6 | 21 | 0 |
-| Ubuntu 24.04 | 27 | 14 | 6 | 20 | 0 |
-| Ubuntu 26.04 | 27 | 13 | 7 | 20 | 0 |
-| Rocky Linux 8.10 | 29 | 11 | 9 | 18 | 0 |
-| Rocky Linux 9.8 | 32 | 8 | 8 | 19 | 0 |
-| Rocky Linux 10.2 | 31 | 8 | 9 | 19 | 0 |
+| Debian 12 | 31 | 10 | 5 | 21 | 0 |
+| Debian 13 | 30 | 10 | 6 | 21 | 0 |
+| Ubuntu 22.04 | 30 | 10 | 6 | 21 | 0 |
+| Ubuntu 24.04 | 29 | 12 | 6 | 20 | 0 |
+| Ubuntu 26.04 | 29 | 11 | 7 | 20 | 0 |
+| Rocky Linux 8.10 | 30 | 10 | 9 | 18 | 0 |
+| Rocky Linux 9.8 | 33 | 7 | 8 | 19 | 0 |
+| Rocky Linux 10.2 | 33 | 7 | 8 | 19 | 0 |
 
 The containerized run used Apple container 1.3.1 with read-only source mounts and the function-grouped `lib/kisa-cce-*` layout. Test-tool packages were added to locally prepared OCI images before execution. Each staged installation retained private `_*.sh` modules below its functional directory. The installed policy compiler converted the neutral YAML example into a mode-0700 directory with a mode-0600 TSV and a validated policy digest.
 

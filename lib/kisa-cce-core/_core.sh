@@ -56,6 +56,9 @@ RESULT_REVIEW_ID=""
 RESULT_ATTESTATION_TICKET=""
 RESULT_ATTESTATION_APPROVER=""
 RESULT_ATTESTATION_EXPIRES=""
+RESULT_RESOLUTION_CLASS="technical"
+RESULT_REMEDIATION_ELIGIBLE="false"
+RESULT_REMEDIATION_RULE_ID=""
 RESULT_SUMMARY=""
 RESULT_EVIDENCE=""
 RESULT_APPLICABLE="true"
@@ -1107,6 +1110,9 @@ set_result() {
     local summary="$2"
     local evidence="${3:-}"
     local applicable="${4:-true}"
+    local resolution_class="${5:-technical}"
+    local remediation_eligible="${6:-false}"
+    local remediation_rule_id="${7:-}"
 
     case "$status" in
         GOOD|VULNERABLE|MANUAL|NOT_APPLICABLE|ERROR) ;;
@@ -1128,6 +1134,53 @@ set_result() {
             ;;
     esac
 
+    case "$resolution_class" in
+        technical|policy|runtime|external) ;;
+        *)
+            status="ERROR"
+            summary="검사 함수가 유효하지 않은 해결 분류를 반환했습니다."
+            evidence="invalid_resolution_class=$resolution_class"
+            applicable="true"
+            resolution_class="technical"
+            remediation_eligible="false"
+            remediation_rule_id=""
+            ;;
+    esac
+
+    case "$remediation_eligible" in
+        true|false) ;;
+        *)
+            status="ERROR"
+            summary="검사 함수가 유효하지 않은 자동 조치 여부를 반환했습니다."
+            evidence="invalid_remediation_eligible=$remediation_eligible"
+            applicable="true"
+            resolution_class="technical"
+            remediation_eligible="false"
+            remediation_rule_id=""
+            ;;
+    esac
+    if [ "$remediation_eligible" = "true" ]; then
+        case "$status:$remediation_rule_id" in
+            VULNERABLE:[a-z0-9]*.*) ;;
+            *)
+                status="ERROR"
+                summary="검사 함수가 유효하지 않은 자동 조치 규칙을 반환했습니다."
+                evidence="invalid_remediation_rule_id=$remediation_rule_id"
+                applicable="true"
+                resolution_class="technical"
+                remediation_eligible="false"
+                remediation_rule_id=""
+                ;;
+        esac
+    elif [ -n "$remediation_rule_id" ]; then
+        status="ERROR"
+        summary="자동 조치 불가 판정에 조치 규칙이 지정되었습니다."
+        evidence="unexpected_remediation_rule_id=$remediation_rule_id"
+        applicable="true"
+        resolution_class="technical"
+        remediation_rule_id=""
+    fi
+
     RESULT_STATUS="$status"
     RESULT_TECHNICAL_STATUS="$status"
     RESULT_DECISION_BASIS="technical"
@@ -1135,6 +1188,9 @@ set_result() {
     RESULT_ATTESTATION_TICKET=""
     RESULT_ATTESTATION_APPROVER=""
     RESULT_ATTESTATION_EXPIRES=""
+    RESULT_RESOLUTION_CLASS="$resolution_class"
+    RESULT_REMEDIATION_ELIGIBLE="$remediation_eligible"
+    RESULT_REMEDIATION_RULE_ID="$remediation_rule_id"
     RESULT_SUMMARY="$summary"
     RESULT_EVIDENCE="$evidence"
     RESULT_APPLICABLE="$applicable"
@@ -1396,7 +1452,8 @@ result_review_id_into() {
     local applicable="$5"
     local summary="$6"
     local evidence="$7"
-    local destination_name="$8"
+    local resolution_class="$8"
+    local destination_name="$9"
     local sha256sum_path=""
     local review_file=""
     local review_directory=""
@@ -1404,20 +1461,21 @@ result_review_id_into() {
     local digest=""
 
     case "$destination_name" in
-        ''|[0-9]*|*[!A-Za-z0-9_]*|code|category|severity|title|applicable|summary|evidence|destination_name) return 2 ;;
+        ''|[0-9]*|*[!A-Za-z0-9_]*|code|category|severity|title|applicable|summary|evidence|resolution_class|destination_name) return 2 ;;
     esac
+    case "$resolution_class" in technical|policy|runtime|external) ;; *) return 2 ;; esac
     printf -v "$destination_name" '%s' ""
     sha256sum_path="$(trusted_sha256sum_command 2>/dev/null || true)"
     [ -n "$sha256sum_path" ] || return 2
     review_directory="${SCRATCH_DIR:-${TMPDIR:-/tmp}}"
     [ -d "$review_directory" ] && [ ! -L "$review_directory" ] || return 2
     review_file="$(mktemp "$review_directory/kisa-cce-review.XXXXXXXX")" || return 2
-    if ! printf 'review_schema:1\nscanner_version:%s\nplatform:%s:%s\nplatform_base:%s:%s\nevidence_capture:%s:%s:%s:%s\ncode:%d:%s\ncategory:%d:%s\nseverity:%d:%s\ntitle:%d:%s\napplicable:%s\nsummary:%d:%s\nevidence:%d:%s\n' \
+    if ! printf 'review_schema:2\nscanner_version:%s\nplatform:%s:%s\nplatform_base:%s:%s\nevidence_capture:%s:%s:%s:%s\ncode:%d:%s\ncategory:%d:%s\nseverity:%d:%s\ntitle:%d:%s\napplicable:%s\nresolution_class:%s\nsummary:%d:%s\nevidence:%d:%s\n' \
         "$KISA_CCE_VERSION" "${PLATFORM_ID:-unknown}" "${PLATFORM_VERSION:-unknown}" \
         "${PLATFORM_BASE_ID:-unknown}" "${PLATFORM_BASE_VERSION:-unknown}" \
         "${EVIDENCE_MACHINE_ID:-none}" "${EVIDENCE_BOOT_ID:-none}" "${EVIDENCE_CAPTURED_AT:-none}" "${EVIDENCE_BUNDLE_DIGEST:-none}" \
         "${#code}" "$code" "${#category}" "$category" "${#severity}" "$severity" \
-        "${#title}" "$title" "$applicable" "${#summary}" "$summary" \
+        "${#title}" "$title" "$applicable" "$resolution_class" "${#summary}" "$summary" \
         "${#evidence}" "$evidence" > "$review_file"; then
         rm -f -- "$review_file"
         return 2
@@ -1471,6 +1529,8 @@ record_result() {
     local escaped_attestation_ticket=""
     local escaped_attestation_approver=""
     local escaped_attestation_expires=""
+    local escaped_resolution_class=""
+    local escaped_remediation_rule_id=""
     local markdown_title=""
     local markdown_summary=""
     local markdown_evidence=""
@@ -1515,9 +1575,15 @@ record_result() {
     if [ "$RESULT_STATUS" = "MANUAL" ]; then
         manual_summary="$normalized_summary"
         result_review_id_into "$code" "$category" "$severity" "$normalized_title" "$RESULT_APPLICABLE" \
-            "$normalized_summary" "$full_redacted_evidence" manual_review_id || manual_review_id=""
+            "$normalized_summary" "$full_redacted_evidence" "$RESULT_RESOLUTION_CLASS" manual_review_id || manual_review_id=""
         RESULT_REVIEW_ID="$manual_review_id"
-        if [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; then
+        if { [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; } &&
+            [ "$RESULT_RESOLUTION_CLASS" != "policy" ]; then
+            RESULT_STATUS="ERROR"
+            RESULT_DECISION_BASIS="${RESULT_RESOLUTION_CLASS}_evidence_incomplete"
+            printf -v normalized_evidence 'decision_basis=%s\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
+                "$RESULT_DECISION_BASIS" "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
+        elif [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; then
             if [ -z "$manual_review_id" ]; then
                 RESULT_STATUS="ERROR"
                 RESULT_DECISION_BASIS="missing_review_id"
@@ -1545,11 +1611,16 @@ record_result() {
                         "$manual_review_id" "$POLICY_MATCH_TICKET" "$POLICY_MATCH_APPROVER" \
                         "$POLICY_MATCH_EXPIRES" "$manual_summary" "$full_redacted_evidence"
                 elif [ "$policy_status" -eq 1 ]; then
-                    RESULT_STATUS="ERROR"
-                    RESULT_DECISION_BASIS="missing_policy_attestation"
-                    normalized_summary="완전 검사에 필요한 정책 attestation이 없습니다."
-                    printf -v normalized_evidence 'decision_basis=missing_policy_attestation\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
-                        "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
+                    if [ "$SCAN_MODE" = "automation" ]; then
+                        RESULT_STATUS="VULNERABLE"
+                        RESULT_DECISION_BASIS="fail_closed_policy"
+                    else
+                        RESULT_STATUS="ERROR"
+                        RESULT_DECISION_BASIS="missing_policy_attestation"
+                        normalized_summary="완전 검사에 필요한 정책 attestation이 없습니다."
+                    fi
+                    printf -v normalized_evidence 'decision_basis=%s\nmanual_review_id=%s\nmanual_summary=%s\n%s' \
+                        "$RESULT_DECISION_BASIS" "$manual_review_id" "$manual_summary" "$full_redacted_evidence"
                 else
                     RESULT_STATUS="ERROR"
                     RESULT_DECISION_BASIS="invalid_policy_attestation"
@@ -1707,11 +1778,14 @@ record_result() {
     json_escape_into "$RESULT_ATTESTATION_TICKET" escaped_attestation_ticket
     json_escape_into "$RESULT_ATTESTATION_APPROVER" escaped_attestation_approver
     json_escape_into "$RESULT_ATTESTATION_EXPIRES" escaped_attestation_expires
-    if ! printf '{"code":"%s","category":"%s","severity":"%s","title":"%s","status":"%s","technical_status":"%s","decision_basis":"%s","review_id":"%s","attestation_ticket":"%s","attestation_approver":"%s","attestation_expires":"%s","applicable":%s,"summary":"%s","evidence":"%s","criterion_url":"%s"}\n' \
+    json_escape_into "$RESULT_RESOLUTION_CLASS" escaped_resolution_class
+    json_escape_into "$RESULT_REMEDIATION_RULE_ID" escaped_remediation_rule_id
+    if ! printf '{"code":"%s","category":"%s","severity":"%s","title":"%s","status":"%s","technical_status":"%s","decision_basis":"%s","review_id":"%s","attestation_ticket":"%s","attestation_approver":"%s","attestation_expires":"%s","applicable":%s,"summary":"%s","evidence":"%s","resolution_class":"%s","remediation_eligible":%s,"remediation_rule_id":"%s","criterion_url":"%s"}\n' \
         "$code" "$escaped_category" "$escaped_severity" "$escaped_title" "$RESULT_STATUS" \
         "$escaped_technical_status" "$escaped_decision_basis" "$escaped_review_id" \
         "$escaped_attestation_ticket" "$escaped_attestation_approver" "$escaped_attestation_expires" \
-        "$RESULT_APPLICABLE" "$escaped_summary" "$escaped_evidence" "$criterion_url" >> "$REPORT_JSONL"; then
+        "$RESULT_APPLICABLE" "$escaped_summary" "$escaped_evidence" "$escaped_resolution_class" \
+        "$RESULT_REMEDIATION_ELIGIBLE" "$escaped_remediation_rule_id" "$criterion_url" >> "$REPORT_JSONL"; then
         REPORT_WRITE_ERROR=1
         return 1
     fi
@@ -1753,6 +1827,9 @@ run_one_check() {
     RESULT_ATTESTATION_TICKET=""
     RESULT_ATTESTATION_APPROVER=""
     RESULT_ATTESTATION_EXPIRES=""
+    RESULT_RESOLUTION_CLASS="technical"
+    RESULT_REMEDIATION_ELIGIBLE="false"
+    RESULT_REMEDIATION_RULE_ID=""
     RESULT_SUMMARY=""
     RESULT_EVIDENCE=""
     RESULT_APPLICABLE="true"

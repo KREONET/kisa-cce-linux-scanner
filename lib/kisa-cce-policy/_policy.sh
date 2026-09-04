@@ -263,7 +263,7 @@ policy_split_record() {
 
 policy_time_source_provider_is_valid() {
     case "${1:-}" in
-        chrony|ntpsec|systemd-timesyncd) return 0 ;;
+        chrony|ntpd-rs|ntpsec|systemd-timesyncd) return 0 ;;
         *) return 1 ;;
     esac
 }

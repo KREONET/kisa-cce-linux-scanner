@@ -1204,7 +1204,7 @@ scanner_pam_unix_hash_option_counts() {
     local lines_file="$1"
     local yescrypt_supported=0
 
-    platform_is_debian_family && yescrypt_supported=1
+    platform_supports_yescrypt && yescrypt_supported=1
 
     awk -v yescrypt_supported="$yescrypt_supported" '
         {
@@ -1375,6 +1375,46 @@ scanner_pam_stack_has_bracket_control() {
             if (line_type ~ ("^(" expected_types ")$") && fields[2] ~ /^\[/) found=1
         }
         END {exit(found ? 0 : 1)}
+    ' "$lines_file"
+}
+
+scanner_u02_stack_has_ambiguous_bracket_control() {
+    local lines_file="$1"
+    local allow_rhel_localuser=0
+
+    platform_is_rhel_family && allow_rhel_localuser=1
+    awk -v allow_rhel_localuser="$allow_rhel_localuser" '
+        {
+            line=$0
+            sub(/^[^\t]*\t/, "", line)
+            sub(/^[[:space:]]+/, "", line)
+            field_count=split(line, fields, /[[:space:]]+/)
+            line_type=tolower(fields[1])
+            sub(/^-/, "", line_type)
+            if (line_type != "password" || fields[2] !~ /^\[/) next
+            module_index=2
+            control_count=0
+            delete control
+            while (module_index <= field_count) {
+                token=tolower(fields[module_index])
+                gsub(/^\[|\]$/, "", token)
+                if (token != "") {
+                    control[token]++
+                    control_count++
+                }
+                if (fields[module_index] ~ /\]$/) break
+                module_index++
+            }
+            module_index++
+            if (module_index > field_count) {ambiguous=1; next}
+            module_name=fields[module_index]
+            sub(/^.*\//, "", module_name)
+            if (allow_rhel_localuser && module_name == "pam_localuser.so" &&
+                control_count == 3 && control["default=1"] == 1 &&
+                control["ignore=ignore"] == 1 && control["success=ok"] == 1) next
+            ambiguous=1
+        }
+        END {exit(ambiguous ? 0 : 1)}
     ' "$lines_file"
 }
 
@@ -1924,7 +1964,7 @@ check_u_01() {
                 if [ "$ssh_state" -eq 0 ]; then
                     set_result ERROR "활성 SSH 서비스의 유효 설정을 확인하지 못했습니다." "$evidence"
                 else
-                    set_result MANUAL "22번 포트 리스너를 확인했지만 SSH 서비스와 root 정책을 확정하지 못했습니다." "$evidence"
+                    set_result MANUAL "22번 포트 리스너를 확인했지만 SSH 서비스와 root 정책을 확정하지 못했습니다." "$evidence" true runtime
                 fi
                 return
             fi
@@ -1950,7 +1990,7 @@ check_u_01() {
     fi
 
     if [ "$ssh_listener_unknown" -eq 1 ]; then
-        set_result MANUAL "22번 포트 리스너가 OpenSSH인지 확정할 수 없어 root 원격 접속 정책을 수동 확인해야 합니다." "$evidence"
+        set_result MANUAL "22번 포트 리스너가 OpenSSH인지 확정할 수 없어 root 원격 접속 정책을 수동 확인해야 합니다." "$evidence" true runtime
         return
     fi
 
@@ -1961,21 +2001,21 @@ check_u_01() {
     elif runtime_enabled && [ "$ssh_active" -eq 0 ] && [ "$listener_checked" -eq 1 ]; then
         set_result GOOD "활성 원격 터미널 서비스를 확인하지 못했습니다." "$evidence"
     elif runtime_enabled && [ "$ssh_active" -eq 0 ]; then
-        set_result MANUAL "리스너 표를 확인하지 못해 원격 터미널 비활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "리스너 표를 확인하지 못해 원격 터미널 비활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     elif ! runtime_enabled && [ "$telnet_static_status" -eq 2 ]; then
-        set_result MANUAL "오프라인 Telnet unit의 정적 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "오프라인 Telnet unit의 정적 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     elif [ "$telnet_legacy_status" -eq 2 ]; then
-        set_result MANUAL "Telnet inetd 또는 xinetd 유효 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "Telnet inetd 또는 xinetd 유효 활성 상태를 확정할 수 없습니다." "$evidence" true technical
     elif ! runtime_enabled && [ "$static_ambiguous" -eq 1 ]; then
-        set_result MANUAL "오프라인 SSH Include 또는 Match 문맥의 유효값을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "오프라인 SSH Include 또는 Match 문맥의 유효값을 확정할 수 없습니다." "$evidence" true technical
     elif runtime_enabled && [ "$ssh_active" -eq 1 ] && [ "$static_ambiguous" -eq 1 ]; then
-        set_result MANUAL "SSH Match 조건 전체에서 root 직접 접속 차단을 확인해야 합니다." "$evidence"
+        set_result MANUAL "SSH Match 조건 전체에서 root 직접 접속 차단을 확인해야 합니다." "$evidence" true technical
     elif [ "$ssh_value" = "no" ]; then
         set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "$evidence"
     elif [ -n "$ssh_value" ]; then
         set_result VULNERABLE "SSH의 root 직접 접속이 완전히 차단되지 않았습니다." "$evidence"
     else
-        set_result MANUAL "원격 터미널 사용 여부와 root 직접 접속의 유효 설정을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "원격 터미널 사용 여부와 root 직접 접속의 유효 설정을 확정할 수 없습니다." "$evidence" true runtime
     fi
 }
 
@@ -2101,7 +2141,7 @@ EOF
         $(printf '%s\n' "$quality_control_metrics" | awk '{print $3+0}') +
         $(printf '%s\n' "$history_control_metrics" | awk '{print $3+0}')
     ))
-    scanner_pam_stack_has_bracket_control "$pam_lines_file" password && stack_bracket_controls=1
+    scanner_u02_stack_has_ambiguous_bracket_control "$pam_lines_file" && stack_bracket_controls=1
 
     for value in \
         "PASS_MAX_DAYS:$(scanner_value_only "$maximum_days_record"):maximum" \
@@ -2186,13 +2226,13 @@ EOF
     if [ "$bypassable_controls" -gt 0 ]; then
         set_result VULNERABLE "비밀번호 품질 또는 이력 모듈이 우회 가능한 PAM control로 구성되어 있습니다." "$evidence"
     elif [ "$failures" -eq 0 ] && [ "$minimum_days_guide_conflict" -eq 1 ]; then
-        set_result MANUAL "Redhat 절차의 PASS_MIN_DAYS 0과 1 표기가 충돌하여 최소 사용 기간을 확인해야 합니다." "$evidence"
+        set_result MANUAL "Redhat 절차의 PASS_MIN_DAYS 0과 1 표기가 충돌하여 최소 사용 기간을 확인해야 합니다." "$evidence" true technical
     elif [ "$failures" -eq 0 ] && [ "$SCANNER_AUTHSELECT_UNMANAGED" -eq 1 ]; then
-        set_result MANUAL "PAM 정책은 충족하지만 RHEL authselect opt-out 구성이므로 변경 관리 상태를 확인해야 합니다." "$evidence"
+        set_result MANUAL "PAM 정책은 충족하지만 RHEL authselect opt-out 구성이므로 변경 관리 상태를 확인해야 합니다." "$evidence" true policy
     elif [ "$failures" -eq 0 ] && [ "$ambiguous_controls" -eq 0 ] && [ "$stack_bracket_controls" -eq 0 ]; then
         set_result GOOD "비밀번호 길이·복잡성·사용기간·이력 정책이 KISA 기준을 충족합니다." "$evidence"
     elif [ "$failures" -eq 0 ]; then
-        set_result MANUAL "복잡한 PAM control 흐름에서 비밀번호 정책이 항상 적용되는지 확인해야 합니다." "$evidence"
+        set_result MANUAL "복잡한 PAM control 흐름에서 비밀번호 정책이 항상 적용되는지 확인해야 합니다." "$evidence" true technical
     else
         set_result VULNERABLE "비밀번호 관리 정책에서 KISA 기준 미충족 또는 미설정 항목을 확인했습니다." "$evidence"
     fi
@@ -2281,7 +2321,7 @@ check_u_02() {
     elif [ "$vulnerable_stacks" -gt 0 ]; then
         set_result VULNERABLE "RHEL PAM 비밀번호 스택 중 KISA 기준을 충족하지 못한 구성이 있습니다." "$evidence"
     elif [ "$manual_stacks" -gt 0 ]; then
-        set_result MANUAL "RHEL PAM 비밀번호 스택의 정책 적용을 추가로 확인해야 합니다." "$evidence"
+        set_result MANUAL "RHEL PAM 비밀번호 스택의 정책 적용을 추가로 확인해야 합니다." "$evidence" true technical
     else
         set_result GOOD "system-auth와 password-auth의 비밀번호 정책이 KISA 기준을 충족합니다." "$evidence"
     fi
@@ -2449,7 +2489,7 @@ EOF
     elif [ "$invalid_service_count" -gt 0 ]; then
         set_result VULNERABLE "모든 유효 인증 서비스에서 실패 기록·잠금·성공 초기화 흐름을 확인하지 못했습니다." "$evidence"
     elif [ "$mixed_lock_modules" -eq 1 ] || [ "$SCANNER_AUTHSELECT_UNMANAGED" -eq 1 ]; then
-        set_result MANUAL "잠금 임계값은 확인했지만 PAM의 실패 기록·잠금·성공 초기화 흐름을 완전하게 입증하지 못했습니다." "$evidence"
+        set_result MANUAL "잠금 임계값은 확인했지만 PAM의 실패 기록·잠금·성공 초기화 흐름을 완전하게 입증하지 못했습니다." "$evidence" true technical
     else
         set_result GOOD "계정 잠금 임계값과 PAM 잠금 흐름이 확인됐습니다." "$evidence"
     fi
@@ -2573,7 +2613,7 @@ check_u_04() {
     if [ "$vulnerable_count" -gt 0 ]; then
         set_result VULNERABLE "쉐도우 저장 또는 암호화된 /etc/passwd 비밀번호 필드가 아닌 계정이 존재합니다." "$evidence"
     elif [ "$unresolved_count" -gt 0 ]; then
-        set_result MANUAL "쉐도우 대응 레코드가 없거나 알 수 없는 비밀번호 저장 형식이 존재합니다." "$evidence"
+        set_result MANUAL "쉐도우 대응 레코드가 없거나 알 수 없는 비밀번호 저장 형식이 존재합니다." "$evidence" true technical
     else
         set_result GOOD "모든 계정 비밀번호가 쉐도우 또는 암호화된 비밀번호 필드로 저장됩니다." "$evidence"
     fi
@@ -2740,7 +2780,7 @@ check_u_06() {
         else
             set_result MANUAL \
                 "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다." \
-                "local_general_accounts=0\nnss_account_sources=${nss_source_state}"
+                "local_general_accounts=0\nnss_account_sources=${nss_source_state}" true external
         fi
         return
     fi
@@ -2873,9 +2913,9 @@ check_u_06() {
        { [ "$effective_pam_group" = "wheel" ] || [ "$effective_pam_group" = "sudo" ]; }; then
         set_result GOOD "su 실행이 필수 PAM 규칙으로 특정 그룹에 제한되어 있습니다." "$evidence"
     elif [ "$pam_restricted" -eq 1 ]; then
-        set_result MANUAL "su 제한 그룹의 구성원 범위가 관리 목적에 적합한지 확인해야 합니다." "$evidence"
+        set_result MANUAL "su 제한 그룹의 구성원 범위가 관리 목적에 적합한지 확인해야 합니다." "$evidence" true policy
     elif [ "$permission_restricted" -eq 1 ]; then
-        set_result MANUAL "su 파일 권한은 그룹 실행으로 제한되지만 해당 그룹의 업무상 적정성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "su 파일 권한은 그룹 실행으로 제한되지만 해당 그룹의 업무상 적정성을 확인해야 합니다." "$evidence" true policy
     else
         set_result VULNERABLE "일반 사용자의 su 실행을 제한하는 설정을 확인하지 못했습니다." "$evidence"
     fi
@@ -2959,7 +2999,7 @@ check_u_07() {
     else
         scanner_append_evidence evidence "recent_login_records=offline"
     fi
-    set_result MANUAL "계정의 업무 필요성과 최근 사용 여부는 조직의 계정 대장 및 인증 로그로 확인해야 합니다." "$evidence"
+    set_result MANUAL "계정의 업무 필요성과 최근 사용 여부는 조직의 계정 대장 및 인증 로그로 확인해야 합니다." "$evidence" true policy
 }
 
 check_u_08() {
@@ -2997,7 +3037,7 @@ check_u_08() {
     else
         scanner_append_evidence evidence "additional_accounts=${count}"
         scanner_append_evidence evidence "accounts=$(printf '%s\n' "$accounts" | head -n 20 | paste -sd, -)"
-        set_result MANUAL "root 그룹의 추가 계정이 업무상 필요한지 확인해야 합니다." "$evidence"
+        set_result MANUAL "root 그룹의 추가 계정이 업무상 필요한지 확인해야 합니다." "$evidence" true policy
     fi
 }
 
@@ -3058,11 +3098,11 @@ check_u_09() {
     scanner_append_evidence evidence "filesystem_group_ownership=manual-review"
     if [ "$count" -eq 0 ]; then
         scanner_append_evidence evidence "unused_group_candidates=0"
-        set_result MANUAL "직접 연결되지 않은 그룹은 없지만 전체 그룹의 업무 필요성과 파일 소유 관계를 대조해야 합니다." "$evidence"
+        set_result MANUAL "직접 연결되지 않은 그룹은 없지만 전체 그룹의 업무 필요성과 파일 소유 관계를 대조해야 합니다." "$evidence" true policy
     else
         scanner_append_evidence evidence "unused_group_candidates=${count}"
         scanner_append_evidence evidence "groups=$(printf '%s\n' "$candidates" | head -n 20 | paste -sd, -)"
-        set_result MANUAL "계정과 직접 연결되지 않은 그룹의 시스템·서비스상 필요성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "계정과 직접 연결되지 않은 그룹의 시스템·서비스상 필요성을 확인해야 합니다." "$evidence" true policy
     fi
 }
 
@@ -3150,7 +3190,7 @@ check_u_11() {
     elif [ "$additional_count" -gt 0 ]; then
         scanner_append_evidence evidence "additional_system_accounts=${additional_count}"
         scanner_append_evidence evidence "accounts=$(printf '%s\n' "$additional_accounts" | head -n 20 | paste -sd, -)"
-        set_result MANUAL "로그인 셸을 가진 추가 시스템 계정의 업무 필요성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "로그인 셸을 가진 추가 시스템 계정의 업무 필요성을 확인해야 합니다." "$evidence" true policy
     else
         set_result GOOD "점검 대상 시스템 계정에 비로그인 셸이 부여되어 있습니다." "affected_accounts=0"
     fi
@@ -3168,6 +3208,7 @@ check_u_12() {
     local noncompliant=0
     local unresolved=0
     local exported=0
+    local readonly_assignments=0
     local sh_accounts=0
     local csh_accounts=0
     local unsupported_shell_accounts=0
@@ -3257,7 +3298,8 @@ check_u_12() {
             record_type="${record%%:*}"
             record="${record#*:}"
             value="${record%%:*}"
-            if [ "$record_type" = "literal" ] && scanner_is_unsigned_integer "$value"; then
+            if { [ "$record_type" = "literal" ] || [ "$record_type" = "readonly_literal" ]; } &&
+                scanner_is_unsigned_integer "$value"; then
                 if [ "$value" -gt 0 ] && [ "$value" -le 600 ]; then
                     compliant=$((compliant + 1))
                     sh_compliant=$((sh_compliant + 1))
@@ -3265,9 +3307,12 @@ check_u_12() {
                     noncompliant=$((noncompliant + 1))
                     sh_noncompliant=$((sh_noncompliant + 1))
                 fi
+                [ "$record_type" != "readonly_literal" ] || readonly_assignments=$((readonly_assignments + 1))
                 scanner_append_evidence evidence "TMOUT=${value},source=$(display_path "$file"):${record#*:}"
             elif [ "$record_type" = "export" ]; then
                 exported=$((exported + 1))
+            elif [ "$record_type" = "readonly" ]; then
+                readonly_assignments=$((readonly_assignments + 1))
             else
                 unresolved=$((unresolved + 1))
                 sh_unresolved=$((sh_unresolved + 1))
@@ -3279,14 +3324,18 @@ check_u_12() {
                 if (line == "" || line ~ /^#/) next
                 sub(/[[:space:]]+#.*$/, "", line)
                 if (line ~ /^(export[[:space:]]+|readonly[[:space:]]+)?TMOUT[[:space:]]*=/) {
+                    readonly_assignment=(line ~ /^readonly[[:space:]]+TMOUT[[:space:]]*=/)
                     value=line
                     sub(/^(export[[:space:]]+|readonly[[:space:]]+)?TMOUT[[:space:]]*=[[:space:]]*/, "", value)
                     sub(/[[:space:]]*;.*$/, "", value)
                     sub(/[[:space:]]+$/, "", value)
-                    if (value ~ /^[0-9]+$/) print "literal:" value ":" FNR
+                    if (value ~ /^[0-9]+$/ && readonly_assignment) print "readonly_literal:" value ":" FNR
+                    else if (value ~ /^[0-9]+$/) print "literal:" value ":" FNR
                     else print "dynamic:dynamic:" FNR
                 } else if (line ~ /^export[[:space:]]+TMOUT([[:space:];]|$)/) {
                     print "export:present:" FNR
+                } else if (line ~ /^readonly[[:space:]]+TMOUT([[:space:];]|$)/) {
+                    print "readonly:present:" FNR
                 } else if (line ~ /(^|[;[:space:]])(unset[[:space:]]+TMOUT|TMOUT[[:space:]]*=)/) {
                     print "dynamic:dynamic:" FNR
                 }
@@ -3349,15 +3398,20 @@ check_u_12() {
     scanner_append_evidence evidence "literal_compliant=${compliant}"
     scanner_append_evidence evidence "literal_noncompliant=${noncompliant}"
     scanner_append_evidence evidence "export_statements=${exported}"
+    scanner_append_evidence evidence "readonly_statements=${readonly_assignments}"
     scanner_append_evidence evidence "unresolved_assignments=${unresolved}"
     if [ "$missing_required" -gt 0 ]; then
-        set_result VULNERABLE "사용 중인 셸에 대한 전역 세션 시간 제한 설정을 확인하지 못했습니다." "$evidence"
+        set_result VULNERABLE "사용 중인 셸에 대한 전역 세션 시간 제한 설정을 확인하지 못했습니다." \
+            "$evidence" true technical true configuration.u12.v1
     elif [ "$unsupported_shell_accounts" -gt 0 ] || [ "$unresolved" -gt 0 ] || [ "$noncompliant" -gt 0 ]; then
-        set_result MANUAL "셸별 설정 순서와 동적 재정의를 반영한 최종 세션 시간 제한을 확인해야 합니다." "$evidence"
+        set_result MANUAL "셸별 설정 순서와 동적 재정의를 반영한 최종 세션 시간 제한을 확인해야 합니다." "$evidence" true technical
+    elif [ "$csh_accounts" -eq 0 ] && [ "$sh_accounts" -gt 0 ] &&
+        [ "$compliant" -gt 0 ] && [ "$exported" -gt 0 ] && [ "$readonly_assignments" -gt 0 ]; then
+        set_result GOOD "600초 이하의 전역 TMOUT이 읽기 전용으로 적용되어 있습니다." "$evidence"
     elif [ "$compliant" -gt 0 ]; then
-        set_result MANUAL "600초 이하의 설정은 확인했지만 사용자 시작 파일의 재정의 가능성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "600초 이하의 설정은 확인했지만 사용자 시작 파일의 재정의 가능성을 확인해야 합니다." "$evidence" true technical
     else
-        set_result MANUAL "적용 가능한 대화형 셸과 세션 시간 제한 정책을 확인해야 합니다." "$evidence"
+        set_result MANUAL "적용 가능한 대화형 셸과 세션 시간 제한 정책을 확인해야 합니다." "$evidence" true technical
     fi
 }
 
@@ -3396,7 +3450,7 @@ check_u_13() {
     local passwd_status=0
     local shadow_status=0
     local shadow_present=0
-    local debian_hashes=0
+    local yescrypt_hashes=0
 
     passwd_file="$(optional_rooted_read_path /etc/passwd 2>/dev/null)" || passwd_status=$?
     if [ "$passwd_status" -ne 0 ] || ! scanner_validate_passwd_database "$passwd_file"; then
@@ -3473,7 +3527,7 @@ check_u_13() {
     case "$method" in
         SHA256|SHA512) method_secure=1 ;;
         YESCRYPT)
-            if platform_is_debian_family; then
+            if platform_supports_yescrypt; then
                 method_secure=1
             else
                 method_unsupported=1
@@ -3482,8 +3536,8 @@ check_u_13() {
         GOST_YESCRYPT|BCRYPT|BLOWFISH) method_unsupported=1 ;;
     esac
 
-    platform_is_debian_family && debian_hashes=1
-    counts="$(awk -F: -v debian_hashes="$debian_hashes" -v record_format="$record_format" '
+    platform_supports_yescrypt && yescrypt_hashes=1
+    counts="$(awk -F: -v yescrypt_hashes="$yescrypt_hashes" -v record_format="$record_format" '
         function crypt_characters(value) {
             return value != "" && value !~ /[^.\/0-9A-Za-z]/
         }
@@ -3537,7 +3591,7 @@ check_u_13() {
             }
             else if (password ~ /^\$y\$/) {
                 if (!valid_yescrypt(password)) invalid++
-                else if (debian_hashes) secure++
+                else if (yescrypt_hashes) secure++
                 else unsupported++
             }
             else if (password ~ /^\$gy\$/) {
@@ -3581,15 +3635,15 @@ check_u_13() {
     elif [ "$weak_count" -gt 0 ] || [ "$empty_count" -gt 0 ] || [ "$pam_weak_options" -gt 0 ] || { [ -n "$method" ] && [ "$method_secure" -eq 0 ] && [ "$method_unsupported" -eq 0 ]; }; then
         set_result VULNERABLE "취약한 비밀번호 해시 또는 향후 생성 비밀번호의 취약한 알고리즘 설정을 확인했습니다." "$evidence"
     elif [ "$invalid_hash_count" -gt 0 ] || [ "$unknown_count" -gt 0 ]; then
-        set_result MANUAL "형식이 불완전하거나 알 수 없는 비밀번호 해시의 안전성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "형식이 불완전하거나 알 수 없는 비밀번호 해시의 안전성을 확인해야 합니다." "$evidence" true technical
     elif [ "$unsupported_hash_count" -gt 0 ] || [ "$pam_unsupported_options" -gt 0 ] || [ "$method_unsupported" -gt 0 ]; then
-        set_result MANUAL "이 플랫폼에서 지원하지 않는 PAM 해시 옵션의 실제 적용 결과를 확인해야 합니다." "$evidence"
+        set_result MANUAL "이 플랫폼에서 지원하지 않는 PAM 해시 옵션의 실제 적용 결과를 확인해야 합니다." "$evidence" true technical
     elif [ "$pam_unix_modules" -gt $((pam_secure_options + pam_weak_options)) ] && [ -z "$method" ]; then
-        set_result MANUAL "명시적 해시 방식이 없는 PAM 경로의 향후 비밀번호 알고리즘을 확인해야 합니다." "$evidence"
+        set_result MANUAL "명시적 해시 방식이 없는 PAM 경로의 향후 비밀번호 알고리즘을 확인해야 합니다." "$evidence" true technical
     elif [ "$secure_count" -gt 0 ] || [ "$method_secure" -eq 1 ] || [ "$pam_secure_options" -gt 0 ]; then
         set_result GOOD "SHA-2 이상 또는 yescrypt 계열의 비밀번호 알고리즘을 사용합니다." "$evidence"
     else
-        set_result MANUAL "활성 비밀번호 해시와 명시적 생성 알고리즘이 없어 정책을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "활성 비밀번호 해시와 명시적 생성 알고리즘이 없어 정책을 확정할 수 없습니다." "$evidence" true technical
     fi
 }
 
@@ -3728,11 +3782,11 @@ check_u_14() {
     scanner_append_evidence evidence "unresolved_profile_paths=${unresolved}"
     scanner_append_evidence evidence "root_home=${root_home}"
     if [ "$unsafe_count" -gt 0 ]; then
-        set_result MANUAL "취약할 수 있는 PATH 할당은 발견했지만 셸 시작 순서상의 최종 유효값을 확인해야 합니다." "$evidence"
+        set_result MANUAL "취약할 수 있는 PATH 할당은 발견했지만 셸 시작 순서상의 최종 유효값을 확인해야 합니다." "$evidence" true runtime
     elif [ "$unresolved" -gt 0 ]; then
-        set_result MANUAL "일부 root 셸 시작 파일을 안전하게 해석하지 못해 최종 PATH 확인이 필요합니다." "$evidence"
+        set_result MANUAL "일부 root 셸 시작 파일을 안전하게 해석하지 못해 최종 PATH 확인이 필요합니다." "$evidence" true technical
     else
-        set_result MANUAL "정적 환경 파일에는 명백한 취약 PATH가 없지만 root 로그인 시 유효값 확인이 필요합니다." "$evidence"
+        set_result MANUAL "정적 환경 파일에는 명백한 취약 PATH가 없지만 root 로그인 시 유효값 확인이 필요합니다." "$evidence" true runtime
     fi
 }
 
@@ -3780,12 +3834,12 @@ external_nss_sources=${SCANNER_FULL_FILESYSTEM_U15_EXTERNAL_NSS}
 ${SCANNER_FULL_FILESYSTEM_U15_EVIDENCE}"
     if [ "$SCANNER_FULL_FILESYSTEM_U15_COUNT" -gt 0 ]; then
         if [ "$SCANNER_FULL_FILESYSTEM_U15_EXTERNAL_NSS" -eq 1 ]; then
-            set_result MANUAL "외부 NSS 조회 실패와 실제 소유자 부재를 구분할 수 없어 확인이 필요합니다." "$evidence"
+            set_result MANUAL "외부 NSS 조회 실패와 실제 소유자 부재를 구분할 수 없어 확인이 필요합니다." "$evidence" true external
         else
             set_result VULNERABLE "소유자 또는 그룹이 존재하지 않는 파일·디렉터리가 있습니다." "$evidence"
         fi
     elif [ "$SCAN_ROOT" != "/" ]; then
-        set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 소유자 검색 완료를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 소유자 검색 완료를 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "검사한 파일시스템에서 소유자 없는 파일·디렉터리가 없습니다." "$evidence"
     fi
@@ -3812,7 +3866,8 @@ check_u_16() {
     result=$?
     case "$result" in
         0) set_result GOOD "/etc/passwd가 root 소유이며 권한이 0644 이하입니다." "owner_uid=${uid},mode=${mode}" ;;
-        1) set_result VULNERABLE "/etc/passwd의 소유자 또는 권한이 기준을 벗어납니다." "owner_uid=${uid},mode=${mode}" ;;
+        1) set_result VULNERABLE "/etc/passwd의 소유자 또는 권한이 기준을 벗어납니다." \
+            "owner_uid=${uid},mode=${mode}" true technical true metadata.u16.v1 ;;
         *) set_result ERROR "/etc/passwd의 메타데이터를 확인하지 못했습니다." "path=/etc/passwd" ;;
     esac
 }
@@ -3924,7 +3979,7 @@ ${evidence}"
     elif [ "$dangling_links" -gt 0 ]; then
         debug_emit filesystem_snapshot phase result name startup status ambiguous \
             paths "$scanned" dangling "$dangling_links" masks "$masks"
-        set_result MANUAL "대상이 없는 시스템 시작 별칭의 필요성과 잔여 구성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "대상이 없는 시스템 시작 별칭의 필요성과 잔여 구성을 확인해야 합니다." "$evidence" true policy
     elif [ "$scanned" -eq 0 ]; then
         debug_emit filesystem_snapshot phase result name startup status absent paths 0 masks "$masks"
         set_result NOT_APPLICABLE "로컬 시스템 시작 스크립트를 찾지 못했습니다." "$evidence" false
@@ -3956,7 +4011,8 @@ check_u_18() {
     result=$?
     case "$result" in
         0) set_result GOOD "/etc/shadow가 root 소유이며 권한이 0400 이하입니다." "owner_uid=${uid},mode=${mode}" ;;
-        1) set_result VULNERABLE "/etc/shadow의 소유자 또는 권한이 KISA 기준을 벗어납니다." "owner_uid=${uid},mode=${mode}" ;;
+        1) set_result VULNERABLE "/etc/shadow의 소유자 또는 권한이 KISA 기준을 벗어납니다." \
+            "owner_uid=${uid},mode=${mode}" true technical true metadata.u18.v1 ;;
         *) set_result ERROR "/etc/shadow의 메타데이터를 확인하지 못했습니다." "path=/etc/shadow" ;;
     esac
 }
@@ -3982,7 +4038,8 @@ check_u_19() {
     result=$?
     case "$result" in
         0) set_result GOOD "/etc/hosts가 root 소유이며 권한이 0644 이하입니다." "owner_uid=${uid},mode=${mode}" ;;
-        1) set_result VULNERABLE "/etc/hosts의 소유자 또는 권한이 기준을 벗어납니다." "owner_uid=${uid},mode=${mode}" ;;
+        1) set_result VULNERABLE "/etc/hosts의 소유자 또는 권한이 기준을 벗어납니다." \
+            "owner_uid=${uid},mode=${mode}" true technical true metadata.u19.v1 ;;
         *) set_result ERROR "/etc/hosts의 메타데이터를 확인하지 못했습니다." "path=/etc/hosts" ;;
     esac
 }
@@ -4169,7 +4226,7 @@ ${SCANNER_METADATA_EVIDENCE}"
     elif [ "$SCANNER_METADATA_VIOLATIONS" -gt 0 ]; then
         set_result VULNERABLE "(r)syslog 구성의 소유자 또는 권한이 기준을 벗어납니다." "$evidence"
     elif [ "$complex_include" -gt 0 ]; then
-        set_result MANUAL "rsyslog의 비표준 include 그래프에 포함된 모든 파일의 메타데이터를 확인해야 합니다." "$evidence"
+        set_result MANUAL "rsyslog의 비표준 include 그래프에 포함된 모든 파일의 메타데이터를 확인해야 합니다." "$evidence" true technical
     elif [ "$SCANNER_METADATA_SCANNED" -eq 0 ]; then
         set_result NOT_APPLICABLE "(r)syslog 구성 파일이 없으며 journald 점검은 U-66에서 수행합니다." "$evidence" false
     else
@@ -4198,7 +4255,8 @@ check_u_22() {
     result=$?
     case "$result" in
         0) set_result GOOD "/etc/services가 허용 소유자이며 권한이 0644 이하입니다." "owner_uid=${uid},mode=${mode}" ;;
-        1) set_result VULNERABLE "/etc/services의 소유자 또는 권한이 기준을 벗어납니다." "owner_uid=${uid},mode=${mode}" ;;
+        1) set_result VULNERABLE "/etc/services의 소유자 또는 권한이 기준을 벗어납니다." \
+            "owner_uid=${uid},mode=${mode}" true technical true metadata.u22.v1 ;;
         *) set_result ERROR "/etc/services의 메타데이터를 확인하지 못했습니다." "path=/etc/services" ;;
     esac
 }
@@ -4225,12 +4283,12 @@ check_u_23() {
 ${SCANNER_FULL_FILESYSTEM_U23_EVIDENCE}"
     if [ "$SCANNER_FULL_FILESYSTEM_U23_COUNT" -eq 0 ]; then
         if [ "$SCAN_ROOT" != "/" ]; then
-            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 SUID·SGID 검색 완료를 확정할 수 없습니다." "$evidence"
+            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 SUID·SGID 검색 완료를 확정할 수 없습니다." "$evidence" true runtime
         else
             set_result GOOD "일반 파일에서 SUID·SGID 설정을 찾지 못했습니다." "$evidence"
         fi
     else
-        set_result MANUAL "SUID·SGID 파일의 설치 출처와 업무 필요성을 승인 목록과 대조해야 합니다." "$evidence"
+        set_result MANUAL "SUID·SGID 파일의 설치 출처와 업무 필요성을 승인 목록과 대조해야 합니다." "$evidence" true policy
     fi
 }
 
@@ -4451,12 +4509,12 @@ check_u_25() {
 ${SCANNER_FULL_FILESYSTEM_U25_EVIDENCE}"
     if [ "$SCANNER_FULL_FILESYSTEM_U25_COUNT" -eq 0 ]; then
         if [ "$SCAN_ROOT" != "/" ]; then
-            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 world writable 검색 완료를 확정할 수 없습니다." "$evidence"
+            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 world writable 검색 완료를 확정할 수 없습니다." "$evidence" true runtime
         else
             set_result GOOD "world writable 일반 파일이 없습니다." "$evidence"
         fi
     else
-        set_result MANUAL "world writable 파일의 설정 사유와 승인 여부를 확인해야 합니다." "$evidence"
+        set_result MANUAL "world writable 파일의 설정 사유와 승인 여부를 확인해야 합니다." "$evidence" true policy
     fi
 }
 
@@ -4582,9 +4640,9 @@ legacy_activation=${legacy_active}
 legacy_uncertain=${legacy_uncertain}
 tcp_listener_state=${listener_status}"
         if [ "$listener_status" -eq 0 ]; then
-            set_result MANUAL "r-command 포트의 TCP 수신 프로세스가 실제 rlogin·rsh·rexec인지 확인해야 합니다." "$evidence"
+            set_result MANUAL "r-command 포트의 TCP 수신 프로세스가 실제 rlogin·rsh·rexec인지 확인해야 합니다." "$evidence" true runtime
         elif [ "$activation_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ] || [ "$listener_status" -eq 2 ]; then
-            set_result MANUAL "rlogin·rsh·rexec의 활성 상태를 완전하게 확정하지 못했습니다." "$evidence"
+            set_result MANUAL "rlogin·rsh·rexec의 활성 상태를 완전하게 확정하지 못했습니다." "$evidence" true runtime
         else
             set_result GOOD "rlogin·rsh·rexec 서비스가 비활성 상태입니다." "$evidence"
         fi
@@ -6259,9 +6317,9 @@ ${evidence}"
     if [ "$errors" -gt 0 ]; then
         set_result ERROR "접근 제한 공급자의 설정 또는 실행 상태를 안전하게 수집하지 못했습니다." "$evidence"
     elif [ "$confirmed" -gt 0 ]; then
-        set_result MANUAL "입력 경로의 호스트·포트 제한 후보가 확인됐으며 업무 허용 목록과 대조해야 합니다." "$evidence"
+        set_result MANUAL "입력 경로의 호스트·포트 제한 후보가 확인됐으며 업무 허용 목록과 대조해야 합니다." "$evidence" true policy
     elif [ "$uncertain" -gt 0 ]; then
-        set_result MANUAL "복잡하거나 적용 여부가 불명확한 접근 제한 구성을 검토해야 합니다." "$evidence"
+        set_result MANUAL "복잡하거나 적용 여부가 불명확한 접근 제한 구성을 검토해야 합니다." "$evidence" true technical
     else
         set_result VULNERABLE "호스트·IP·포트 접근 제한을 입증할 활성 또는 영구 입력 규칙을 찾지 못했습니다." "$evidence"
     fi
@@ -6288,7 +6346,8 @@ check_u_29() {
     result=$?
     case "$result" in
         0) set_result GOOD "/etc/hosts.lpd가 root 소유이며 권한이 0600 이하입니다." "owner_uid=${uid},mode=${mode}" ;;
-        1) set_result VULNERABLE "/etc/hosts.lpd의 소유자 또는 권한이 기준을 벗어납니다." "owner_uid=${uid},mode=${mode}" ;;
+        1) set_result VULNERABLE "/etc/hosts.lpd의 소유자 또는 권한이 기준을 벗어납니다." \
+            "owner_uid=${uid},mode=${mode}" true technical true metadata.u29.v1 ;;
         *) set_result ERROR "/etc/hosts.lpd의 메타데이터를 확인하지 못했습니다." "path=/etc/hosts.lpd" ;;
     esac
 }
@@ -7236,7 +7295,7 @@ check_u_30() {
     elif [ "$vulnerable_scopes" -gt 0 ]; then
         set_result VULNERABLE "022보다 약한 유효 UMASK 적용 경로가 존재합니다." "$evidence"
     elif [ "$manual_scopes" -gt 0 ]; then
-        set_result MANUAL "조건부 또는 충돌하는 UMASK 적용 순서를 확인해야 합니다." "$evidence"
+        set_result MANUAL "조건부 또는 충돌하는 UMASK 적용 순서를 확인해야 합니다." "$evidence" true technical
     elif [ "$good_scopes" -gt 0 ]; then
         set_result GOOD "확인된 시스템·사용자·활성 FTP UMASK 적용 경로가 022 이상입니다." "$evidence"
     else
@@ -7246,13 +7305,17 @@ check_u_30() {
 
 check_u_31() {
     local passwd_file=""
+    local uid_minimum_record=""
+    local uid_minimum="1000"
     local user_name=""
     local user_uid=""
     local home_path=""
+    local shell_path=""
     local path=""
     local owner_uid=""
     local mode=""
     local scanned=0
+    local excluded=0
     local violations=0
     local errors=0
     local evidence=""
@@ -7269,7 +7332,28 @@ check_u_31() {
         set_result ERROR "/etc/passwd 계정 데이터가 비어 있거나 올바르지 않습니다." "path=/etc/passwd,status=${database_status}"
         return
     fi
-    while IFS=: read -r user_name _ user_uid _ _ home_path _; do
+    if ! scanner_capture_optional_value uid_minimum_record login_defs_value UID_MIN; then
+        set_result ERROR "UID_MIN 설정 경로를 안전하게 해석하지 못했습니다." "setting=UID_MIN"
+        return
+    fi
+    if [ -n "$uid_minimum_record" ]; then
+        uid_minimum="$(scanner_value_only "$uid_minimum_record")"
+        scanner_is_unsigned_integer "$uid_minimum" || {
+            set_result ERROR "UID_MIN 값이 유효한 정수가 아닙니다." "setting=UID_MIN"
+            return
+        }
+    fi
+    while IFS=: read -r user_name _ user_uid _ _ home_path shell_path; do
+        if [ "$user_name" != root ] && {
+            [ "$user_uid" -lt "$uid_minimum" ] || [ "$user_uid" -ge 65534 ] ||
+            case "$shell_path" in
+                /bin/false|/usr/bin/false|/sbin/nologin|/usr/sbin/nologin|/bin/nologin) true ;;
+                *) false ;;
+            esac
+        }; then
+            excluded=$((excluded + 1))
+            continue
+        fi
         case "$home_path" in
             /*) ;;
             *)
@@ -7295,6 +7379,7 @@ check_u_31() {
         fi
     done < "$passwd_file"
     evidence="scanned_homes=${scanned}
+excluded_system_or_nonlogin_accounts=${excluded}
 violations=${violations}
 metadata_errors=${errors}
 ${evidence}"
@@ -7309,11 +7394,16 @@ ${evidence}"
 
 check_u_32() {
     local passwd_file=""
+    local uid_minimum_record=""
+    local uid_minimum="1000"
     local user_name=""
+    local user_uid=""
     local home_path=""
+    local shell_path=""
     local path=""
     local missing=0
     local checked=0
+    local excluded=0
     local errors=0
     local evidence=""
     local database_status=0
@@ -7330,7 +7420,28 @@ check_u_32() {
         set_result ERROR "/etc/passwd 계정 데이터가 비어 있거나 올바르지 않습니다." "path=/etc/passwd,status=${database_status}"
         return
     fi
-    while IFS=: read -r user_name _ _ _ _ home_path _; do
+    if ! scanner_capture_optional_value uid_minimum_record login_defs_value UID_MIN; then
+        set_result ERROR "UID_MIN 설정 경로를 안전하게 해석하지 못했습니다." "setting=UID_MIN"
+        return
+    fi
+    if [ -n "$uid_minimum_record" ]; then
+        uid_minimum="$(scanner_value_only "$uid_minimum_record")"
+        scanner_is_unsigned_integer "$uid_minimum" || {
+            set_result ERROR "UID_MIN 값이 유효한 정수가 아닙니다." "setting=UID_MIN"
+            return
+        }
+    fi
+    while IFS=: read -r user_name _ user_uid _ _ home_path shell_path; do
+        if [ "$user_name" != root ] && {
+            [ "$user_uid" -lt "$uid_minimum" ] || [ "$user_uid" -ge 65534 ] ||
+            case "$shell_path" in
+                /bin/false|/usr/bin/false|/sbin/nologin|/usr/sbin/nologin|/bin/nologin) true ;;
+                *) false ;;
+            esac
+        }; then
+            excluded=$((excluded + 1))
+            continue
+        fi
         checked=$((checked + 1))
         case "$home_path" in
             /*) ;;
@@ -7353,6 +7464,7 @@ check_u_32() {
         fi
     done < "$passwd_file"
     evidence="configured_homes_checked=${checked}
+excluded_system_or_nonlogin_accounts=${excluded}
 missing_configured_homes=${missing}
 path_errors=${errors}
 ${evidence}"
@@ -7387,11 +7499,11 @@ check_u_33() {
 ${SCANNER_FULL_FILESYSTEM_U33_EVIDENCE}"
     if [ "$SCANNER_FULL_FILESYSTEM_U33_COUNT" -eq 0 ]; then
         if [ "$SCAN_ROOT" != "/" ]; then
-            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 숨김 경로 검색 완료를 확정할 수 없습니다." "$evidence"
+            set_result MANUAL "오프라인 루트의 하위 마운트 경계를 확인할 수 없어 숨김 경로 검색 완료를 확정할 수 없습니다." "$evidence" true runtime
         else
             set_result GOOD "검사한 파일시스템에서 숨김 파일·디렉터리를 찾지 못했습니다." "$evidence"
         fi
     else
-        set_result MANUAL "숨김 파일·디렉터리의 업무 필요성과 무결성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "숨김 파일·디렉터리의 업무 필요성과 무결성을 확인해야 합니다." "$evidence" true policy
     fi
 }

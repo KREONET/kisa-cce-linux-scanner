@@ -133,20 +133,38 @@ run_scanner "$preflight_stdout" "$preflight_stderr" --root "$scan_root" --mode a
 assert_equal 2 "$status" "automation selection precondition"
 assert_contains "$(< "$preflight_stderr")" "automation mode requires all checks" "automation selection error"
 
-printf '%s\n' 'check_u_67() { set_result MANUAL "fixture manual" "fixture=manual"; }' > "$override_file"
+printf '%s\n' 'check_u_67() { set_result MANUAL "fixture runtime" "fixture=runtime" true runtime; }' > "$override_file"
+runtime_output="$test_directory/runtime-output"
+runtime_stdout="$test_directory/runtime.stdout"
+runtime_stderr="$test_directory/runtime.stderr"
+status=0
+run_scanner "$runtime_stdout" "$runtime_stderr" --root "$scan_root" --mode automation \
+    --policy-dir "$policy_directory" --evidence-bundle "$bundle" --output-dir "$runtime_output" || status=$?
+assert_equal 2 "$status" "runtime-incomplete automation blocker"
+assert_empty_output_directory "$runtime_output"
+assert_contains "$(< "$runtime_stderr")" "automation mode did not publish reports" \
+    "runtime-incomplete automation diagnostic"
+
+printf '%s\n' 'check_u_67() { set_result MANUAL "fixture manual" "fixture=manual" true policy; }' > "$override_file"
 blocked_output="$test_directory/manual-output"
 blocked_stdout="$test_directory/manual.stdout"
 blocked_stderr="$test_directory/manual.stderr"
 status=0
 run_scanner "$blocked_stdout" "$blocked_stderr" --root "$scan_root" --mode automation \
     --policy-dir "$policy_directory" --evidence-bundle "$bundle" --output-dir "$blocked_output" -v || status=$?
-assert_equal 2 "$status" "manual automation blocker"
-assert_empty_output_directory "$blocked_output"
-if grep -Fq 'markdown_report=' "$blocked_stdout" "$blocked_stderr" || \
-    grep -Fq 'jsonl_report=' "$blocked_stdout" "$blocked_stderr"; then
-    fail "manual automation blocker published report paths"
+assert_equal 1 "$status" "unattested policy automation result"
+blocked_json="$(sed -n 's/^\[[^]]*\] kisa-cce-scan: jsonl_report=//p' "$blocked_stdout")"
+[ -f "$blocked_json" ] || fail "unattested policy automation JSONL report is absent"
+blocked_record="$(grep -F '"code":"U-67"' "$blocked_json")"
+assert_contains "$blocked_record" '"status":"VULNERABLE","technical_status":"VULNERABLE"' \
+    "unattested policy automation status"
+assert_contains "$blocked_record" '"decision_basis":"fail_closed_policy"' \
+    "unattested policy automation decision basis"
+assert_contains "$blocked_record" '"resolution_class":"policy","remediation_eligible":false' \
+    "unattested policy automation eligibility"
+if grep -Eq '"status":"(MANUAL|ERROR)"' "$blocked_json"; then
+    fail "unattested policy automation retained a blocked status"
 fi
-assert_contains "$(< "$blocked_stderr")" "automation mode did not publish reports" "manual blocker diagnostic"
 
 audit_output="$test_directory/audit-output"
 audit_stdout="$test_directory/audit.stdout"
@@ -222,7 +240,9 @@ assert_equal 2 "$(find "$success_output" -mindepth 1 -maxdepth 1 -type f | wc -l
 if find "$success_output" -mindepth 1 -maxdepth 1 -name '.run.*' | grep -q .; then
     fail "automation scratch directory remained published"
 fi
-for terminal_file in "$success_stdout" "$success_stderr" "$blocked_stdout" "$blocked_stderr"; do
+for terminal_file in \
+    "$success_stdout" "$success_stderr" "$blocked_stdout" "$blocked_stderr" \
+    "$runtime_stdout" "$runtime_stderr"; do
     if grep -Ev '^\[[[:space:]]*[0-9]+\.[0-9]{6}\] kisa-cce-scan: .*$' "$terminal_file" | grep -q .; then
         fail "automation terminal output is not dmesg framed: $terminal_file"
     fi

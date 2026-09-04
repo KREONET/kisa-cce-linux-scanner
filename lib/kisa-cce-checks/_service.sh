@@ -2226,7 +2226,7 @@ check_u_34() {
     if [ "$activation_status" -eq 0 ] || [ "$legacy_active" -eq 1 ] || [ "$listener_status" -eq 0 ]; then
         set_result VULNERABLE "Finger 서비스의 활성화 경로가 확인됐습니다." "$evidence"
     elif [ "$activation_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "오프라인 또는 제한된 런타임에서는 Finger 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "오프라인 또는 제한된 런타임에서는 Finger 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "systemd, inetd/xinetd와 수신 포트에서 Finger 서비스가 비활성 상태입니다." "$evidence"
     fi
@@ -2280,7 +2280,7 @@ check_u_35() {
     if [ "$vulnerable_count" -gt 0 ]; then
         set_result VULNERABLE "활성 공유 서비스에서 익명 또는 게스트 접근 설정을 확인했습니다." "$evidence"
     elif [ "$unresolved_count" -gt 0 ]; then
-        set_result MANUAL "공유 서비스의 유효 설정 또는 외부 접근 경로를 모두 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "공유 서비스의 유효 설정 또는 외부 접근 경로를 모두 확정할 수 없습니다." "$evidence" true technical
     elif [ "$active_count" -eq 0 ]; then
         set_result NOT_APPLICABLE "활성 FTP, NFS 또는 Samba 공유 서비스를 확인하지 못했습니다." "$evidence" false
     else
@@ -2326,16 +2326,16 @@ check_u_36() {
         if [ "$usage_status" -eq 1 ]; then
             set_result VULNERABLE "사용 근거가 없는 rlogin, rsh 또는 rexec 활성화 경로가 확인됐습니다." "$evidence"
         else
-            set_result MANUAL "r 계열 서비스가 활성 상태이며 백업·클러스터링 용도의 필요성을 확인해야 합니다." "$evidence"
+            set_result MANUAL "r 계열 서비스가 활성 상태이며 백업·클러스터링 용도의 필요성을 확인해야 합니다." "$evidence" true policy
         fi
     elif [ "$rsync_activation_status" -eq 0 ] || [ "$rsync_legacy_active" -eq 1 ] || \
         [ "$rsync_listener_status" -eq 0 ]; then
-        set_result MANUAL "rsync daemon이 활성 상태이며 가이드의 r-command 범위와 업무 필요성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "rsync daemon이 활성 상태이며 가이드의 r-command 범위와 업무 필요성을 확인해야 합니다." "$evidence" true policy
     elif [ "$activation_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "r 계열 서비스의 실제 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "r 계열 서비스의 실제 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     elif [ "$rsync_activation_status" -eq 2 ] || [ "$rsync_listener_status" -eq 2 ] || \
         [ "$rsync_legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "rsync daemon의 실제 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "rsync daemon의 실제 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "r 계열 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다." "$evidence"
     fi
@@ -2375,8 +2375,12 @@ check_u_37() {
         mode="$(stat_mode "$command_path" 2>/dev/null || true)"
         if [ -z "$owner" ] || [ -z "$mode" ]; then
             stat_failures=$((stat_failures + 1))
+            [ "$stat_failures" -le 20 ] && scanner_append_evidence evidence \
+                "$(scanner_evidence_path "$command_path"):owner=${owner:-unknown},mode=${mode:-unknown},metadata_error=true"
         elif [ "$owner" != "root" ] || ! mode_is_at_most "$mode" 750 || service_mode_has_setuid "$mode"; then
             violations=$((violations + 1))
+            [ "$violations" -le 20 ] && scanner_append_evidence evidence \
+                "$(scanner_evidence_path "$command_path"):owner=${owner},mode=${mode},kind=command"
         fi
     done
 
@@ -2437,16 +2441,21 @@ check_u_37() {
         mode="$(stat_mode "$related_file" 2>/dev/null || true)"
         if [ -z "$owner" ] || [ -z "$mode" ]; then
             stat_failures=$((stat_failures + 1))
+            [ "$stat_failures" -le 20 ] && scanner_append_evidence evidence \
+                "$(scanner_evidence_path "$related_file"):owner=${owner:-unknown},mode=${mode:-unknown},metadata_error=true"
         elif [ "$owner" != "root" ] || ! mode_is_at_most "$mode" 640; then
             violations=$((violations + 1))
+            [ "$violations" -le 20 ] && scanner_append_evidence evidence \
+                "$(scanner_evidence_path "$related_file"):owner=${owner},mode=${mode},kind=related_file"
         fi
     done < "$list_file"
 
-    evidence="checked_commands=${checked_commands}\nchecked_related_files=${checked_files}\nviolations=${violations}\nstat_failures=${stat_failures}\nscan_failures=${scan_failures}"
+    evidence="checked_commands=${checked_commands}\nchecked_related_files=${checked_files}\nviolations=${violations}\nstat_failures=${stat_failures}\nscan_failures=${scan_failures}${evidence:+\n${evidence}}"
     if [ "$stat_failures" -gt 0 ] || [ "$scan_failures" -gt 0 ]; then
         set_result ERROR "cron 또는 at 관련 파일의 소유자·권한을 읽지 못했습니다." "$evidence"
     elif [ "$violations" -gt 0 ]; then
-        set_result VULNERABLE "crontab 또는 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 벗어났습니다." "$evidence"
+        set_result VULNERABLE "crontab 또는 at 실행 파일과 관련 파일이 KISA 소유자·권한 기준을 벗어났습니다." \
+            "$evidence" true technical true metadata.u37.v1
     elif [ "$checked_commands" -eq 0 ] && [ "$checked_files" -eq 0 ]; then
         set_result NOT_APPLICABLE "cron 및 at 구성 요소가 설치된 증거를 확인하지 못했습니다." "$evidence" false
     else
@@ -2481,7 +2490,7 @@ check_u_38() {
 
     service_activation_state \
         chronyd.service chrony.service ntp.service ntpd.service \
-        ntpsec.service ntpsec.socket
+        ntpd-rs.service ntpsec.service ntpsec.socket
     auxiliary_activation_status=$?
     service_listener_state 123
     auxiliary_listener_status=$?
@@ -2509,11 +2518,11 @@ check_u_38() {
     if [ "$activation_status" -eq 0 ] || [ "$legacy_active" -eq 1 ] || [ "$listener_status" -eq 0 ]; then
         set_result VULNERABLE "echo, discard, daytime 또는 chargen 서비스 활성화 경로가 확인됐습니다." "$evidence"
     elif [ "$auxiliary_active" -gt 0 ]; then
-        set_result MANUAL "NTP, DNS, SNMP 또는 SMTP 서비스가 활성 상태이며 업무상 필요 여부를 확인해야 합니다." "$evidence"
+        set_result MANUAL "NTP, DNS, SNMP 또는 SMTP 서비스가 활성 상태이며 업무상 필요 여부를 확인해야 합니다." "$evidence" true policy
     elif [ "$activation_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "DoS 공격에 취약한 레거시 서비스의 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "DoS 공격에 취약한 레거시 서비스의 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     elif [ "$auxiliary_unknown" -gt 0 ]; then
-        set_result MANUAL "NTP, DNS, SNMP 또는 SMTP 서비스의 활성 상태를 모두 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "NTP, DNS, SNMP 또는 SMTP 서비스의 활성 상태를 모두 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "가이드가 열거한 DoS 관련 서비스의 활성화 경로를 확인하지 못했습니다." "$evidence"
     fi
@@ -2527,9 +2536,9 @@ check_u_39() {
     if [ "$nfs_status" -eq 0 ]; then
         set_result MANUAL \
             "NFS 서비스가 활성 상태이며 업무상 필요 여부는 자산 용도와 함께 확인해야 합니다." \
-            "nfs_activation=active"
+            "nfs_activation=active" true policy
     elif [ "$nfs_status" -eq 2 ]; then
-        set_result MANUAL "NFS 서비스의 실제 활성 상태를 확정할 수 없습니다." "nfs_activation=unknown"
+        set_result MANUAL "NFS 서비스의 실제 활성 상태를 확정할 수 없습니다." "nfs_activation=unknown" true runtime
     else
         set_result GOOD "NFS 서비스의 활성화 경로와 수신 포트를 확인하지 못했습니다." "nfs_activation=inactive"
     fi
@@ -2606,15 +2615,15 @@ EOF
     elif [ "$runtime_collection_error" -gt 0 ]; then
         set_result ERROR "활성 NFS export의 런타임 테이블을 수집하지 못했습니다." "$evidence"
     elif [ "$nfs_status" -eq 2 ]; then
-        set_result MANUAL "NFS 런타임 상태와 유효 export 구성을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "NFS 런타임 상태와 유효 export 구성을 확정할 수 없습니다." "$evidence" true runtime
     elif [ "$nfs_status" -ne 0 ] && [ "$export_count" -eq 0 ]; then
         set_result NOT_APPLICABLE "활성 NFS 서비스와 구성된 export를 확인하지 못했습니다." "$evidence" false
     elif [ "$nfs_status" -ne 0 ]; then
-        set_result MANUAL "NFS 서비스는 비활성 상태지만 남아 있는 export의 재활성화 가능성을 확인해야 합니다." "$evidence"
+        set_result MANUAL "NFS 서비스는 비활성 상태지만 남아 있는 export의 재활성화 가능성을 확인해야 합니다." "$evidence" true policy
     elif [ "$export_count" -eq 0 ]; then
-        set_result MANUAL "NFS 서비스는 활성 상태지만 유효 export를 확인하지 못했습니다." "$evidence"
+        set_result MANUAL "NFS 서비스는 활성 상태지만 유효 export를 확인하지 못했습니다." "$evidence" true technical
     else
-        set_result MANUAL "NFS export 대상이 조직에서 승인한 호스트인지 자산 정책과 대조해야 합니다." "$evidence"
+        set_result MANUAL "NFS export 대상이 조직에서 승인한 호스트인지 자산 정책과 대조해야 합니다." "$evidence" true policy
     fi
 }
 
@@ -2633,7 +2642,7 @@ check_u_41() {
     if [ "$activation_status" -eq 0 ] || [ "$process_status" -eq 0 ]; then
         set_result VULNERABLE "automount 또는 autofs 서비스 활성화 경로가 확인됐습니다." "$evidence"
     elif [ "$activation_status" -eq 2 ] || [ "$process_status" -eq 2 ]; then
-        set_result MANUAL "automount 또는 autofs의 실제 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "automount 또는 autofs의 실제 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "automount와 autofs 서비스가 비활성 상태입니다." "activation=inactive"
     fi
@@ -2735,15 +2744,15 @@ check_u_42() {
         [ "$nisplus_rpc_active" -eq 1 ]; then
         set_result MANUAL \
             "rpc.nisd는 U-42의 불필요 RPC 목록과 U-43의 NIS+ 양호 조건이 충돌하여 수동 확인이 필요합니다." \
-            "nisplus_rpc_active=true\nguide_conflict=U-42_vs_U-43"
+            "nisplus_rpc_active=true\nguide_conflict=U-42_vs_U-43" true technical
     elif [ "$general_status" -eq 0 ] || [ "$listener_status" -eq 0 ]; then
         set_result MANUAL \
             "RPC 기반 서비스가 활성 상태이며 NFS 등 업무 의존성과 필요성을 확인해야 합니다." \
-            "${general_evidence}rpc_listener=$([ "$listener_status" -eq 0 ] && printf active || printf inactive)"
+            "${general_evidence}rpc_listener=$([ "$listener_status" -eq 0 ] && printf active || printf inactive)" true policy
     elif [ "$dangerous_status" -eq 2 ] || [ "$general_status" -eq 2 ] || \
         [ "$nisplus_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || \
         [ "$legacy_uncertain" -eq 1 ] || [ "$nisplus_legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다." "$combined_evidence"
+        set_result MANUAL "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다." "$combined_evidence" true runtime
     else
         set_result GOOD "레거시 RPC 서비스와 rpcbind 활성화 경로가 확인되지 않았습니다." "rpc_activation=inactive"
     fi
@@ -2825,11 +2834,11 @@ check_u_43() {
     elif [ "$legacy_status" -eq 2 ] || \
         { [ "$listener_status" -eq 0 ] && [ "$rpcinfo_checked" -eq 0 ]; } || \
         [ "$listener_status" -eq 2 ]; then
-        set_result MANUAL "NIS 계열 서비스의 실제 활성 상태를 확정할 수 없습니다." "$legacy_evidence"
+        set_result MANUAL "NIS 계열 서비스의 실제 활성 상태를 확정할 수 없습니다." "$legacy_evidence" true runtime
     elif [ "$nisplus_status" -eq 0 ]; then
         set_result GOOD "레거시 NIS는 비활성 상태이며 NIS+ 서비스만 확인됐습니다." "$legacy_evidence"
     elif [ "$nisplus_status" -eq 2 ]; then
-        set_result MANUAL "NIS+ 서비스의 실제 활성 상태를 확정할 수 없습니다." "$legacy_evidence"
+        set_result MANUAL "NIS+ 서비스의 실제 활성 상태를 확정할 수 없습니다." "$legacy_evidence" true runtime
     else
         set_result GOOD "NIS 계열 서비스가 비활성 상태입니다." \
             "nis_activation=inactive\nguide_distribution_note=${distribution_note:-none}"
@@ -2859,7 +2868,7 @@ check_u_44() {
     if [ "$activation_status" -eq 0 ] || [ "$legacy_active" -eq 1 ] || [ "$listener_status" -eq 0 ]; then
         set_result VULNERABLE "tftp, talk 또는 ntalk 서비스 활성화 경로가 확인됐습니다." "$evidence"
     elif [ "$activation_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "tftp, talk 또는 ntalk의 실제 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "tftp, talk 또는 ntalk의 실제 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     else
         platform_is_rhel_family && base_major="$(platform_base_major 2>/dev/null || true)"
         if [ -n "$base_major" ] && [ "$base_major" -ge 7 ]; then
@@ -2913,9 +2922,9 @@ check_u_45() {
     if [ -n "$SERVICE_MAIL_PROVIDERS" ]; then
         set_result MANUAL \
             "활성 메일 서비스의 버전이 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다." \
-            "active_mail_providers=${SERVICE_MAIL_PROVIDERS}\nnetwork_version_check=not_performed"
+            "active_mail_providers=${SERVICE_MAIL_PROVIDERS}\nnetwork_version_check=not_performed" true external
     elif [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "메일 서비스의 실제 활성 상태를 확정할 수 없습니다." "active_mail_providers=unknown"
+        set_result MANUAL "메일 서비스의 실제 활성 상태를 확정할 수 없습니다." "active_mail_providers=unknown" true runtime
     else
         set_result NOT_APPLICABLE "활성 SMTP 메일 서비스를 확인하지 못했습니다." "active_mail_providers=none" false
     fi
@@ -2932,14 +2941,14 @@ check_u_46() {
     service_detect_mail
     if [ -z "$SERVICE_MAIL_PROVIDERS" ]; then
         if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "메일 서비스 활성 상태와 일반 사용자 실행 제한을 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "메일 서비스 활성 상태와 일반 사용자 실행 제한을 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result NOT_APPLICABLE "활성 SMTP 메일 서비스를 확인하지 못했습니다." "providers=none" false
         fi
         return
     fi
     if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "메일 unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true"
+        set_result MANUAL "메일 unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true" true runtime
         return
     fi
 
@@ -2982,7 +2991,7 @@ check_u_46() {
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL \
             "활성 메일 서비스 일부의 일반 사용자 실행 제한을 확정할 수 없습니다." \
-            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}" true technical
     else
         set_result GOOD \
             "활성 메일 서비스의 일반 사용자 실행 제한이 설정되어 있습니다." \
@@ -3007,14 +3016,14 @@ check_u_47() {
     service_detect_mail
     if [ -z "$SERVICE_MAIL_PROVIDERS" ]; then
         if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "메일 릴레이 제한의 유효 상태를 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "메일 릴레이 제한의 유효 상태를 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result NOT_APPLICABLE "활성 SMTP 메일 서비스를 확인하지 못했습니다." "providers=none" false
         fi
         return
     fi
     if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "메일 unit의 실제 릴레이 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true"
+        set_result MANUAL "메일 unit의 실제 릴레이 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true" true runtime
         return
     fi
 
@@ -3083,7 +3092,7 @@ check_u_47() {
             "checked_providers=${checked_count}\nviolations=${violations}\nunresolved=${unresolved_count}"
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "메일 ACL과 접근 맵을 포함한 실제 릴레이 동작 검증이 필요합니다." \
-            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}" true technical
     else
         set_result GOOD "Postfix 유효 설정에서 인증되지 않은 목적지 릴레이가 제한되어 있습니다." \
             "checked_providers=${checked_count}\nviolations=0"
@@ -3104,14 +3113,14 @@ check_u_48() {
     service_detect_mail
     if [ -z "$SERVICE_MAIL_PROVIDERS" ]; then
         if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "메일 명령 제한의 유효 상태를 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "메일 명령 제한의 유효 상태를 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result NOT_APPLICABLE "활성 SMTP 메일 서비스를 확인하지 못했습니다." "providers=none" false
         fi
         return
     fi
     if [ "$SERVICE_MAIL_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "메일 unit의 실제 명령 제한 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true"
+        set_result MANUAL "메일 unit의 실제 명령 제한 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_MAIL_PROVIDERS}\ncustom_invocation_or_listener_error=true" true runtime
         return
     fi
 
@@ -3171,7 +3180,7 @@ check_u_48() {
             "checked_providers=${checked_count}\nviolations=${violations}\nunresolved=${unresolved_count}"
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "활성 메일 서비스 일부의 EXPN·VRFY 실제 응답을 확인해야 합니다." \
-            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}" true runtime
     else
         set_result GOOD "활성 메일 서비스의 EXPN·VRFY 제한 설정이 확인됐습니다." \
             "checked_providers=${checked_count}\nviolations=0"
@@ -3186,9 +3195,9 @@ check_u_49() {
     if [ "$dns_status" -eq 0 ]; then
         set_result MANUAL \
             "활성 DNS 서버 패키지가 최신 보안 패치 수준인지 벤더 저장소와 대조해야 합니다." \
-            "dns_activation=active\nnetwork_version_check=not_performed"
+            "dns_activation=active\nnetwork_version_check=not_performed" true external
     elif [ "$dns_status" -eq 2 ]; then
-        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown"
+        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown" true runtime
     else
         set_result NOT_APPLICABLE "활성 DNS 서비스를 확인하지 못했습니다." "dns_activation=inactive" false
     fi
@@ -3216,7 +3225,7 @@ check_u_50() {
         set_result NOT_APPLICABLE "활성 DNS 서비스를 확인하지 못했습니다." "dns_activation=inactive" false
         return
     elif [ "$dns_status" -eq 2 ]; then
-        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown"
+        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown" true runtime
         return
     fi
 
@@ -3224,7 +3233,7 @@ check_u_50() {
     confidence="${effective_metadata%%$'\t'*}"
     configuration_file="${effective_metadata#*$'\t'}"
     if [ -z "$effective_metadata" ] || [ ! -r "$configuration_file" ]; then
-        set_result MANUAL "BIND 유효 설정을 수집하지 못해 Zone Transfer 제한을 확정할 수 없습니다." "dns_activation=active"
+        set_result MANUAL "BIND 유효 설정을 수집하지 못해 Zone Transfer 제한을 확정할 수 없습니다." "dns_activation=active" true technical
         return
     fi
 
@@ -3256,7 +3265,7 @@ check_u_50() {
 
     evidence="configuration_confidence=${confidence}\nbind_version=${bind_version:-unknown}\nauthoritative_zones=${authoritative_zones}\nallow_transfer_clauses=${transfer_clauses}\nunsafe_clauses=${unsafe_clauses}\nglobal_restriction=${global_restriction}\ncomplex_acl_context=${complex_acl_context}"
     if [ "$confidence" != "validated" ]; then
-        set_result MANUAL "include와 실행 인수를 포함한 BIND Zone Transfer 유효 설정을 검증해야 합니다." "$evidence"
+        set_result MANUAL "include와 실행 인수를 포함한 BIND Zone Transfer 유효 설정을 검증해야 합니다." "$evidence" true technical
     elif [ "$authoritative_zones" -eq 0 ]; then
         set_result NOT_APPLICABLE "권한 있는 DNS zone 구성을 확인하지 못했습니다." "$evidence" false
     elif [ "$unsafe_clauses" -gt 0 ]; then
@@ -3266,12 +3275,12 @@ check_u_50() {
     elif [ "$transfer_clauses" -eq 0 ] && [ -n "$bind_version" ]; then
         set_result VULNERABLE "BIND 9.20 미만에서 Zone Transfer 제한을 확인하지 못했습니다." "$evidence"
     elif [ "$transfer_clauses" -eq 0 ]; then
-        set_result MANUAL "BIND 버전에 따른 Zone Transfer 기본 정책을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "BIND 버전에 따른 Zone Transfer 기본 정책을 확정할 수 없습니다." "$evidence" true technical
     elif [ "$confidence" = "validated" ] && [ "$complex_acl_context" -eq 0 ] && \
         [ "$global_restriction" -eq 1 ]; then
         set_result GOOD "BIND 유효 설정에서 Zone Transfer 대상이 제한되어 있습니다." "$evidence"
     else
-        set_result MANUAL "각 view와 zone의 Zone Transfer 상속 범위를 추가 확인해야 합니다." "$evidence"
+        set_result MANUAL "각 view와 zone의 Zone Transfer 상속 범위를 추가 확인해야 합니다." "$evidence" true technical
     fi
 }
 
@@ -3295,7 +3304,7 @@ check_u_51() {
         set_result NOT_APPLICABLE "활성 DNS 서비스를 확인하지 못했습니다." "dns_activation=inactive" false
         return
     elif [ "$dns_status" -eq 2 ]; then
-        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown"
+        set_result MANUAL "DNS 서비스의 실제 활성 상태를 확정할 수 없습니다." "dns_activation=unknown" true runtime
         return
     fi
 
@@ -3303,7 +3312,7 @@ check_u_51() {
     confidence="${effective_metadata%%$'\t'*}"
     configuration_file="${effective_metadata#*$'\t'}"
     if [ -z "$effective_metadata" ] || [ ! -r "$configuration_file" ]; then
-        set_result MANUAL "BIND 유효 설정을 수집하지 못해 동적 업데이트 통제를 확정할 수 없습니다." "dns_activation=active"
+        set_result MANUAL "BIND 유효 설정을 수집하지 못해 동적 업데이트 통제를 확정할 수 없습니다." "dns_activation=active" true technical
         return
     fi
 
@@ -3352,7 +3361,7 @@ check_u_51() {
         [ "$non_denial_clauses" -eq "$restricted_clauses" ]; then
         set_result GOOD "BIND 유효 설정에서 동적 업데이트가 비활성화되었거나 명시적 키로 제한되어 있습니다." "$evidence"
     else
-        set_result MANUAL "include와 view를 포함한 BIND 동적 업데이트 유효 설정을 검증해야 합니다." "$evidence"
+        set_result MANUAL "include와 view를 포함한 BIND 동적 업데이트 유효 설정을 검증해야 합니다." "$evidence" true technical
     fi
 }
 
@@ -3461,7 +3470,7 @@ check_u_52() {
     if [ "$activation_status" -eq 0 ] || [ "$legacy_active" -eq 1 ] || [ "$listener_status" -eq 0 ]; then
         set_result VULNERABLE "Telnet 서비스 활성화 경로가 확인됐습니다." "$evidence"
     elif [ "$activation_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || [ "$legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "Telnet 서비스의 실제 활성 상태를 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "Telnet 서비스의 실제 활성 상태를 확정할 수 없습니다." "$evidence" true runtime
     else
         set_result GOOD "Telnet 서비스가 systemd, inetd/xinetd와 수신 포트에서 비활성 상태입니다." "$evidence"
     fi
@@ -3483,14 +3492,14 @@ check_u_53() {
     service_detect_ftp
     if [ -z "$SERVICE_FTP_PROVIDERS" ]; then
         if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "FTP 서비스와 배너 유효 설정을 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "FTP 서비스와 배너 유효 설정을 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result NOT_APPLICABLE "활성 FTP 서비스를 확인하지 못했습니다." "providers=none" false
         fi
         return
     fi
     if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "FTP unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true"
+        set_result MANUAL "FTP unit의 실제 실행 인수와 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -3558,7 +3567,7 @@ check_u_53() {
             "checked_providers=${checked_count}\nviolations=${violations}\nunresolved=${unresolved_count}"
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "FTP 접속 배너의 실제 응답에서 제품·버전 정보 노출 여부를 확인해야 합니다." \
-            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}" true runtime
     else
         set_result GOOD "활성 FTP 서비스의 로컬 유효 설정에서 제품·버전 배너 노출이 제한되어 있습니다." \
             "checked_providers=${checked_count}\nviolations=0"
@@ -3584,14 +3593,14 @@ check_u_54() {
     service_detect_ftp
     if [ -z "$SERVICE_FTP_PROVIDERS" ]; then
         if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "FTP 활성 상태와 전송 암호화 강제 여부를 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "FTP 활성 상태와 전송 암호화 강제 여부를 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result GOOD "암호화되지 않은 FTP 서비스 활성화 경로를 확인하지 못했습니다." "providers=none"
         fi
         return
     fi
     if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "FTP unit의 실제 실행 인수와 TLS 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true"
+        set_result MANUAL "FTP unit의 실제 실행 인수와 TLS 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -3648,7 +3657,7 @@ check_u_54() {
             "checked_providers=${checked_count}\nunencrypted_providers=${violations}\nunresolved=${unresolved_count}"
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "활성 FTP 서비스 일부의 TLS 강제 여부를 확정할 수 없습니다." \
-            "checked_providers=${checked_count}\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nunresolved=${unresolved_count}" true technical
     else
         set_result GOOD "활성 FTP 서비스가 제어·데이터 채널 TLS를 강제합니다." \
             "checked_providers=${checked_count}\nunresolved=0"
@@ -3688,9 +3697,9 @@ check_u_56() {
     if [ -n "$SERVICE_FTP_PROVIDERS" ]; then
         set_result MANUAL \
             "FTP 접근 제어는 daemon 설정, systemd IPAddress 정책, 호스트 방화벽과 외부 방화벽을 함께 확인해야 합니다." \
-            "active_ftp_providers=${SERVICE_FTP_PROVIDERS}\nnetwork_policy_validation=required"
+            "active_ftp_providers=${SERVICE_FTP_PROVIDERS}\nnetwork_policy_validation=required" true runtime
     elif [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "FTP 서비스와 접근 제어의 실제 상태를 확정할 수 없습니다." "active_ftp_providers=unknown"
+        set_result MANUAL "FTP 서비스와 접근 제어의 실제 상태를 확정할 수 없습니다." "active_ftp_providers=unknown" true runtime
     else
         set_result NOT_APPLICABLE "활성 FTP 서비스를 확인하지 못했습니다." "active_ftp_providers=none" false
     fi
@@ -3713,14 +3722,14 @@ check_u_57() {
     service_detect_ftp
     if [ -z "$SERVICE_FTP_PROVIDERS" ]; then
         if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-            set_result MANUAL "FTP root 접속 차단의 유효 상태를 확정할 수 없습니다." "providers=unknown"
+            set_result MANUAL "FTP root 접속 차단의 유효 상태를 확정할 수 없습니다." "providers=unknown" true runtime
         else
             set_result NOT_APPLICABLE "활성 FTP 서비스를 확인하지 못했습니다." "providers=none" false
         fi
         return
     fi
     if [ "$SERVICE_FTP_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "FTP unit의 실제 PAM·userlist 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true"
+        set_result MANUAL "FTP unit의 실제 PAM·userlist 구성 경로를 확정할 수 없습니다." "providers=${SERVICE_FTP_PROVIDERS}\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -3812,7 +3821,7 @@ check_u_57() {
             "checked_providers=${checked_count}\nviolations=${violations}\nunresolved=${unresolved_count}"
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "활성 FTP 서비스 일부의 root 접속 차단을 확정할 수 없습니다." \
-            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}"
+            "checked_providers=${checked_count}\nviolations=0\nunresolved=${unresolved_count}" true technical
     else
         set_result GOOD "활성 FTP 서비스에서 root 계정 접속이 차단되어 있습니다." \
             "checked_providers=${checked_count}\nviolations=0"
@@ -3827,7 +3836,7 @@ check_u_58() {
     if [ "$SERVICE_SNMP_ENDPOINT_ACTIVE" -eq 1 ]; then
         set_result VULNERABLE "SNMP 서비스 활성화 경로 또는 수신 포트가 확인됐습니다." "snmp_activation=active"
     elif [ "$snmp_status" -eq 2 ]; then
-        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown"
+        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown" true runtime
     else
         set_result GOOD "SNMP 서비스 활성화 경로와 수신 포트를 확인하지 못했습니다." "snmp_activation=inactive"
     fi
@@ -3984,11 +3993,11 @@ check_u_59() {
         set_result NOT_APPLICABLE "활성 SNMP 서비스를 확인하지 못했습니다." "snmp_activation=inactive" false
         return
     elif [ "$snmp_status" -eq 2 ]; then
-        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown"
+        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown" true runtime
         return
     fi
     if [ "$SERVICE_SNMP_CONFIG_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true"
+        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -4007,10 +4016,10 @@ EOF
             "legacy_version_directives=${legacy_count}\nversion3_directives=${version3_count}\ncustom_includes=${include_count}"
     elif [ "$version3_count" -gt 0 ] && [ "$include_count" -eq 0 ]; then
         set_result MANUAL "SNMP v3의 실제 인증·암호화 응답과 사용자 유효성을 확인해야 합니다." \
-            "legacy_version_directives=0\nversion3_directives=${version3_count}\npacket_validation=required"
+            "legacy_version_directives=0\nversion3_directives=${version3_count}\npacket_validation=required" true runtime
     else
         set_result MANUAL "활성 SNMP 서비스의 실제 프로토콜 버전을 설정과 패킷 응답으로 확인해야 합니다." \
-            "legacy_version_directives=${legacy_count}\nversion3_directives=${version3_count}\ncustom_includes=${include_count}"
+            "legacy_version_directives=${legacy_count}\nversion3_directives=${version3_count}\ncustom_includes=${include_count}" true runtime
     fi
 }
 
@@ -4030,11 +4039,11 @@ check_u_60() {
         set_result NOT_APPLICABLE "활성 SNMP 서비스를 확인하지 못했습니다." "snmp_activation=inactive" false
         return
     elif [ "$snmp_status" -eq 2 ]; then
-        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown"
+        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown" true runtime
         return
     fi
     if [ "$SERVICE_SNMP_CONFIG_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true"
+        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -4061,10 +4070,10 @@ EOF
             "community_count=${community_count}\nweak_community_count=0\nsecret_values=redacted"
     elif [ "$version3_count" -gt 0 ]; then
         set_result MANUAL "SNMP v3 인증 비밀번호 복잡도는 비밀값을 보고서에 노출하지 않고 별도 검증해야 합니다." \
-            "version3_directives=${version3_count}\nsecret_values=not_collected"
+            "version3_directives=${version3_count}\nsecret_values=not_collected" true technical
     else
         set_result MANUAL "활성 SNMP 서비스의 community 또는 v3 인증 설정을 확인하지 못했습니다." \
-            "community_count=${community_count}\ncustom_includes=${include_count}\ndialect_mismatches=${dialect_mismatch_count}"
+            "community_count=${community_count}\ncustom_includes=${include_count}\ndialect_mismatches=${dialect_mismatch_count}" true technical
     fi
 }
 
@@ -4086,11 +4095,11 @@ check_u_61() {
         set_result NOT_APPLICABLE "활성 SNMP 서비스를 확인하지 못했습니다." "snmp_activation=inactive" false
         return
     elif [ "$snmp_status" -eq 2 ]; then
-        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown"
+        set_result MANUAL "SNMP 서비스의 실제 활성 상태를 확정할 수 없습니다." "snmp_activation=unknown" true runtime
         return
     fi
     if [ "$SERVICE_SNMP_CONFIG_UNCERTAIN" -eq 1 ]; then
-        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true"
+        set_result MANUAL "SNMP unit의 실제 구성 경로를 확정할 수 없습니다." "snmp_activation=active\ncustom_invocation=true" true runtime
         return
     fi
 
@@ -4122,10 +4131,10 @@ EOF
             "community_count=${community_count}\nrestricted_sources=${restricted_count}"
     elif [ "$version3_count" -gt 0 ]; then
         set_result MANUAL "SNMP v3 사용자 인증 외에 네트워크·방화벽 접근 제한을 함께 확인해야 합니다." \
-            "version3_directives=${version3_count}\ncustom_includes=${include_count}"
+            "version3_directives=${version3_count}\ncustom_includes=${include_count}" true runtime
     else
         set_result MANUAL "활성 SNMP 서비스의 유효 접근 제어 설정을 확정할 수 없습니다." \
-            "community_count=${community_count}\ncustom_includes=${include_count}\ndialect_mismatches=${dialect_mismatch_count}\ninvalid_sources=${invalid_source_count}"
+            "community_count=${community_count}\ncustom_includes=${include_count}\ndialect_mismatches=${dialect_mismatch_count}\ninvalid_sources=${invalid_source_count}" true technical
     fi
 }
 
@@ -4394,11 +4403,17 @@ check_u_62() {
     fi
 
     if [ "$missing_count" -gt 0 ]; then
-        set_result VULNERABLE "서버 또는 활성 원격 서비스에서 로그인 경고 메시지 설정 누락을 확인했습니다." \
-            "checked_surfaces=${checked_surfaces}\nmissing_warnings=${missing_count}\nunresolved_warnings=${unresolved_count}\nbanner_text=not_collected"
+        if [ "$checked_surfaces" -eq 2 ] && [ "$unresolved_count" -eq 0 ]; then
+            set_result VULNERABLE "서버 또는 활성 원격 서비스에서 로그인 경고 메시지 설정 누락을 확인했습니다." \
+                "checked_surfaces=${checked_surfaces}\nmissing_warnings=${missing_count}\nunresolved_warnings=${unresolved_count}\nbanner_text=not_collected" \
+                true technical true configuration.u62.v1
+        else
+            set_result VULNERABLE "서버 또는 활성 원격 서비스에서 로그인 경고 메시지 설정 누락을 확인했습니다." \
+                "checked_surfaces=${checked_surfaces}\nmissing_warnings=${missing_count}\nunresolved_warnings=${unresolved_count}\nbanner_text=not_collected"
+        fi
     elif [ "$unresolved_count" -gt 0 ]; then
         set_result MANUAL "설정된 배너가 조직의 법적·보안 경고 문구를 충족하는지 확인해야 합니다." \
-            "checked_surfaces=${checked_surfaces}\nmissing_warnings=0\nunresolved_warnings=${unresolved_count}\nbanner_text=not_collected"
+            "checked_surfaces=${checked_surfaces}\nmissing_warnings=0\nunresolved_warnings=${unresolved_count}\nbanner_text=not_collected" true technical
     else
         set_result GOOD "서버와 활성 원격 서비스에 명시적인 보안 경고 문구가 설정되어 있습니다." \
             "checked_surfaces=${checked_surfaces}\nmissing_warnings=0\nbanner_text=not_collected"
@@ -4607,7 +4622,7 @@ check_u_63() {
     fi
     if [ "$provider" = "ambiguous" ]; then
         set_result MANUAL "오프라인 루트에서 sudo와 sudo-rs 중 활성 공급자를 확정할 수 없습니다." \
-            "sudo_provider=ambiguous\nactive_policy=unknown"
+            "sudo_provider=ambiguous\nactive_policy=unknown" true runtime
         return
     fi
 
@@ -4635,7 +4650,7 @@ check_u_63() {
     evidence="sudo_provider=${provider}\npolicy_kind=${policy_kind}\npolicy_path=$(display_path "$sudoers_path")\nowner_uid=${owner_uid:-unknown}\nmode=${mode:-unknown}"
 
     if [ "$policy_kind" != "kisa_sudoers" ]; then
-        set_result MANUAL "sudo-rs 전용 정책 파일은 KISA U-63의 명시 경로가 아니므로 별도 검증이 필요합니다." "$evidence"
+        set_result MANUAL "sudo-rs 전용 정책 파일은 KISA U-63의 명시 경로가 아니므로 별도 검증이 필요합니다." "$evidence" true technical
     elif [ -z "$owner_uid" ] || [ -z "$decimal_mode" ]; then
         set_result ERROR "sudo 정책 파일의 소유자 또는 권한을 읽지 못했습니다." "$evidence"
     elif [ "$owner_uid" != "0" ] || ! mode_is_at_most "$mode" 640; then
@@ -4643,6 +4658,6 @@ check_u_63() {
     elif [ "$decimal_mode" -eq $((8#640)) ]; then
         set_result GOOD "sudo 정책 파일이 root 소유이며 권한이 정확히 0640입니다." "$evidence"
     else
-        set_result MANUAL "sudo 정책 파일 권한은 0640보다 엄격하지만 가이드의 양호 조건과 정확히 일치하지 않습니다." "$evidence"
+        set_result MANUAL "sudo 정책 파일 권한은 0640보다 엄격하지만 가이드의 양호 조건과 정확히 일치하지 않습니다." "$evidence" true technical
     fi
 }

@@ -534,7 +534,7 @@ validate_evidence_bundle() {
         awk -F '\t' -v collection_status="${manifest_values[runtime_time_sync_status]}" '
             NR == 1 {next}
             NF != 8 ||
-                ($1 != "systemd-timesyncd" && $1 != "chrony" && $1 != "ntpsec") ||
+                ($1 != "systemd-timesyncd" && $1 != "chrony" && $1 != "ntpd-rs" && $1 != "ntpsec") ||
                 ($2 != "yes" && $2 != "no" && $2 != "unknown") ||
                 ($3 != "-" && $3 !~ /^[0-9A-Za-z._:@%+-]+$/) || length($3) > 255 ||
                 ($4 != "-" && $4 !~ /^[0-9A-Za-z._:@%+-]+$/) || length($4) > 255 ||
@@ -837,6 +837,10 @@ evidence_time_sync_facts_into() {
     printf -v normalized_facts 'provider=%s\nsynchronized=%s\nsource=%s\nsource_address=%s\nstratum=%s\nleap=%s\nsource_origin=%s\nsource_type=%s' \
         "$selected_provider" "$selected_synchronized" "$selected_source" "$selected_source_address" \
         "$selected_stratum" "$selected_leap" "$selected_source_origin" "$selected_source_type"
+    if [ "$selected_provider" = ntpd-rs ]; then
+        printf -v normalized_facts '%s\nsource_count=1\nsource_1=%s\nsource_address_1=%s' \
+            "$normalized_facts" "$selected_source" "$selected_source_address"
+    fi
     printf -v "$destination_name" '%s' "$normalized_facts"
 
     if [ "$synchronized_count" -eq 0 ]; then

@@ -134,7 +134,7 @@ check_u_64() {
 
     set_result MANUAL \
         "로컬 패키지 이력만으로 EOL 여부와 최신 보안 패치 적용을 확정할 수 없어 조직 정책 및 벤더 권고와 대조해야 합니다." \
-        "${evidence}metadata_is_compliance_proof=false\nnetwork_access=not_performed"
+        "${evidence}metadata_is_compliance_proof=false\nnetwork_access=not_performed" true external
 }
 
 chrony_runtime_evidence() {
@@ -268,6 +268,185 @@ ntpsec_runtime_evidence() {
     [ "$selected_count" -gt 0 ] && return 0
     [ "$selected_reference_clocks" -gt 0 ] && return 3
     return 1
+}
+
+system_ntpd_rs_endpoint_into() {
+    local value="$1"
+    local destination_name="$2"
+    local endpoint="$value"
+    local port=""
+
+    case "$destination_name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 2 ;; esac
+    case "$endpoint" in
+        \[*\]:[0-9]*) endpoint="${endpoint#\[}"; endpoint="${endpoint%%\]:*}" ;;
+        \[*\]) endpoint="${endpoint#\[}"; endpoint="${endpoint%\]}" ;;
+        *:*:*) return 2 ;;
+        *:[0-9]*)
+            port="${endpoint##*:}"
+            case "$port" in ''|*[!0-9]*) ;; *) endpoint="${endpoint%:*}" ;; esac
+            ;;
+    esac
+    case "$endpoint" in ''|*[!0-9A-Za-z._:@%+-]*) return 2 ;; esac
+    printf -v "$destination_name" '%s' "$endpoint"
+}
+
+ntpd_rs_runtime_evidence() {
+    local control_path=""
+    local status_output=""
+    local source_records=""
+    local source_record=""
+    local source_endpoint=""
+    local address_endpoint=""
+    local source="-"
+    local source_address="-"
+    local stratum="-"
+    local synchronized="no"
+    local record_count=0
+    local facts=""
+
+    control_path="$(trusted_command ntp-ctl)" || return 127
+    status_output="$($control_path status 2>/dev/null)" || return 2
+    [ -n "$status_output" ] || return 2
+    stratum="$(printf '%s\n' "$status_output" | awk -F: '
+        /^[[:space:]]*Stratum:[[:space:]]*[0-9]+[[:space:]]*$/ {
+            value=$2; gsub(/[[:space:]]/, "", value); print value; exit
+        }
+    ')"
+    source_records="$(printf '%s\n' "$status_output" | awk '
+        /^[[:space:]]*Sources:[[:space:]]*$/ {in_sources=1; next}
+        /^[[:space:]]*Servers:[[:space:]]*$/ {in_sources=0}
+        in_sources && $0 !~ /^[[:space:]]/ && NF {print $1}
+    ')"
+    while IFS= read -r source_record || [ -n "$source_record" ]; do
+        [ -n "$source_record" ] || continue
+        record_count=$((record_count + 1))
+        [ "$record_count" -le 64 ] || return 2
+        source_endpoint=""
+        address_endpoint=""
+        case "$source_record" in
+            */*) source_endpoint="${source_record%%/*}"; address_endpoint="${source_record#*/}" ;;
+            *) source_endpoint="$source_record" ;;
+        esac
+        system_ntpd_rs_endpoint_into "$source_endpoint" source || return 2
+        source_address="-"
+        if [ -n "$address_endpoint" ]; then
+            system_ntpd_rs_endpoint_into "$address_endpoint" source_address || return 2
+        fi
+        facts+="source_${record_count}=${source}"$'\n'
+        facts+="source_address_${record_count}=${source_address}"$'\n'
+    done <<< "$source_records"
+    case "$stratum" in
+        ''|*[!0-9]*) stratum="-" ;;
+        *)
+            if [ "$stratum" -ge 1 ] && [ "$stratum" -le 15 ] &&
+                [ "$record_count" -gt 0 ]; then
+                synchronized="yes"
+            fi
+            ;;
+    esac
+    printf 'provider=ntpd-rs\nsynchronized=%s\nstratum=%s\nsource=%s\nsource_address=%s\nsource_count=%s\n%ssource_origin=runtime\nsource_type=network\n' \
+        "$synchronized" "$stratum" "$source" "$source_address" "$record_count" "$facts"
+    [ "$synchronized" = yes ]
+}
+
+ntpd_rs_config_evidence() {
+    local config_path=""
+    local path_status=0
+    local parsed_sources=""
+    local parser_status=0
+    local source_count=0
+    local first_source=""
+    local control_path=""
+    local native_validated=0
+    local index=0
+    local mode=""
+    local source=""
+    local indexed_sources=""
+
+    config_path="$(optional_rooted_read_path /etc/ntpd-rs/ntp.toml 2>/dev/null)" || path_status=$?
+    case "$path_status" in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    if [ "${SCAN_ROOT:-/}" = / ] && runtime_enabled; then
+        control_path="$(trusted_command ntp-ctl 2>/dev/null)" || return 2
+        "$control_path" validate -c "$config_path" >/dev/null 2>&1 || return 2
+        native_validated=1
+    fi
+    parsed_sources="$(awk -v native_validated="$native_validated" '
+        function trim(value) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); return value}
+        function strip_comment(value, index_value, character, quoted, escaped, output) {
+            quoted=""; escaped=0; output=""
+            for (index_value=1; index_value<=length(value); index_value++) {
+                character=substr(value, index_value, 1)
+                if (escaped) {output=output character; escaped=0; continue}
+                if (quoted == "\"" && character == "\\") {output=output character; escaped=1; continue}
+                if (character == "\"" || character == "\047") {
+                    if (quoted == "") quoted=character
+                    else if (quoted == character) quoted=""
+                    output=output character
+                    continue
+                }
+                if (character == "#" && quoted == "") break
+                output=output character
+            }
+            if (quoted != "" || escaped) parse_error=1
+            return output
+        }
+        function scalar(value, first, last) {
+            value=trim(value); first=substr(value,1,1); last=substr(value,length(value),1)
+            if (length(value) < 2 || !((first == "\"" && last == "\"") ||
+                (first == "\047" && last == "\047"))) {parse_error=1; return ""}
+            value=substr(value,2,length(value)-2)
+            if (value == "" || index(value, "\"") || index(value, "\047") || index(value, "\\")) {
+                parse_error=1
+                return ""
+            }
+            return value
+        }
+        function emit_source() {
+            if (!in_source) return
+            if (mode !~ /^(server|pool|nts|nts-pool)$/) parse_error=1
+            if (address == "" || address ~ /[[:space:]#"\047\\]/) parse_error=1
+            else print mode "\t" address
+            in_source=0; mode="server"; address=""; delete seen
+        }
+        {
+            line=trim(strip_comment($0))
+            if (line == "") next
+            if (line == "[[source]]") {emit_source(); in_source=1; section="source"; mode="server"; next}
+            if (line ~ /^\[.*\]$/) {emit_source(); section=line; next}
+            if (line !~ /^[A-Za-z0-9_.-]+[[:space:]]*=/) {parse_error=1; next}
+            key=line; sub(/[[:space:]]*=.*/, "", key); key=trim(key)
+            value=line; sub(/^[^=]*=[[:space:]]*/, "", value)
+            if (in_source) {
+                if (seen[key]++) {parse_error=1; next}
+                if (key == "mode") mode=scalar(value)
+                else if (key == "address") address=scalar(value)
+                else if (key == "count") {
+                    if (trim(value) !~ /^[1-9][0-9]*$/) parse_error=1
+                } else if (key ~ /^(certificate-authority|enable-srv-resolution|ignore|measurement_noise_estimate|precision|accuracy|poll-interval-limits|initial-poll-interval|ntp-version)$/) {
+                    if (!native_validated) parse_error=1
+                } else parse_error=1
+            } else if (!native_validated) {
+                if (section == "[observability]" && key ~ /^(log-level|observation-path)$/) {
+                    scalar(value)
+                } else if (section == "[synchronization]" && key == "minimum-agreeing-sources" && trim(value) ~ /^[1-9][0-9]*$/) {
+                    # This minimal subset keeps offline parsing conservative without implementing generic TOML.
+                } else parse_error=1
+            }
+        }
+        END {emit_source(); if (parse_error) exit 2}
+    ' "$config_path")" || parser_status=$?
+    [ "$parser_status" -eq 0 ] || return 2
+    source_count="$(printf '%s\n' "$parsed_sources" | awk 'NF {count++} END {print count+0}')"
+    [ "$source_count" -gt 0 ] || return 1
+    first_source="$(printf '%s\n' "$parsed_sources" | awk -F '\t' 'NF == 2 {print $2; exit}')"
+    while IFS=$'\t' read -r mode source; do
+        [ -n "$mode" ] && [ -n "$source" ] || continue
+        index=$((index + 1))
+        indexed_sources+="configured_source_${index}=${source}"$'\n'
+        indexed_sources+="configured_mode_${index}=${mode}"$'\n'
+    done <<< "$parsed_sources"
+    printf 'persistent_config=/etc/ntpd-rs/ntp.toml\nconfigured_sources=%s\nconfigured_source=%s\n%sconfig_native_validation=%s\nsource_origin=configured\nresolution_errors=0\n' \
+        "$source_count" "$first_source" "$indexed_sources" "$native_validated"
 }
 
 NTPSEC_OFFLINE_SOURCE_COUNT=0
@@ -759,8 +938,11 @@ check_u_65() {
     local chrony_config_status=1
     local ntpsec_config_facts=""
     local ntpsec_config_status=1
+    local ntpd_rs_config_facts=""
+    local ntpd_rs_config_status=1
     local chrony_state=1
     local ntpsec_state=1
+    local ntpd_rs_state=1
     local timesyncd_state=1
     local active_provider_count=0
     local persistence_status=2
@@ -780,8 +962,24 @@ check_u_65() {
     local source_policy_reason="facts_file_absent"
     local manager_status=0
     local process_status=1
+    local source_count=0
+    local source_index=0
+    local observed_source=""
+    local observed_address=""
+    local configured_source=""
+    local normalized_configured_source=""
+    local configured_source_count=0
+    local individual_policy_status=0
+    local config_runtime_match=1
+    local policy_host=""
+    local policy_address=""
+    local normalized_source_address=""
+    local -A configured_ntpd_rs_sources=()
+    local -A observed_ntpd_rs_sources=()
 
-    if platform_is_rhel_family; then
+    if [ "${PLATFORM_BASE_ID:-}" = ubuntu ] && [ "${PLATFORM_BASE_VERSION:-}" = 26.04 ]; then
+        expected_provider="chrony"
+    elif platform_is_rhel_family; then
         base_major="$(platform_base_major 2>/dev/null || true)"
         if [ -z "$base_major" ]; then
             set_result ERROR "Enterprise Linux 기반 버전을 확인하지 못했습니다." \
@@ -793,7 +991,7 @@ check_u_65() {
         fi
     elif ! platform_is_debian_family; then
         set_result MANUAL "지원되지 않은 플랫폼에서는 시각 동기화 구현을 수동 검증해야 합니다." \
-            "platform_family=${PLATFORM_FAMILY:-unknown}"
+            "platform_family=${PLATFORM_FAMILY:-unknown}" true technical
         return
     fi
 
@@ -802,13 +1000,16 @@ check_u_65() {
         chrony_config_status=$?
         ntpsec_config_facts="$(ntpsec_config_evidence 2>/dev/null)"
         ntpsec_config_status=$?
+        ntpd_rs_config_facts="$(ntpd_rs_config_evidence 2>/dev/null)"
+        ntpd_rs_config_status=$?
         for path in /etc/systemd/timesyncd.conf /etc/systemd/timesyncd.conf.d; do
             physical_path="$(fs_path "$path" 2>/dev/null || true)"
             [ -e "$physical_path" ] && offline_facts="${offline_facts}timesyncd_configuration_evidence=${path}\n"
         done
         set_result MANUAL \
             "오프라인 루트에서는 실제 시각 동기화 상태를 확정할 수 없습니다." \
-            "expected_provider=${expected_provider}\nchrony_config_status=${chrony_config_status}\n${chrony_config_facts}\nntpsec_config_status=${ntpsec_config_status}\n${ntpsec_config_facts}\n${offline_facts}"
+            "expected_provider=${expected_provider}\nchrony_config_status=${chrony_config_status}\n${chrony_config_facts}\nntpsec_config_status=${ntpsec_config_status}\n${ntpsec_config_facts}\nntpd_rs_config_status=${ntpd_rs_config_status}\n${ntpd_rs_config_facts}\n${offline_facts}" \
+            true runtime
         return
     fi
 
@@ -816,6 +1017,8 @@ check_u_65() {
     chrony_state=$?
     service_state ntpsec.service ntp.service ntpd.service >/dev/null 2>&1
     ntpsec_state=$?
+    service_state ntpd-rs.service >/dev/null 2>&1
+    ntpd_rs_state=$?
     service_state systemd-timesyncd.service >/dev/null 2>&1
     timesyncd_state=$?
 
@@ -828,23 +1031,29 @@ check_u_65() {
             runtime_process_state ntpd ntpsec
             process_status=$?
             case "$process_status" in 0) ntpsec_state=0 ;; 2) ntpsec_state=2 ;; esac
+            runtime_process_state ntp-daemon
+            process_status=$?
+            case "$process_status" in 0) ntpd_rs_state=0 ;; 2) ntpd_rs_state=2 ;; esac
             runtime_process_state systemd-timesyncd systemd-timesyn
             process_status=$?
             case "$process_status" in 0) timesyncd_state=0 ;; 2) timesyncd_state=2 ;; esac
         fi
     fi
 
-    if [ "$chrony_state" -eq 2 ] || [ "$ntpsec_state" -eq 2 ] || [ "$timesyncd_state" -eq 2 ]; then
+    if [ "$chrony_state" -eq 2 ] || [ "$ntpsec_state" -eq 2 ] ||
+        [ "$ntpd_rs_state" -eq 2 ] || [ "$timesyncd_state" -eq 2 ]; then
         set_result ERROR "시각 동기화 서비스 상태를 수집하지 못했습니다." \
-            "chrony_state=${chrony_state}\nntpsec_state=${ntpsec_state}\ntimesyncd_state=${timesyncd_state}"
+            "chrony_state=${chrony_state}\nntpsec_state=${ntpsec_state}\nntpd_rs_state=${ntpd_rs_state}\ntimesyncd_state=${timesyncd_state}"
         return
     fi
     [ "$chrony_state" -eq 0 ] && active_provider_count=$((active_provider_count + 1))
     [ "$ntpsec_state" -eq 0 ] && active_provider_count=$((active_provider_count + 1))
+    [ "$ntpd_rs_state" -eq 0 ] && active_provider_count=$((active_provider_count + 1))
     [ "$timesyncd_state" -eq 0 ] && active_provider_count=$((active_provider_count + 1))
     if [ "$active_provider_count" -gt 1 ]; then
         set_result MANUAL "여러 시각 동기화 서비스가 동시에 활성화되어 실제 공급자를 확인해야 합니다." \
-            "chrony_state=${chrony_state}\nntpsec_state=${ntpsec_state}\ntimesyncd_state=${timesyncd_state}"
+            "chrony_state=${chrony_state}\nntpsec_state=${ntpsec_state}\nntpd_rs_state=${ntpd_rs_state}\ntimesyncd_state=${timesyncd_state}" \
+            true runtime
         return
     elif [ "$active_provider_count" -eq 0 ]; then
         set_result VULNERABLE \
@@ -878,6 +1087,19 @@ check_u_65() {
         config_facts="$(ntpsec_config_evidence 2>/dev/null)"
         config_status=$?
         time_service_persistence_state ntpsec.service ntp.service ntpd.service
+        persistence_status=$?
+    elif [ "$ntpd_rs_state" -eq 0 ]; then
+        provider="ntpd-rs"
+        if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ]; then
+            runtime_status=0
+            evidence_time_sync_facts_into runtime_facts 2>/dev/null || runtime_status=$?
+        else
+            runtime_facts="$(ntpd_rs_runtime_evidence 2>/dev/null)"
+            runtime_status=$?
+        fi
+        config_facts="$(ntpd_rs_config_evidence 2>/dev/null)"
+        config_status=$?
+        time_service_persistence_state ntpd-rs.service
         persistence_status=$?
     else
         provider="systemd-timesyncd"
@@ -913,7 +1135,99 @@ check_u_65() {
     fi
     time_fact_value_into "$runtime_facts" source selected_source 2>/dev/null || selected_source="-"
     time_fact_value_into "$runtime_facts" source_address selected_source_address 2>/dev/null || selected_source_address="-"
-    if declare -F policy_time_source_match >/dev/null 2>&1; then
+    if [ "$provider" = ntpd-rs ] && [ "$runtime_status" -eq 0 ]; then
+        time_fact_value_into "$runtime_facts" source_count source_count 2>/dev/null || runtime_status=2
+        case "$source_count" in ''|*[!0-9]*) runtime_status=2 ;; *) [ "$source_count" -ge 1 ] && [ "$source_count" -le 64 ] || runtime_status=2 ;; esac
+        if [ "$config_status" -eq 0 ]; then
+            time_fact_value_into "$config_facts" configured_sources configured_source_count 2>/dev/null || config_status=2
+            case "$configured_source_count" in
+                ''|*[!0-9]*) config_status=2 ;;
+                *) [ "$configured_source_count" -ge 1 ] && [ "$configured_source_count" -le 64 ] || config_status=2 ;;
+            esac
+        fi
+        if [ "$config_status" -eq 0 ]; then
+            source_index=1
+            while [ "$source_index" -le "$configured_source_count" ]; do
+                time_fact_value_into "$config_facts" "configured_source_$source_index" configured_source 2>/dev/null || {
+                    config_status=2
+                    break
+                }
+                system_ntpd_rs_endpoint_into "$configured_source" normalized_configured_source || {
+                    config_status=2
+                    break
+                }
+                configured_ntpd_rs_sources["$normalized_configured_source"]=1
+                source_index=$((source_index + 1))
+            done
+        fi
+        if [ "$config_status" -eq 0 ] && [ "$runtime_status" -eq 0 ]; then
+            source_index=1
+            while [ "$source_index" -le "$source_count" ]; do
+                time_fact_value_into "$runtime_facts" "source_$source_index" observed_source 2>/dev/null || {
+                    config_runtime_match=0
+                    break
+                }
+                [ -n "${configured_ntpd_rs_sources[$observed_source]+present}" ] || {
+                    config_runtime_match=0
+                    break
+                }
+                observed_ntpd_rs_sources["$observed_source"]=1
+                source_index=$((source_index + 1))
+            done
+            if [ "$config_runtime_match" -eq 1 ]; then
+                for configured_source in "${!configured_ntpd_rs_sources[@]}"; do
+                    [ -n "${observed_ntpd_rs_sources[$configured_source]+present}" ] || {
+                        config_runtime_match=0
+                        break
+                    }
+                done
+            fi
+            if [ "$config_runtime_match" -eq 0 ]; then
+                config_status=2
+                config_facts="${config_facts}\nconfig_runtime_source_match=false"
+            else
+                config_facts="${config_facts}\nconfig_runtime_source_match=true"
+            fi
+        fi
+        if [ "$runtime_status" -eq 0 ] && declare -F policy_time_source_match >/dev/null 2>&1; then
+            source_policy_status=0
+            source_index=1
+            while [ "$source_index" -le "$source_count" ]; do
+                time_fact_value_into "$runtime_facts" "source_$source_index" observed_source 2>/dev/null || {
+                    source_policy_status=2
+                    break
+                }
+                time_fact_value_into "$runtime_facts" "source_address_$source_index" observed_address 2>/dev/null || observed_address="-"
+                policy_host="$observed_source"
+                policy_address="$observed_address"
+                if declare -F policy_time_source_address_into >/dev/null 2>&1 &&
+                    policy_time_source_address_into normalized_source_address "$observed_source" 2>/dev/null; then
+                    policy_host="-"
+                    policy_address="$normalized_source_address"
+                elif [[ "$observed_source" == *:* ]]; then
+                    policy_host="-"
+                    policy_address="$observed_source"
+                fi
+                individual_policy_status=0
+                policy_time_source_match "$provider" "$policy_host" "$policy_address" || individual_policy_status=$?
+                case "$individual_policy_status" in
+                    0) ;;
+                    2) source_policy_status=2 ;;
+                    1) [ "$source_policy_status" -eq 2 ] || source_policy_status=1 ;;
+                    3) [ "$source_policy_status" -ne 0 ] || source_policy_status=3 ;;
+                    *) source_policy_status=2 ;;
+                esac
+                [ "$source_policy_status" -ne 2 ] || break
+                source_index=$((source_index + 1))
+            done
+            case "$source_policy_status" in
+                0) source_policy_state=approved; source_policy_reason=all_sources_matched ;;
+                1) source_policy_state=not_approved; source_policy_reason=source_set_mismatch ;;
+                3) source_policy_state=absent; source_policy_reason=facts_absent ;;
+                *) source_policy_state=error; source_policy_reason=source_set_validation_failed ;;
+            esac
+        fi
+    elif declare -F policy_time_source_match >/dev/null 2>&1; then
         source_policy_status=0
         policy_time_source_match "$provider" "$selected_source" "$selected_source_address" || source_policy_status=$?
         if [ "$source_policy_status" -eq 0 ]; then
@@ -925,6 +1239,8 @@ check_u_65() {
         fi
     fi
     if [ "$expected_provider" = "chrony" ] && [ "$provider" != "chrony" ]; then
+        provider_scope="operational-extension"
+    elif [ "$provider" = "ntpd-rs" ]; then
         provider_scope="operational-extension"
     elif [ "$expected_provider" = "ntpd" ] && { [ "$provider" = "chrony" ] || [ "$provider" = "systemd-timesyncd" ]; }; then
         provider_scope="operational-extension"
@@ -940,7 +1256,7 @@ check_u_65() {
     elif [ "$runtime_status" -eq 3 ]; then
         set_result MANUAL \
             "시각은 동기화됐지만 KISA의 NTP 서버 절차가 아닌 로컬 기준 시계를 사용하므로 적합성 검토가 필요합니다." \
-            "${runtime_facts}\n${config_facts}"
+            "${runtime_facts}\n${config_facts}" true policy
     elif [ "$runtime_status" -ne 0 ]; then
         set_result VULNERABLE \
             "서비스는 활성 상태지만 동기화된 소스 또는 정상 상태를 확인하지 못했습니다." \
@@ -952,7 +1268,8 @@ check_u_65() {
     elif [ "$persistence_status" -eq 2 ]; then
         set_result ERROR "시각 동기화 서비스의 부팅 지속 상태를 수집하지 못했습니다." "${runtime_facts}\n${config_facts}"
     elif [ "$persistence_status" -ne 0 ]; then
-        set_result MANUAL "현재 시각은 동기화됐지만 재부팅 후 서비스 활성화가 보장되지 않습니다." "${runtime_facts}\n${config_facts}"
+        set_result MANUAL "현재 시각은 동기화됐지만 재부팅 후 서비스 활성화가 보장되지 않습니다." \
+            "${runtime_facts}\n${config_facts}" true runtime
     elif [ "$config_status" -eq 0 ] && [ "$source_policy_status" -eq 0 ]; then
         set_result GOOD \
             "승인된 네트워크 시각 소스와 동기화되며 영구 구성과 부팅 활성화가 확인되었습니다." \
@@ -960,15 +1277,15 @@ check_u_65() {
     elif [ "$config_status" -eq 0 ]; then
         set_result MANUAL \
             "시각 동기화와 영구 구성은 확인됐지만 NTP 소스의 조직 승인 증적을 대조해야 합니다." \
-            "${runtime_facts}\n${config_facts}"
+            "${runtime_facts}\n${config_facts}" true policy
     elif [ "$config_status" -eq 3 ]; then
         set_result MANUAL \
             "런타임은 동기화됐지만 영구 소스가 동적 공급인지 확인해야 합니다." \
-            "${runtime_facts}\npersistent_config_status=${config_status}\n${config_facts}"
+            "${runtime_facts}\npersistent_config_status=${config_status}\n${config_facts}" true runtime
     elif [ "$config_status" -eq 1 ]; then
         set_result MANUAL \
             "런타임은 동기화됐지만 기본 위치에서 영구 구성을 찾지 못했습니다." \
-            "${runtime_facts}\npersistent_config_status=${config_status}\n${config_facts}"
+            "${runtime_facts}\npersistent_config_status=${config_status}\n${config_facts}" true technical
     else
         set_result ERROR \
             "시각 동기화 런타임은 정상이지만 영구 구성 그래프를 검증하지 못했습니다." \
@@ -1180,7 +1497,7 @@ check_u_66() {
     else
         set_result MANUAL \
             "배포판별 로그 공급자와 경로는 확인했지만 기록·보존·전송 범위가 조직 정책을 충족하는지는 정책 증적이 필요합니다." \
-            "$evidence"
+            "$evidence" true policy
     fi
 }
 
@@ -1435,21 +1752,26 @@ EOF
         debug_emit filesystem_snapshot phase result name log status error \
             files "$scanned" directories "$scanned_directories" errors "$stat_errors"
         set_result ERROR "일부 로그 파일 또는 디렉터리의 메타데이터를 수집하지 못했습니다." "$evidence"
-    elif [ "$violations" -gt 0 ]; then
+    elif [ "$violations" -gt 0 ] || [ "$directory_violations" -gt 0 ]; then
         debug_emit filesystem_snapshot phase result name log status vulnerable \
-            files "$scanned" directories "$scanned_directories" violations "$violations"
-        set_result VULNERABLE "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일을 확인했습니다." "$evidence"
+            files "$scanned" directories "$scanned_directories" \
+            violations "$violations" directory_violations "$directory_violations"
+        set_result VULNERABLE "/var/log에서 KISA 소유자·권한 기준을 벗어난 파일 또는 디렉터리를 확인했습니다." \
+            "$evidence" true technical true metadata.u67.v1
     elif [ "$scanned" -eq 0 ]; then
         debug_emit filesystem_snapshot phase result name log status ambiguous files 0 directories "$scanned_directories"
-        set_result MANUAL "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다." "$evidence"
+        set_result MANUAL "/var/log에서 일반 로그 파일을 찾지 못해 권한 기준을 확정할 수 없습니다." \
+            "$evidence" true technical
     elif [ "$SCAN_ROOT" != "/" ] && [ "$bundle_mount_inventory" -ne 1 ]; then
         debug_emit filesystem_snapshot phase result name log status ambiguous \
             files "$scanned" directories "$scanned_directories" mount_inventory unavailable
-        set_result MANUAL "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다." "$evidence"
-    elif [ "$directory_violations" -gt 0 ] || [ "$excluded_mounts" -gt 0 ] || [ "$external_symlink_targets" -gt 0 ] || [ "$symlink_directories" -gt 0 ] || [ "$unresolved_symlinks" -gt 0 ]; then
+        set_result MANUAL "오프라인 루트에서는 /var/log 하위 마운트 경계를 확인할 수 없습니다." \
+            "$evidence" true runtime
+    elif [ "$excluded_mounts" -gt 0 ] || [ "$external_symlink_targets" -gt 0 ] || [ "$symlink_directories" -gt 0 ] || [ "$unresolved_symlinks" -gt 0 ]; then
         debug_emit filesystem_snapshot phase result name log status ambiguous \
             files "$scanned" directories "$scanned_directories" excluded_mounts "$excluded_mounts"
-        set_result MANUAL "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다." "$evidence"
+        set_result MANUAL "일반 로그 파일은 기준을 충족하지만 디렉터리, 제외된 마운트 또는 심볼릭 링크 범위를 추가 검토해야 합니다." \
+            "$evidence" true technical
     else
         debug_emit filesystem_snapshot phase result name log status ready \
             files "$scanned" directories "$scanned_directories" errors 0

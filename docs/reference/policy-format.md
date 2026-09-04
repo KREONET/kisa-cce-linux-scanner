@@ -2,11 +2,23 @@
 
 ## Purpose
 
-Policy attestations record decisions that require an authorized organizational review. Typed policy facts record approved values that a criterion can compare with collected technical evidence. Neither form replaces the technical evidence collected by a criterion check.
+Policy attestations record decisions that require an authorized organizational
+review. Typed policy facts record approved values that a criterion can compare
+with collected technical evidence. Neither form replaces the technical,
+runtime, or external evidence collected by a criterion check.
 
-An attestation applies only when its criterion code and `review_id` match the current review basis and its expiration date has not passed. A typed fact applies only when its type-specific identity matches the current observation and its expiration date has not passed.
+An attestation applies only to a policy-class `MANUAL` result whose criterion
+code and `review_id` match the current review basis and whose expiration date
+has not passed. A typed fact applies only when its type-specific identity
+matches the current observation and its expiration date has not passed.
 
 The loader is implemented as a Bash 4.3 or newer source module in `lib/kisa-cce-policy/_policy.sh`. It parses policy files as data and never evaluates their contents as shell code.
+
+This document describes scanner policy schema version 1. The distinct
+schema-version-2 desired state used by
+`kisa-cce-patch --automatic --desired-state FILE` is documented in
+[Autopatcher coverage](autopatcher-coverage.md). The two formats are not
+interchangeable.
 
 ## Directory contract
 
@@ -49,11 +61,11 @@ The complete authoring shape is:
 ```yaml
 schema_version: 1
 attestations:
-  - code: U-64
+  - code: U-07
     decision: GOOD
     review_id: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-    ticket: SEC-2026-0142
-    approver: security-governance
+    ticket: IAM-2026-0142
+    approver: identity-governance
     expires: 2026-12-31
 time_sources:
   - provider: chrony
@@ -62,9 +74,20 @@ time_sources:
     ticket: TIME-2026-001
     approver: time-owners
     expires: 2026-12-31
+  - provider: ntpd-rs
+    host: rust-time.example.net
+    address: 192.0.2.40
+    ticket: TIME-2026-002
+    approver: time-owners
+    expires: 2026-12-31
 ```
 
-`schema_version: 1` must precede the policy sections. `attestations` is required and may be `[]`. `time_sources` is optional; omission means no typed fact set, while `time_sources: []` deliberately creates an explicit empty allowlist. Mapping field order is unrestricted, but every required field must occur exactly once.
+`schema_version: 1` is the policy YAML grammar version and must precede the
+policy sections. It is independent from review-basis schema version 2 described
+below. `attestations` is required and may be `[]`. `time_sources` is optional;
+omission means no typed fact set, while `time_sources: []` deliberately creates
+an explicit empty allowlist. Mapping field order is unrestricted, but every
+required field must occur exactly once.
 
 The parser accepts blank lines, full-line comments, block lists, plain scalars, and restricted single- or double-quoted scalars. List markers use exactly two spaces; continuation fields use exactly four. Double quotes support only `\"` and `\\`; single quotes use `''` for one literal quote. Ambiguous plain scalars must be quoted.
 
@@ -82,6 +105,25 @@ The policy directory, the optional `facts` directory, and every consumed file mu
 
 The loader rejects a matching symbolic link instead of following it. When loaded by the scanner, every existing path component must also pass the scanner's trusted-parent checks.
 
+## Review basis schema
+
+New review IDs use `review_schema:2`. The canonical hash input binds the
+scanner version, detected platform and base platform, evidence-bundle identity,
+criterion metadata, applicability, `resolution_class`, complete normalized
+summary, and complete redacted evidence. Adding `resolution_class` prevents an
+approval for an organization-policy question from being reused for a
+technically or operationally incomplete result with otherwise similar text.
+
+Review schema 1 IDs do not match schema 2. Regenerate attestations from a
+current audit after upgrading. `review_schema` is an internal marker in the
+canonical hash input; it is not a separate JSONL field. JSONL exposes the
+resulting `review_id` and `resolution_class`.
+
+Attestation lookup is allowed only for `resolution_class=policy`.
+`technical`, `runtime`, and `external` manual results become `ERROR` in complete
+and automation modes regardless of whether an old or manually constructed
+attestation exists.
+
 ## Final attestation TSV grammar
 
 Every file starts with this exact header, using literal tab characters between fields:
@@ -96,7 +138,7 @@ Every subsequent line contains exactly six tab-separated fields:
 |---|---|
 | `code` | One criterion code from `U-01` through `U-67`. |
 | `decision` | `GOOD` or `VULNERABLE`. |
-| `review_id` | `sha256:` followed by exactly 64 lowercase hexadecimal characters. |
+| `review_id` | `sha256:` followed by exactly 64 lowercase hexadecimal characters, generated from review-basis schema 2. |
 | `ticket` | A non-empty change, exception, or approval record identifier. |
 | `approver` | A non-empty identifier for the approving authority. |
 | `expires` | A real Gregorian calendar date in `YYYY-MM-DD` form. |
@@ -107,7 +149,7 @@ Example, where the field separators are literal tabs:
 
 ```text
 code	decision	review_id	ticket	approver	expires
-U-64	GOOD	sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef	SEC-2026-0142	security-governance	2026-12-31
+U-07	GOOD	sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef	IAM-2026-0142	identity-governance	2026-12-31
 ```
 
 ## Merge and failure behavior
@@ -152,6 +194,12 @@ The match variables are cleared at the start of every lookup. Callers must use t
 
 A matching `review_id` proves that the attestation was issued for the review basis supplied by the caller; it does not authenticate the file. File provenance, distribution, and integrity controls remain deployment responsibilities.
 
+In complete mode, a missing policy-class attestation is an error. In automation
+mode, an absent attestation closes that result to `VULNERABLE` with
+`decision_basis=fail_closed_policy`; the result remains
+`remediation_eligible=false`. Invalid, expired, or mismatched attestations are
+errors in both modes.
+
 ## Approved time-source facts
 
 ### File and schema
@@ -172,7 +220,7 @@ Each subsequent row contains exactly six fields:
 
 | Field | Required value |
 |---|---|
-| `provider` | `chrony`, `ntpsec`, or `systemd-timesyncd`. |
+| `provider` | `chrony`, `ntpd-rs`, `ntpsec`, or `systemd-timesyncd`. |
 | `host` | An ASCII DNS-style source name, or `-` when approval is bound only to an address. Names are limited to 253 characters, normalized to lowercase, and normalized without one final root dot. Labels are limited to 63 characters. Wildcards are not accepted. |
 | `address` | An IPv4 or IPv6 address, or `-` when approval is bound only to a host. IPv4 octets are normalized to decimal without leading zeroes. IPv6 hexadecimal digits are normalized to lowercase; compressed and uncompressed forms remain textually distinct. IPv4-embedded IPv6 spelling is not accepted. |
 | `ticket` | A non-empty approval or change record identifier of at most 128 characters. |
@@ -186,8 +234,16 @@ Example:
 ```text
 provider	host	address	ticket	approver	expires
 chrony	time1.example.net	192.0.2.10	TIME-2026-001	security-governance	2026-12-31
-systemd-timesyncd	time2.example.net	-	TIME-2026-002	security-governance	2026-12-31
+ntpd-rs	rust-time.example.net	192.0.2.40	TIME-2026-002	time-owners	2026-12-31
+systemd-timesyncd	time2.example.net	-	TIME-2026-003	security-governance	2026-12-31
 ```
+
+The ntpd-rs provider name binds an approval to a selected ntpd-rs installation;
+it does not make ntpd-rs the Ubuntu 26.04 default. The scanner separately
+requires `/etc/ntpd-rs/ntp.toml`, `ntpd-rs.service` persistence, and normalized
+`ntp-ctl status` evidence. See the
+[Resolute package](https://packages.ubuntu.com/resolute/ntpd-rs) and
+[ntpd-rs upstream](https://github.com/pendulum-project/ntpd-rs).
 
 The separators in the actual file are literal tabs. Blank lines, comments, carriage returns, extra columns, missing columns, control characters, and an empty file are invalid.
 

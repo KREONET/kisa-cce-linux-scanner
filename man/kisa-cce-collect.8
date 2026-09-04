@@ -46,6 +46,16 @@ normalized service, listener, and time-synchronization tables, raw mount
 information, and firewall state. The current collector writes evidence schema
 version 2.
 All files use mode 0600 and all directories use mode 0700.
+.PP
+The normalized time table accepts systemd-timesyncd, Chrony, ntpd-rs, and
+NTPsec providers. For an installed ntpd-rs provider, the collector parses
+.B "ntp-ctl status"
+and records the source identity and stratum without retaining the raw command
+output. Repeated resolved addresses for one pool identity are collapsed; more
+than one distinct identity makes schema-version-2 collection partial. Service
+activation remains a separate
+.I ntpd-rs.service
+fact.
 .SH EXIT STATUS
 .TP
 .B 0

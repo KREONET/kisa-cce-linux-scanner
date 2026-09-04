@@ -28,6 +28,7 @@ docs/
 | [Platform support](reference/platform-support.md) | Accepted releases, derivative mapping, lifecycle sources, and exclusions. |
 | [KISA platform semantics](reference/kisa-platform-semantics.md) | Rendered-guide family branches, versioned native behavior, and validation limits. |
 | [Policy format](reference/policy-format.md) | Typed fact and attestation schemas, trust requirements, expiry, and lookup behavior. |
+| [Autopatcher coverage](reference/autopatcher-coverage.md) | Fixed=9, conditional=58, gated=0 contract, desired-state v2, domains, and orchestration boundary. |
 
 ## Design
 
@@ -36,6 +37,7 @@ docs/
 | [Architecture](design/architecture.md) | Components, execution flow, configuration resolution, and result production. |
 | [Security model](design/security-model.md) | Trust boundaries, defensive controls, residual risks, and safe deployment. |
 | [Performance](design/performance.md) | Scan epochs, parse-once snapshots, dependency DAG, and benchmark method. |
+| [Autopatcher](design/autopatcher.md) | Fixed-rule flow, all-67 automatic orchestration, transaction safety, and rollback. |
 
 ## Contributors and packaging
 
@@ -46,7 +48,11 @@ docs/
 | [macOS container testing](developers/macos-container-testing.md) | Apple `container` setup, eight-image validation matrix, debug smoke checks, and scoped cleanup. |
 | [Packaging](packaging/README.md) | `DESTDIR` installation and future Debian/RPM integration. |
 
-The installed command manuals are maintained as [kisa-cce-scan(8)](../man/kisa-cce-scan.8), [kisa-cce-collect(8)](../man/kisa-cce-collect.8), and [kisa-cce-policy-compile(8)](../man/kisa-cce-policy-compile.8).
+The installed command manuals are maintained as
+[kisa-cce-scan(8)](../man/kisa-cce-scan.8),
+[kisa-cce-collect(8)](../man/kisa-cce-collect.8),
+[kisa-cce-policy-compile(8)](../man/kisa-cce-policy-compile.8), and
+[kisa-cce-patch(8)](../man/kisa-cce-patch.8).
 
 ## Scope and sources of truth
 
@@ -61,7 +67,8 @@ The installed command manuals are maintained as [kisa-cce-scan(8)](../man/kisa-c
 | Configuration precedence | `lib/kisa-cce-resolvers/_resolvers.sh` and the subsystem-specific check modules. |
 | Regression coverage | `tests/run.sh` and focused scripts under `tests/`. |
 | Installed file layout | `Makefile`. |
-| Command manuals | `man/kisa-cce-scan.8`, `man/kisa-cce-collect.8`, and `man/kisa-cce-policy-compile.8`. |
+| Command manuals | Section 8 files under `man/`, including `man/kisa-cce-patch.8`. |
+| Remediation coverage and transactions | `docs/design/autopatcher.md`, `docs/reference/autopatcher-coverage.md`, and `lib/kisa-cce-patcher/_*.sh`. |
 | Complete-mode policy contract | `docs/reference/policy-format.md` and `lib/kisa-cce-policy/_policy.sh`. |
 | Runtime evidence contract | `docs/operators/evidence-bundle.md` and `lib/kisa-cce-runtime/_evidence.sh`. |
 | Report localization contract | `docs/operators/localization.md`, `lib/kisa-cce-core/_i18n.sh`, and `share/kisa-cce-linux-scanner/locale`. |

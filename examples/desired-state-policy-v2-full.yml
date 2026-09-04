@@ -1,0 +1,342 @@
+# KISA CCE patcher full desired-state profile template.
+# Conditional rows reference one protected domain-input TSV for operator review.
+# This template declares input locations; it does not authorize remediation.
+schema_version: 2
+profile_id: full-profile-template
+max_risk: R4
+desired_states:
+  - code: U-01
+    adapter: remote_root_access
+    postcondition: GOOD
+    input_type: root_remote_access_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-02
+    adapter: password_policy
+    postcondition: GOOD
+    input_type: pam_password_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-03
+    adapter: account_lockout
+    postcondition: GOOD
+    input_type: pam_lockout_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-04
+    adapter: password_store
+    postcondition: GOOD
+    input_type: password_store_strategy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-05
+    adapter: uid_zero_accounts
+    postcondition: GOOD
+    input_type: uid_zero_account_resolution
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-06
+    adapter: su_access
+    postcondition: GOOD
+    input_type: pam_approved_su_group
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-07
+    adapter: unnecessary_accounts
+    postcondition: GOOD
+    input_type: account_retention_decisions
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-08
+    adapter: administrator_group
+    postcondition: GOOD
+    input_type: administrator_group_members
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-09
+    adapter: orphan_groups
+    postcondition: GOOD
+    input_type: orphan_group_resolution
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-10
+    adapter: duplicate_uids
+    postcondition: GOOD
+    input_type: duplicate_uid_resolution
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-11
+    adapter: login_shells
+    postcondition: GOOD
+    input_type: allowed_login_shells
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-12
+    adapter: session_timeout
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-13
+    adapter: password_hash
+    postcondition: GOOD
+    input_type: password_hash_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-14
+    adapter: root_path
+    postcondition: GOOD
+    input_type: root_path_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-15
+    adapter: orphan_ownership
+    postcondition: GOOD
+    input_type: ownership_resolution_map
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-16
+    adapter: passwd_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-17
+    adapter: startup_metadata
+    postcondition: GOOD
+    input_type: startup_object_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-18
+    adapter: shadow_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-19
+    adapter: hosts_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-20
+    adapter: inetd_metadata
+    postcondition: GOOD
+    input_type: inetd_path_set
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-21
+    adapter: logging_metadata
+    postcondition: GOOD
+    input_type: logging_path_set
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-22
+    adapter: services_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-23
+    adapter: privileged_bits
+    postcondition: GOOD
+    input_type: privileged_file_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-24
+    adapter: environment_metadata
+    postcondition: GOOD
+    input_type: account_environment_path_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-25
+    adapter: world_writable_objects
+    postcondition: GOOD
+    input_type: world_writable_path_exceptions
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-26
+    adapter: device_tree_objects
+    postcondition: GOOD
+    input_type: device_tree_object_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-27
+    adapter: trust_files
+    postcondition: GOOD
+    input_type: trust_file_removal_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-28
+    adapter: network_access
+    postcondition: GOOD
+    input_type: network_service_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-29
+    adapter: hosts_lpd_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-30
+    adapter: umask_policy
+    postcondition: GOOD
+    input_type: umask_policy_parameters
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-31
+    adapter: home_metadata
+    postcondition: GOOD
+    input_type: home_directory_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-32
+    adapter: home_presence
+    postcondition: GOOD
+    input_type: home_directory_resolution
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-33
+    adapter: hidden_objects
+    postcondition: GOOD
+    input_type: hidden_object_retention_decisions
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-34
+    adapter: finger_service
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-35
+    adapter: anonymous_shares
+    postcondition: NOT_APPLICABLE
+    input_type: anonymous_share_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-36
+    adapter: r_services
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-37
+    adapter: scheduler_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-38
+    adapter: legacy_dos_services
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-39
+    adapter: nfs_service
+    postcondition: GOOD
+    input_type: nfs_service_requirement
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-40
+    adapter: nfs_access
+    postcondition: NOT_APPLICABLE
+    input_type: nfs_client_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-41
+    adapter: automount_service
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-42
+    adapter: rpc_services
+    postcondition: GOOD
+    input_type: rpc_service_requirements
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-43
+    adapter: nis_services
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-44
+    adapter: tftp_talk_services
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-45
+    adapter: mail_version
+    postcondition: NOT_APPLICABLE
+    input_type: vendor_mail_advisory_snapshot
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-46
+    adapter: mail_command_access
+    postcondition: NOT_APPLICABLE
+    input_type: mail_provider_command_set
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-47
+    adapter: mail_relay
+    postcondition: NOT_APPLICABLE
+    input_type: mail_relay_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-48
+    adapter: mail_enumeration
+    postcondition: NOT_APPLICABLE
+    input_type: mail_provider_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-49
+    adapter: dns_version
+    postcondition: NOT_APPLICABLE
+    input_type: vendor_dns_advisory_snapshot
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-50
+    adapter: dns_zone_transfer
+    postcondition: NOT_APPLICABLE
+    input_type: authorized_secondary_servers
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-51
+    adapter: dns_dynamic_update
+    postcondition: NOT_APPLICABLE
+    input_type: dns_update_principals
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-52
+    adapter: telnet_service
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-53
+    adapter: ftp_banner
+    postcondition: NOT_APPLICABLE
+    input_type: ftp_warning_text
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-54
+    adapter: plaintext_ftp
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-55
+    adapter: ftp_account_shell
+    postcondition: NOT_APPLICABLE
+    input_type: ftp_account_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-56
+    adapter: ftp_access
+    postcondition: NOT_APPLICABLE
+    input_type: ftp_client_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-57
+    adapter: ftp_denied_users
+    postcondition: NOT_APPLICABLE
+    input_type: ftp_denied_accounts
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-58
+    adapter: snmp_service
+    postcondition: GOOD
+    input_type: service_disable_approval
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-59
+    adapter: snmp_version
+    postcondition: NOT_APPLICABLE
+    input_type: snmp_security_level
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-60
+    adapter: snmp_community
+    postcondition: NOT_APPLICABLE
+    input_type: snmp_community_secret_reference
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-61
+    adapter: snmp_access
+    postcondition: NOT_APPLICABLE
+    input_type: snmp_manager_allowlist
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-62
+    adapter: login_warning
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-63
+    adapter: sudo_access
+    postcondition: GOOD
+    input_type: sudo_authorization_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-64
+    adapter: patch_management
+    postcondition: GOOD
+    input_type: vendor_advisory_snapshot
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-65
+    adapter: time_synchronization
+    postcondition: GOOD
+    input_type: approved_time_sources
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-66
+    adapter: logging_policy
+    postcondition: GOOD
+    input_type: logging_route_policy
+    input_value: /etc/kisa-cce-patcher/domain-input.tsv
+  - code: U-67
+    adapter: log_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -

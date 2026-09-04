@@ -111,7 +111,7 @@ fi
 
 first_json_line="$(sed -n '1p' "$REPORT_JSONL")"
 case "$first_json_line" in
-    '{"code":"U-01","category":"account","severity":"high","title":"good title","status":"GOOD","technical_status":"GOOD","decision_basis":"technical","review_id":"","attestation_ticket":"","attestation_approver":"","attestation_expires":"","applicable":true,"summary":"good summary","evidence":'*'"criterion_url":"https://kreonet.github.io/kisa-cce-guide-web/unix/u-01/"}') ;;
+    '{"code":"U-01","category":"account","severity":"high","title":"good title","status":"GOOD","technical_status":"GOOD","decision_basis":"technical","review_id":"","attestation_ticket":"","attestation_approver":"","attestation_expires":"","applicable":true,"summary":"good summary","evidence":'*'"resolution_class":"technical","remediation_eligible":false,"remediation_rule_id":"","criterion_url":"https://kreonet.github.io/kisa-cce-guide-web/unix/u-01/"}') ;;
     *) fail "JSONL result schema or field order changed" ;;
 esac
 [ "$(wc -l < "$REPORT_JSONL" | tr -d '[:space:]')" -eq 6 ] || fail "JSONL line count changed"

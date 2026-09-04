@@ -86,11 +86,12 @@ assert_equal not_approved "$POLICY_TIME_SOURCE_MATCH_STATE" "explicit empty fact
 
 write_time_sources "$policy_directory" \
     $'chrony\tTime.Example.\t-\tTIME-001\ttime-owners\t2099-12-31' \
+    $'ntpd-rs\trust-time.example\t192.0.2.40\tTIME-004\ttime-owners\t2099-12-31' \
     $'systemd-timesyncd\t-\t192.000.002.010\tTIME-002\ttime-owners\t2099-12-31' \
     $'ntpsec\tpaired.example\t2001:DB8::123\tTIME-003\ttime-owners\t2099-12-31'
 policy_load_dir "$policy_directory" || fail "valid typed time-source policy was rejected"
 assert_equal 1 "$POLICY_TIME_SOURCE_FACTS_PRESENT" "typed fact-set presence"
-assert_equal 3 "$POLICY_TIME_SOURCE_COUNT" "typed fact count"
+assert_equal 4 "$POLICY_TIME_SOURCE_COUNT" "typed fact count"
 [ "$POLICY_SET_DIGEST" != "$attestation_only_digest" ] || fail "typed facts did not affect the policy digest"
 
 status=0
@@ -109,6 +110,11 @@ status=0
 policy_time_source_match systemd-timesyncd '' 192.0.2.10 || status=$?
 assert_equal 0 "$status" "address approval status"
 assert_equal 192.0.2.10 "$POLICY_TIME_SOURCE_MATCH_ADDRESS" "address normalization"
+
+status=0
+policy_time_source_match ntpd-rs rust-time.example 192.0.2.40 || status=$?
+assert_equal 0 "$status" "ntpd-rs approval status"
+assert_equal TIME-004 "$POLICY_TIME_SOURCE_MATCH_TICKET" "ntpd-rs approval ticket"
 
 status=0
 policy_time_source_match ntpsec PAIRED.EXAMPLE. 2001:db8::123 || status=$?

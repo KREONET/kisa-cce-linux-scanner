@@ -1,0 +1,50 @@
+# KISA CCE patcher fixed-adapter profile schema version 2.
+schema_version: 2
+profile_id: implemented-baseline
+max_risk: R3
+desired_states:
+  - code: U-12
+    adapter: session_timeout
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-16
+    adapter: passwd_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-18
+    adapter: shadow_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-19
+    adapter: hosts_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-22
+    adapter: services_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-29
+    adapter: hosts_lpd_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-37
+    adapter: scheduler_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-62
+    adapter: login_warning
+    postcondition: GOOD
+    input_type: none
+    input_value: -
+  - code: U-67
+    adapter: log_metadata
+    postcondition: GOOD
+    input_type: none
+    input_value: -

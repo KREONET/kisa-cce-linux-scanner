@@ -88,7 +88,7 @@ Each provider occurs at most once. The normalized fields use these values:
 
 | Field | Values |
 |---|---|
-| `provider` | `systemd-timesyncd`, `chrony`, or `ntpsec` |
+| `provider` | `systemd-timesyncd`, `chrony`, `ntpd-rs`, or `ntpsec` |
 | `synchronized` | `yes`, `no`, or `unknown` |
 | `source`, `source_address` | A bounded token without whitespace or control characters, or `-` when unavailable |
 | `stratum` | `0` through `16`, or `-` when unavailable |
@@ -97,6 +97,23 @@ Each provider occurs at most once. The normalized fields use these values:
 | `source_type` | `network`, `reference-clock`, or `unknown` |
 
 `collected` requires at least one normalized provider row. `unavailable` requires a header-only table. `partial` can retain valid rows, but a criterion must not treat them as conclusive. The collector discards raw client output after normalization.
+
+When `ntp-ctl` is installed, the collector runs `ntp-ctl status` and parses the
+overall stratum and complete reported source set. Repeated addresses for one
+pool name become one `provider=ntpd-rs` row; the address is `-` when the pool
+resolved to multiple peers. More than one distinct source identity makes the
+snapshot `partial` because schema version 2 cannot represent that set without
+discarding policy-relevant peers. The raw status output is discarded.
+Activation and persistence remain separate `ntpd-rs.service` facts in the
+systemd tables. The upstream command interface is documented by the
+[ntpd-rs project](https://github.com/pendulum-project/ntpd-rs).
+During an offline U-65 scan, these runtime records are paired with the selected
+root's `/etc/ntpd-rs/ntp.toml`; the configuration file itself is not copied into
+the evidence bundle.
+
+Ubuntu 26.04 uses Chrony by default; an ntpd-rs bundle row means the optional
+provider was installed and observed, not that the distribution default changed.
+See the [Ubuntu 26.04 Chrony note](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/#chrony).
 
 Schema version 1 retains the original bounded `time-sync.txt` artifact for compatibility. It is validated as a protected checksummed file, but it is not promoted to normalized facts because its native-client sections do not provide the strict v2 record contract.
 
@@ -146,7 +163,7 @@ The state helpers use the scanner's existing return convention:
 
 `evidence_listener_facts TRANSPORT PORT...` prints matching validated listener rows without the TSV header. `evidence_mount_roots` converts validated mountinfo into `target<TAB>filesystem_type` rows and rejects mount targets that cannot be represented safely as TSV.
 
-`evidence_time_sync_facts` prints normalized `provider`, `synchronized`, `source`, `source_address`, `stratum`, `leap`, `source_origin`, and `source_type` facts. `evidence_time_sync_facts_into DESTINATION` provides the same facts through a caller-supplied variable without command substitution. Both helpers require a validated schema version 2 bundle whose time-sync status is `collected`.
+`evidence_time_sync_facts` prints normalized `provider`, `synchronized`, `source`, `source_address`, `stratum`, `leap`, `source_origin`, and `source_type` facts. `evidence_time_sync_facts_into DESTINATION` provides the same facts through a caller-supplied variable without command substitution. Both helpers require a validated schema version 2 bundle whose time-sync status is `collected`. A normalized ntpd-rs row follows the same provider-selection and ambiguity rules as the other supported providers.
 
 ## Operational boundary
 

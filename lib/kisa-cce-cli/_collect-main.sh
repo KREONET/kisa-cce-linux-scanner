@@ -475,7 +475,7 @@ time_sync_write_row() {
     local source_origin="$8"
     local source_type="$9"
 
-    case "$provider" in systemd-timesyncd|chrony|ntpsec) ;; *) return 3 ;; esac
+    case "$provider" in systemd-timesyncd|chrony|ntpd-rs|ntpsec) ;; *) return 3 ;; esac
     case "$synchronized" in yes|no|unknown) ;; *) return 3 ;; esac
     if [ "$source" != "-" ]; then time_sync_safe_field "$source" || return 3; fi
     if [ "$source_address" != "-" ]; then time_sync_safe_field "$source_address" || return 3; fi
@@ -634,6 +634,99 @@ collect_ntpsec_normalized() {
         "$stratum" unknown runtime "$source_type"
 }
 
+ntpd_rs_endpoint_into() {
+    local value="$1"
+    local destination_name="$2"
+    local endpoint="$value"
+    local port=""
+
+    case "$destination_name" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 2 ;; esac
+    case "$endpoint" in
+        \[*\]:[0-9]*)
+            endpoint="${endpoint#\[}"
+            endpoint="${endpoint%%\]:*}"
+            ;;
+        \[*\])
+            endpoint="${endpoint#\[}"
+            endpoint="${endpoint%\]}"
+            ;;
+        *:*:*) return 2 ;;
+        *:[0-9]*)
+            port="${endpoint##*:}"
+            case "$port" in ''|*[!0-9]*) ;; *) endpoint="${endpoint%:*}" ;; esac
+            ;;
+    esac
+    time_sync_safe_field "$endpoint" || return 2
+    printf -v "$destination_name" '%s' "$endpoint"
+}
+
+collect_ntpd_rs_normalized() {
+    local output_file="$1"
+    local status_file="$SCRATCH_DIRECTORY/ntpd-rs-status.raw"
+    local source_records=""
+    local source_record=""
+    local source_endpoint=""
+    local address_endpoint=""
+    local source="-"
+    local source_address="-"
+    local stratum="-"
+    local synchronized="no"
+    local record_count=0
+    local unique_source_count=0
+    local unique_address_count=0
+    local -A source_names=()
+    local -A source_addresses=()
+
+    ntp-ctl status > "$status_file" 2>/dev/null || return 2
+    [ -s "$status_file" ] || return 3
+    stratum="$(awk -F: '/^[[:space:]]*Stratum:[[:space:]]*[0-9]+[[:space:]]*$/ {
+        value=$2; gsub(/[[:space:]]/, "", value); print value; exit
+    }' "$status_file")"
+    source_records="$(awk '
+        /^[[:space:]]*Sources:[[:space:]]*$/ {in_sources=1; next}
+        /^[[:space:]]*Servers:[[:space:]]*$/ {in_sources=0}
+        in_sources && $0 !~ /^[[:space:]]/ && NF {print $1}
+    ' "$status_file")"
+    while IFS= read -r source_record || [ -n "$source_record" ]; do
+        [ -n "$source_record" ] || continue
+        record_count=$((record_count + 1))
+        [ "$record_count" -le 64 ] || return 3
+        source_endpoint=""
+        address_endpoint=""
+        case "$source_record" in
+            */*)
+                source_endpoint="${source_record%%/*}"
+                address_endpoint="${source_record#*/}"
+                ;;
+            *) source_endpoint="$source_record" ;;
+        esac
+        ntpd_rs_endpoint_into "$source_endpoint" source || return 3
+        source_names["$source"]=1
+        source_address="-"
+        if [ -n "$address_endpoint" ]; then
+            ntpd_rs_endpoint_into "$address_endpoint" source_address || return 3
+            source_addresses["$source_address"]=1
+        fi
+    done <<< "$source_records"
+    unique_source_count="${#source_names[@]}"
+    unique_address_count="${#source_addresses[@]}"
+    [ "$unique_source_count" -le 1 ] || return 3
+    if [ "$unique_address_count" -gt 1 ]; then source_address="-"; fi
+    case "$stratum" in
+        ''|*[!0-9]*) stratum="-" ;;
+        *)
+            if [ "$stratum" -ge 1 ] && [ "$stratum" -le 15 ] &&
+                [ "$record_count" -gt 0 ]; then
+                synchronized="yes"
+            fi
+            ;;
+    esac
+    time_sync_write_row "$output_file" ntpd-rs "$synchronized" "$source" "$source_address" \
+        "$stratum" unknown runtime network || return $?
+    [ "$synchronized" = yes ] || return 3
+    return 0
+}
+
 collect_time_sync() {
     local output_file="$OUTPUT_DIRECTORY_FD_PATH/runtime/time-sync.tsv"
     local collector_status=0
@@ -648,6 +741,11 @@ collect_time_sync() {
     fi
     if command -v chronyc >/dev/null 2>&1; then
         collect_chrony_normalized "$output_file" || collector_status=$?
+        case "$collector_status" in 0|2) ;; 3) partial=1 ;; *) return 1 ;; esac
+        collector_status=0
+    fi
+    if command -v ntp-ctl >/dev/null 2>&1; then
+        collect_ntpd_rs_normalized "$output_file" || collector_status=$?
         case "$collector_status" in 0|2) ;; 3) partial=1 ;; *) return 1 ;; esac
         collector_status=0
     fi
