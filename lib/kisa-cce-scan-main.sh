@@ -125,6 +125,7 @@ select_runtime_layout() {
     if [ -r "$SCANNER_LIBRARY_DIR/core.sh" ] &&
         [ -r "$SCANNER_LIBRARY_DIR/i18n.sh" ] &&
         [ -r "$SCANNER_LIBRARY_DIR/policy.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/runtime_fallback.sh" ] &&
         [ -r "$SCANNER_LIBRARY_DIR/scan_epoch.sh" ] &&
         [ -r "$SCANNER_LIBRARY_DIR/evidence.sh" ] &&
         [ -r "$SCANNER_LIBRARY_DIR/resolvers.sh" ] &&
@@ -156,6 +157,8 @@ i18n_load_console_catalog || bootstrap_die "cannot read the English console cata
 initialize_report_labels || bootstrap_die "cannot initialize localized report labels"
 # shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/scan_epoch.sh"
+# shellcheck source=/dev/null
+. "$SCANNER_LIBRARY_DIR/runtime_fallback.sh"
 # shellcheck source=/dev/null
 . "$SCANNER_LIBRARY_DIR/policy.sh"
 # shellcheck source=/dev/null

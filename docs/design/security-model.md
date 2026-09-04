@@ -44,6 +44,8 @@ Runtime collection does not use arbitrary caller `PATH` entries. `trusted_comman
 
 Unavailable or untrusted native tools produce conservative collection states instead of invoking another executable with the same name.
 
+On a live Linux root, the fallback runtime collector reads only the current process namespace under `/proc`. It retains bounded PID, command-name, executable-path, socket-address, port, and inode facts; process command lines are neither read nor stored. TCP facts require the kernel LISTEN state, and UDP facts require an unconnected bound socket. Missing or malformed socket tables and persistent process-metadata failures make negative results indeterminate instead of proving service absence.
+
 Static-only live-root scans retain one narrower host query: `trusted_findmnt_command` resolves only `findmnt` through the same ownership, mode, and parent-chain checks. Mount topology defines the scope of `find -xdev` filesystem evidence and does not enable service, listener, kernel-value, or native-validator collection. Offline roots never use this host command.
 
 The sysctl loader adapter is a narrower special case. It accepts the distribution paths `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` only after validating root ownership, write mode, and the complete parent chain.
@@ -76,7 +78,7 @@ Runtime finalization rejects empty reports, wrong ownership, wrong modes, and mi
 
 ### Evidence handling
 
-Evidence passes through control-character normalization, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. Markdown titles and summaries are escaped. Evidence maps tab and carriage return to visible escapes, replaces or removes remaining unsafe control bytes, and is rendered as a four-space-indented code block so assessed content cannot create headings, links, images, tables, or raw HTML. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
+Evidence passes through control-character normalization, UTF-8 normalization when available, targeted secret redaction, and an approximately 8 KiB limit. Markdown titles and summaries are escaped. Evidence maps tab and carriage return to visible escapes, replaces or removes remaining unsafe control bytes, and is HTML-escaped inside an inert `pre/code` container under a `details` disclosure. Assessed content therefore cannot create headings, links, images, tables, or raw HTML. The implemented filters cover common password/hash, SNMP, secret, token, and passphrase forms. Credential keys require a field boundary, so metadata for paths such as `/usr/bin/passwd:mode=4755` remains intact. Checks are expected to collect the minimum evidence needed for review rather than entire sensitive files.
 
 Verbose mode writes only platform context, check identifiers, statuses, titles, and aggregate counters to standard error. It never writes result summaries or evidence to the terminal.
 

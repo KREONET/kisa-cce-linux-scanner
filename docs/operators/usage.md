@@ -64,7 +64,7 @@ The installation layout and package staging interface are documented in [Packagi
 | `--policy-dir PATH` | Loads strict review attestations and supported typed facts from an absolute directory. Required by complete mode. |
 | `--evidence-bundle PATH` | Uses a validated live-runtime directory with an offline root. |
 | `--evidence-max-age SEC` | Rejects evidence older than `SEC`; default `3600`, maximum `604800`. |
-| `--no-runtime` | Disables live services, listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. For a live-root scan, local mount topology is still collected to define complete filesystem traversal boundaries. |
+| `--no-runtime` | Disables live services, procfs processes and listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. For a live-root scan, local mount topology is still collected to define complete filesystem traversal boundaries. |
 | `--explain-sysctl KEY` | Prints the effective persistent and runtime interpretation for one sysctl key instead of producing a CCE report. |
 | `--allow-unsupported` | Continues after an unsupported platform warning. |
 | `-v`, `--verbose` | Writes platform context, each check code, status, and catalog title, and final counters to standard error. |
@@ -79,6 +79,8 @@ Selected results are always emitted in `data/criteria.tsv` order, not in the ord
 One invocation uses one immutable scan epoch. Repeated checks share parse-once
 configuration snapshots and one runtime listener snapshot. A new invocation
 collects runtime state again; no cache persists across process runs.
+
+Live scans prefer trusted `systemctl`, `ss`, and `pgrep` results. When the current PID namespace conclusively has a non-systemd PID 1 or the native listener and process tools are absent, the scanner uses an epoch-scoped procfs fallback. This supports containers and other reduced Linux userspaces without treating tool absence as service absence. Incomplete procfs evidence remains `MANUAL` or `ERROR`.
 
 Every terminal line uses `[    12.345678] kisa-cce-scan: payload`, based on the scanner host's Linux uptime with six fractional digits. A safe process-time or zero fallback is used when `/proc/uptime` is unavailable. This framing applies to help, version, errors, warnings, verbose progress, sysctl explanations, and report paths. Automation keys such as `markdown_report`, `jsonl_report`, and the sysctl `key=value` fields remain unchanged inside the payload. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
 
@@ -147,9 +149,14 @@ Report paths are printed only after the final summary and integrity checks succe
 
 ### Markdown report
 
-The Markdown report contains scanner and platform metadata, followed by one `## U-NN` section for each selected criterion and a final status table. Each result includes its title, category, severity, status, applicability, summary, criterion URL, and optional evidence section.
+The Markdown report is organized for incident and remediation review:
 
-Dynamic titles and summaries are escaped before entering Markdown. Evidence separators are expanded, tab and carriage-return bytes are rendered as visible escapes, remaining unsafe control bytes are removed or replaced, UTF-8 is normalized when `iconv` is available, and targeted credential redaction is applied before an 8192-byte limit. Every evidence line is indented by four spaces so headings, links, images, tables, and raw HTML from an assessed host remain inert code-block content. JSONL retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string.
+1. The report header presents scanner, platform, scan-mode, policy, and evidence-bundle provenance in one metadata table.
+2. The overview presents all result counts near the top of the report.
+3. The priority index links to results in `ERROR`, `VULNERABLE`, then `MANUAL` order. `GOOD` and `NOT_APPLICABLE` results remain in the detailed results but do not lengthen the review queue.
+4. Each `## U-NN` result starts with a final-status callout and its summary, followed by one compact metadata row, the guide reference, and optional evidence.
+
+Evidence is collapsed by default in renderers that support the standard HTML `details` and `summary` elements. The content remains present in the Markdown source and in renderers without interactive disclosure support. Assessed evidence is normalized, redacted, bounded to 8192 bytes, HTML-escaped, and placed in a `pre` and `code` container. Host-provided headings, links, images, tables, and HTML therefore remain inert text. JSONL retains the unprefixed normalized evidence value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string and omits the Markdown disclosure block.
 
 ### JSONL report
 
@@ -160,6 +167,8 @@ The JSONL report contains one JSON object per selected criterion followed by one
 ```
 
 The final line has `type` set to `summary` and contains all status counts plus `policy_resolved`. Consumers must parse the file as JSON Lines, not as one JSON array.
+
+The Markdown readability layout does not change the JSONL field names, order, types, result semantics, or evidence normalization contract. Automation must continue to consume JSONL rather than parse the presentation-oriented Markdown index or tables.
 
 The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or timestamp header stored in the Markdown report. Retain the Markdown and JSONL files together when those provenance fields are required.
 

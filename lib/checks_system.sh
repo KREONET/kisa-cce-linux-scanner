@@ -649,11 +649,16 @@ time_service_persistence_state() {
     local unit_file_state=""
     local command_status=0
     local saw_loaded_unit=0
+    local manager_status=0
 
     if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] &&
         declare -F evidence_service_activation_state >/dev/null 2>&1; then
         evidence_service_activation_state "$@"
         return $?
+    fi
+    if runtime_enabled && declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 1
     fi
 
     systemctl_path="$(trusted_command systemctl)" || return 2
@@ -773,6 +778,8 @@ check_u_65() {
     local source_policy_status=3
     local source_policy_state="absent"
     local source_policy_reason="facts_file_absent"
+    local manager_status=0
+    local process_status=1
 
     if platform_is_rhel_family; then
         base_major="$(platform_base_major 2>/dev/null || true)"
@@ -811,6 +818,21 @@ check_u_65() {
     ntpsec_state=$?
     service_state systemd-timesyncd.service >/dev/null 2>&1
     timesyncd_state=$?
+
+    if runtime_enabled && declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        if [ "$manager_status" -eq 1 ] && declare -F runtime_process_state >/dev/null 2>&1; then
+            runtime_process_state chronyd
+            process_status=$?
+            case "$process_status" in 0) chrony_state=0 ;; 2) chrony_state=2 ;; esac
+            runtime_process_state ntpd ntpsec
+            process_status=$?
+            case "$process_status" in 0) ntpsec_state=0 ;; 2) ntpsec_state=2 ;; esac
+            runtime_process_state systemd-timesyncd systemd-timesyn
+            process_status=$?
+            case "$process_status" in 0) timesyncd_state=0 ;; 2) timesyncd_state=2 ;; esac
+        fi
+    fi
 
     if [ "$chrony_state" -eq 2 ] || [ "$ntpsec_state" -eq 2 ] || [ "$timesyncd_state" -eq 2 ]; then
         set_result ERROR "시각 동기화 서비스 상태를 수집하지 못했습니다." \
@@ -1076,20 +1098,36 @@ check_u_66() {
     local rsyslog_validation_status="not-run"
     local rsyslogd_path=""
     local rsyslog_main_file=""
+    local manager_status=0
+    local process_status=1
 
     if runtime_snapshot_available; then
         service_state systemd-journald.service >/dev/null 2>&1
         journald_state=$?
-        [ "$journald_state" -eq 0 ] && active_providers="journald"
-        [ "$journald_state" -eq 2 ] && collection_errors=$((collection_errors + 1))
         service_state rsyslog.service >/dev/null 2>&1
         rsyslog_state=$?
+        service_state syslog-ng.service >/dev/null 2>&1
+        syslog_ng_state=$?
+        if runtime_enabled && declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+            runtime_systemd_manager_state || manager_status=$?
+            if [ "$manager_status" -eq 1 ] && declare -F runtime_process_state >/dev/null 2>&1; then
+                runtime_process_state systemd-journald systemd-journal
+                process_status=$?
+                case "$process_status" in 0) journald_state=0 ;; 2) journald_state=2 ;; esac
+                runtime_process_state rsyslogd
+                process_status=$?
+                case "$process_status" in 0) rsyslog_state=0 ;; 2) rsyslog_state=2 ;; esac
+                runtime_process_state syslog-ng
+                process_status=$?
+                case "$process_status" in 0) syslog_ng_state=0 ;; 2) syslog_ng_state=2 ;; esac
+            fi
+        fi
+        [ "$journald_state" -eq 0 ] && active_providers="journald"
+        [ "$journald_state" -eq 2 ] && collection_errors=$((collection_errors + 1))
         if [ "$rsyslog_state" -eq 0 ]; then
             active_providers="${active_providers:+${active_providers},}rsyslog"
         fi
         [ "$rsyslog_state" -eq 2 ] && collection_errors=$((collection_errors + 1))
-        service_state syslog-ng.service >/dev/null 2>&1
-        syslog_ng_state=$?
         if [ "$syslog_ng_state" -eq 0 ]; then
             active_providers="${active_providers:+${active_providers},}syslog-ng"
         fi

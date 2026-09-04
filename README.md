@@ -21,9 +21,9 @@ supported releases, lifecycle scope, and exclusions.
 - Resolves subsystem-specific effective configuration instead of grepping one legacy file.
 - Keeps persistent configuration, manager-normalized configuration, and runtime state distinct.
 - Uses `MANUAL` and `ERROR` when available evidence cannot justify a conclusive result.
-- Produces one human-readable Markdown result and one JSONL result for every selected criterion.
+- Produces a linked, priority-oriented Markdown report and one stable JSONL result for every selected criterion.
 - Minimizes collected evidence and applies targeted credential redaction. Reports remain sensitive security data and require controlled handling.
-- Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, and listener facts to avoid repeated process creation.
+- Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, systemd, procfs process, and listener facts to avoid repeated collection.
 - Supports source-tree execution and relocatable `DESTDIR` package staging.
 - Provides strict complete mode with typed policy facts, review-bound attestations, and validated runtime evidence bundles.
 - Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and normalized time-source state before an offline scan.

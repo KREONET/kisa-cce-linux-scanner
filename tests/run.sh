@@ -1074,7 +1074,7 @@ test_result_normalization_differential() (
                 -e 's/(\$[A-Za-z0-9./]+\$)[A-Za-z0-9./$]+/\1[REDACTED_HASH]/g' \
                 -e 's/^([[:space:]]*(rocommunity|rwcommunity|com2sec)[[:space:]]+)[^[:space:]]+/\1[REDACTED]/I' \
                 -e 's/^([[:space:]]*createUser[[:space:]]+[^[:space:]]+).*/\1 [REDACTED]/I' \
-                -e 's/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' |
+                -e 's/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1\2[REDACTED]/Ig' |
             awk 'BEGIN { remaining = 8192 }
                 {
                     if (remaining <= 0) next
@@ -2241,6 +2241,7 @@ test_cli_platform_selection_and_reports() (
     cp -- "$PROJECT_DIR/lib/i18n.sh" "$scanner_copy/lib/i18n.sh"
     cp -- "$PROJECT_DIR/lib/kisa-cce-scan-main.sh" "$scanner_copy/lib/kisa-cce-scan-main.sh"
     cp -- "$PROJECT_DIR/lib/policy.sh" "$scanner_copy/lib/policy.sh"
+    cp -- "$PROJECT_DIR/lib/runtime_fallback.sh" "$scanner_copy/lib/runtime_fallback.sh"
     cp -- "$PROJECT_DIR/lib/scan_epoch.sh" "$scanner_copy/lib/scan_epoch.sh"
     cp -- "$PROJECT_DIR/lib/resolvers.sh" "$scanner_copy/lib/resolvers.sh"
     cp -- "$PROJECT_DIR/data/criteria.tsv" "$scanner_copy/data/criteria.tsv"
@@ -2351,7 +2352,7 @@ test_cli_platform_selection_and_reports() (
     [ -f "$text_report" ] || fail "CLI Markdown report was not created"
     [ -f "$jsonl_report" ] || fail "CLI JSONL report was not created"
     assert_file_contains "$text_report" "| 전체 | 1 |" "selected CLI result count"
-    assert_file_contains "$text_report" "runtime_collection: off" "offline runtime state"
+    assert_file_contains "$text_report" '| `runtime_collection` | off |' "offline runtime state"
     assert_equal 600 "$(mode_of "$text_report")" "CLI Markdown report mode"
     assert_equal 600 "$(mode_of "$jsonl_report")" "CLI JSONL report mode"
     assert_contains "$command_output" "kisa-cce-scan: platform=ubuntu version=26.04 family=debian" "verbose platform line"
@@ -2445,10 +2446,12 @@ test_cli_platform_selection_and_reports() (
     cmp -s "$normal_jsonl_report" "$debug_jsonl_report" || fail "debug changed JSONL report content"
     sed \
         -e 's/^    started_at: .*$/    started_at: TIMESTAMP/' \
+        -e 's/^| `started_at` | .* |$/| `started_at` | TIMESTAMP |/' \
         -e 's/: `....-..-..T..:..:..Z`$/: `TIMESTAMP`/' \
         "$normal_text_report" > "$normalized_normal_report"
     sed \
         -e 's/^    started_at: .*$/    started_at: TIMESTAMP/' \
+        -e 's/^| `started_at` | .* |$/| `started_at` | TIMESTAMP |/' \
         -e 's/: `....-..-..T..:..:..Z`$/: `TIMESTAMP`/' \
         "$debug_text_report" > "$normalized_debug_report"
     cmp -s "$normalized_normal_report" "$normalized_debug_report" ||
@@ -2513,7 +2516,7 @@ test_cli_platform_selection_and_reports() (
     if grep -Fxq -- '## U-99: forged' "$text_report"; then
         fail "literal backslash-n evidence injected a Markdown heading"
     fi
-    assert_file_contains "$text_report" '    ## U-99: forged' "literal backslash-n evidence indentation"
+    assert_file_contains "$text_report" '&#35;&#35; U-99: forged' "literal backslash-n evidence HTML escaping"
 
     mkdir -p -- "$header_root/etc"
     {
@@ -2535,7 +2538,7 @@ test_cli_platform_selection_and_reports() (
     if grep -Eq '^(<img|## forged)' "$text_report"; then
         fail "platform metadata injected Markdown structure"
     fi
-    assert_file_contains "$text_report" '    platform: Ubuntu [31mred <img' "platform metadata code indentation"
+    assert_file_contains "$text_report" '| `platform` | Ubuntu \[31mred \<img' "platform metadata table escaping"
 
     while IFS='|' read -r matrix_id matrix_version matrix_name matrix_id_like matrix_codename matrix_family matrix_base; do
         matrix_number=$((matrix_number + 1))
@@ -2552,10 +2555,10 @@ test_cli_platform_selection_and_reports() (
         [ -f "$jsonl_report" ] || fail "$matrix_id $matrix_version CLI JSONL report was not created"
         assert_equal 600 "$(mode_of "$text_report")" "$matrix_id $matrix_version Markdown report mode"
         assert_equal 600 "$(mode_of "$jsonl_report")" "$matrix_id $matrix_version JSONL report mode"
-        assert_file_contains "$text_report" "platform_id: $matrix_id" "$matrix_id platform report metadata"
-        assert_file_contains "$text_report" "platform_version: $matrix_version" "$matrix_id version report metadata"
-        assert_file_contains "$text_report" "platform_family: $matrix_family" "$matrix_id family report metadata"
-        assert_file_contains "$text_report" "platform_base: $matrix_base" "$matrix_id base report metadata"
+        assert_file_contains "$text_report" "| \`platform_id\` | $matrix_id |" "$matrix_id platform report metadata"
+        assert_file_contains "$text_report" "| \`platform_version\` | $matrix_version |" "$matrix_id version report metadata"
+        assert_file_contains "$text_report" "| \`platform_family\` | $matrix_family |" "$matrix_id family report metadata"
+        assert_file_contains "$text_report" "| \`platform_base\` | $matrix_base |" "$matrix_id base report metadata"
         assert_file_contains "$text_report" "| 전체 | 1 |" "$matrix_id selected result count"
     done <<'EOF'
 debian|13|Debian GNU/Linux 13|||debian|debian 13
@@ -2895,7 +2898,7 @@ test_full_catalog_produces_one_result_per_criterion() (
     if grep -Fq -- '"status":"MANUAL"' "$complete_json"; then
         fail "complete report retained a MANUAL final result"
     fi
-    assert_file_contains "$complete_markdown" 'scan_mode: complete' "complete report mode"
+    assert_file_contains "$complete_markdown" '| `scan_mode` | complete |' "complete report mode"
     assert_file_contains "$complete_markdown" '| 수동 확인 | 0 |' "complete Markdown manual count"
 
     for rhel_version in 8.10 9.8 10.2; do
@@ -2925,7 +2928,7 @@ test_full_catalog_produces_one_result_per_criterion() (
         [ -f "$text_report" ] || fail "RHEL $rhel_version Markdown report was not created: $command_output"
         [ -f "$jsonl_report" ] || fail "RHEL $rhel_version JSONL report was not created"
         assert_full_catalog_contract "$text_report" "$jsonl_report" "RHEL $rhel_version full catalog"
-        assert_file_contains "$text_report" "platform_family: rhel" "RHEL $rhel_version platform family"
+        assert_file_contains "$text_report" '| `platform_family` | rhel |' "RHEL $rhel_version platform family"
         if grep -Fq -- 'fixture-secret-that-must-not-leak' "$text_report" "$jsonl_report"; then
             fail "RHEL $rhel_version report retained a fixture password hash"
         fi
@@ -3389,6 +3392,7 @@ test_kisa_account_platform_goldens() (
     scanner_inetd_service_enabled() { return 1; }
     sshd_manager_has_custom_invocation() { return 1; }
     trusted_command() { return 1; }
+    port_listener_facts() { return 0; }
     TELNET_FIXTURE_ACTIVE=1
     service_state() {
         case "$1" in
@@ -5694,6 +5698,9 @@ test_remaining_criterion_goldens() (
         assert_equal GOOD "$RESULT_STATUS" "U-22 conforming services file"
         assert_contains "$RESULT_EVIDENCE" "owner_uid=0,mode=644" "U-22 metadata evidence"
         rm -f -- "$root/etc/services"
+        check_u_22
+        assert_equal NOT_APPLICABLE "$RESULT_STATUS" "U-22 absent services file"
+        assert_equal false "$RESULT_APPLICABLE" "U-22 absent services applicability"
         mkdir -- "$root/etc/services"
         check_u_22
         assert_equal ERROR "$RESULT_STATUS" "U-22 rejects a directory"

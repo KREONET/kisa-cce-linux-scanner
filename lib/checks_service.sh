@@ -23,6 +23,60 @@ service_append_word() {
     esac
 }
 
+service_unique_evidence_lines_into() {
+    local destination_name="$1"
+    local evidence_value=""
+    local evidence_line=""
+    local normalized_value=""
+    local combined_value=""
+    declare -A seen_lines=()
+
+    shift
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|destination_name|evidence_value|evidence_line|normalized_value|combined_value)
+            return 2
+            ;;
+    esac
+    for evidence_value in "$@"; do
+        normalized_value="${evidence_value//\\n/$'\n'}"
+        while IFS= read -r evidence_line || [ -n "$evidence_line" ]; do
+            [ -n "$evidence_line" ] || continue
+            [ "${seen_lines[$evidence_line]+present}" != present ] || continue
+            seen_lines["$evidence_line"]=1
+            combined_value="${combined_value}${evidence_line}\n"
+        done <<< "$normalized_value"
+    done
+    printf -v "$destination_name" '%s' "$combined_value"
+}
+
+service_prefix_evidence_lines_into() {
+    local destination_name="$1"
+    local key_prefix="$2"
+    local evidence_value="$3"
+    local evidence_line=""
+    local evidence_key=""
+    local normalized_value=""
+    local prefixed_value=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|destination_name|key_prefix|evidence_value|evidence_line|evidence_key|normalized_value|prefixed_value)
+            return 2
+            ;;
+    esac
+    case "$key_prefix" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 2 ;; esac
+    normalized_value="${evidence_value//\\n/$'\n'}"
+    while IFS= read -r evidence_line || [ -n "$evidence_line" ]; do
+        [ -n "$evidence_line" ] || continue
+        case "$evidence_line" in
+            *=*) evidence_key="${evidence_line%%=*}" ;;
+            *) return 2 ;;
+        esac
+        case "$evidence_key" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 2 ;; esac
+        prefixed_value="${prefixed_value}${key_prefix}${evidence_line}\n"
+    done <<< "$normalized_value"
+    printf -v "$destination_name" '%s' "$prefixed_value"
+}
+
 service_file_has_active_entry() {
     local physical_path="$1"
     local expression="$2"
@@ -545,6 +599,7 @@ service_activation_state() {
     local sysv_status=1
     local runtime_probe_uncertain=0
     local sysv_uncertain=0
+    local manager_status=0
 
     SERVICE_ACTIVATION_EVIDENCE=""
 
@@ -556,7 +611,14 @@ service_activation_state() {
     fi
 
     if runtime_enabled; then
-        systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
+        if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+            runtime_systemd_manager_state || manager_status=$?
+        fi
+        if [ "$manager_status" -eq 1 ]; then
+            SERVICE_ACTIVATION_EVIDENCE="${SERVICE_ACTIVATION_EVIDENCE}systemd_manager=not_running\n"
+        else
+            systemctl_path="$(trusted_command systemctl 2>/dev/null || true)"
+        fi
         if [ -n "$systemctl_path" ]; then
             for unit_name in "$@"; do
                 command_status=0
@@ -592,7 +654,7 @@ service_activation_state() {
                     enabled|enabled-runtime) return 0 ;;
                 esac
             done
-        else
+        elif [ "$manager_status" -ne 1 ]; then
             runtime_probe_uncertain=1
             SERVICE_ACTIVATION_EVIDENCE="${SERVICE_ACTIVATION_EVIDENCE}systemctl=unavailable\n"
         fi
@@ -611,6 +673,15 @@ service_activation_state() {
                     ;;
             esac
         done
+
+        if [ "$manager_status" -eq 1 ]; then
+            for unit_name in "$@"; do
+                if service_unit_statically_enabled "$unit_name"; then
+                    SERVICE_ACTIVATION_EVIDENCE="${SERVICE_ACTIVATION_EVIDENCE}unit=${unit_name},static_enabled=true\n"
+                    return 0
+                fi
+            done
+        fi
 
         if [ "$runtime_probe_uncertain" -eq 1 ] || [ "$sysv_uncertain" -eq 1 ]; then
             return 2
@@ -708,6 +779,16 @@ service_named_process_state() {
     }
     pgrep_path="$(trusted_command pgrep 2>/dev/null || true)"
     [ -n "$pgrep_path" ] || {
+        if declare -F runtime_process_state >/dev/null 2>&1; then
+            runtime_process_state "$@"
+            command_status=$?
+            case "$command_status" in
+                0) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=true\n" ;;
+                1) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=false\n" ;;
+                *) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,error=true\n" ;;
+            esac
+            return "$command_status"
+        fi
         SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=unavailable\n"
         return 2
     }
@@ -734,8 +815,13 @@ service_units_have_custom_configuration() {
     local properties=""
     local load_state=""
     local command_status=0
+    local manager_status=0
 
     runtime_enabled || return 2
+    if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 1
+    fi
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in "$@"; do
         if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
@@ -765,8 +851,13 @@ service_ftp_custom_invocation_state() {
     local load_state=""
     local argument=""
     local command_status=0
+    local manager_status=0
 
     runtime_enabled || return 2
+    if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 1
+    fi
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in vsftpd.service proftpd.service pure-ftpd.service; do
         if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
@@ -1397,8 +1488,13 @@ service_bind_custom_invocation_state() {
     local saw_relevant_unit=0
     local main_configuration=""
     local allowed_configuration=""
+    local manager_status=0
 
     runtime_enabled || return 2
+    if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 1
+    fi
     systemctl_path="$(trusted_command systemctl)" || return 2
     main_configuration="$(service_bind_main_configuration 2>/dev/null || true)"
     [ -n "$main_configuration" ] || return 2
@@ -1745,8 +1841,13 @@ service_snmp_custom_invocation_state() {
     local process_environment=""
     local service_home=""
     local command_status=0
+    local manager_status=0
 
     runtime_enabled || return 2
+    if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 1
+    fi
     systemctl_path="$(trusted_command systemctl)" || return 2
     if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
         systemd_epoch_properties_into snmpd.service properties || return 2
@@ -2512,9 +2613,11 @@ check_u_42() {
     local nisplus_legacy_uncertain=0
     local dangerous_evidence=""
     local general_evidence=""
+    local combined_evidence=""
     local rpcinfo_path=""
     local rpc_output=""
     local nisplus_rpc_active=0
+    local process_status=1
 
     service_activation_state \
         rpc-cmsd.service rpc.cmsd.service \
@@ -2533,11 +2636,27 @@ check_u_42() {
         kcms-server.service kcms_server.service cachefsd.service
     dangerous_status=$?
     dangerous_evidence="$SERVICE_ACTIVATION_EVIDENCE"
+    if runtime_enabled; then
+        service_named_process_state \
+            rpc.cmsd rpc.ttdbserver rpc.ttdbserverd sadmind rpc.sadmind walld rpc.walld \
+            sprayd rpc.sprayd rstatd rpc.rstatd rusersd rpc.rusersd rexd rpc.rexd \
+            pcnfsd rpc.pcnfsd statd rpc.statd ypupdated rpc.ypupdated rquotad rpc.rquotad \
+            kcms_server cachefsd
+        process_status=$?
+        [ "$process_status" -eq 0 ] && dangerous_status=0
+        [ "$process_status" -ne 2 ] || [ "$dangerous_status" -eq 0 ] || dangerous_status=2
+    fi
     service_legacy_enabled '^((rpc\.)?(cmsd|ttdbserverd?|sadmind|walld|sprayd|rstatd|rusersd|rexd|pcnfsd|statd|ypupdated|rquotad)|kcms_server|cachefsd)$' && legacy_active=1
     legacy_uncertain="$SERVICE_LEGACY_UNCERTAIN"
 
     service_activation_state nisplus.service rpc-nisd.service rpc.nisd.service
     nisplus_status=$?
+    if runtime_enabled; then
+        service_named_process_state nisd rpc.nisd
+        process_status=$?
+        [ "$process_status" -eq 0 ] && nisplus_status=0
+        [ "$process_status" -ne 2 ] || [ "$nisplus_status" -eq 0 ] || nisplus_status=2
+    fi
     service_legacy_enabled '^(rpc\.)?nisd$' && nisplus_legacy_active=1
     nisplus_legacy_uncertain="$SERVICE_LEGACY_UNCERTAIN"
 
@@ -2545,6 +2664,12 @@ check_u_42() {
         rpcbind.service rpcbind.socket rpc-gssd.service rpc-svcgssd.service rpc-idmapd.service
     general_status=$?
     general_evidence="$SERVICE_ACTIVATION_EVIDENCE"
+    if runtime_enabled; then
+        service_named_process_state rpcbind
+        process_status=$?
+        [ "$process_status" -eq 0 ] && general_status=0
+        [ "$process_status" -ne 2 ] || [ "$general_status" -eq 0 ] || general_status=2
+    fi
     service_listener_state 111
     listener_status=$?
     if runtime_enabled; then
@@ -2563,6 +2688,7 @@ check_u_42() {
             fi
         fi
     fi
+    service_unique_evidence_lines_into combined_evidence "$dangerous_evidence" "$general_evidence"
 
     if [ "$dangerous_status" -eq 0 ] || [ "$legacy_active" -eq 1 ]; then
         set_result VULNERABLE \
@@ -2580,7 +2706,7 @@ check_u_42() {
     elif [ "$dangerous_status" -eq 2 ] || [ "$general_status" -eq 2 ] || \
         [ "$nisplus_status" -eq 2 ] || [ "$listener_status" -eq 2 ] || \
         [ "$legacy_uncertain" -eq 1 ] || [ "$nisplus_legacy_uncertain" -eq 1 ]; then
-        set_result MANUAL "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다." "${dangerous_evidence}${general_evidence}"
+        set_result MANUAL "RPC 서비스의 실제 활성 상태를 확정할 수 없습니다." "$combined_evidence"
     else
         set_result GOOD "레거시 RPC 서비스와 rpcbind 활성화 경로가 확인되지 않았습니다." "rpc_activation=inactive"
     fi
@@ -2597,6 +2723,7 @@ check_u_43() {
     local nisplus_evidence=""
     local base_major=""
     local distribution_note=""
+    local process_status=1
 
     service_activation_state \
         ypbind.service yppasswdd.service rpc-yppasswdd.service rpc.yppasswdd.service \
@@ -2605,10 +2732,30 @@ check_u_43() {
         nis.service
     legacy_status=$?
     legacy_evidence="$SERVICE_ACTIVATION_EVIDENCE"
+    if runtime_enabled; then
+        service_named_process_state ypbind yppasswdd rpc.yppasswdd ypserv ypxfrd ypupdated rpc.ypupdated
+        process_status=$?
+        [ "$process_status" -eq 0 ] && legacy_status=0
+        [ "$process_status" -ne 2 ] || [ "$legacy_status" -eq 0 ] || legacy_status=2
+    fi
 
     service_activation_state nisplus.service rpc-nisd.service rpc.nisd.service
     nisplus_status=$?
     nisplus_evidence="$SERVICE_ACTIVATION_EVIDENCE"
+    if runtime_enabled; then
+        service_named_process_state nisd rpc.nisd
+        process_status=$?
+        [ "$process_status" -eq 0 ] && nisplus_status=0
+        [ "$process_status" -ne 2 ] || [ "$nisplus_status" -eq 0 ] || nisplus_status=2
+    fi
+    if [ -n "$nisplus_evidence" ]; then
+        service_prefix_evidence_lines_into nisplus_evidence nisplus_ "$nisplus_evidence" || {
+            nisplus_evidence="nisplus_activation_evidence=invalid\n"
+            nisplus_status=2
+        }
+    else
+        nisplus_evidence="nisplus_activation_evidence=none\n"
+    fi
 
     service_listener_state 111
     listener_status=$?
@@ -2634,7 +2781,7 @@ check_u_43() {
             distribution_note="yp_rpms_removed_since_rhel_8"
         fi
     fi
-    legacy_evidence="${legacy_evidence}nisplus_evidence=${nisplus_evidence:-none}\nrpcinfo_checked=${rpcinfo_checked}\nrpcbind_listener=$([ "$listener_status" -eq 0 ] && printf active || printf inactive_or_unavailable)\nguide_distribution_note=${distribution_note:-none}"
+    legacy_evidence="${legacy_evidence}${nisplus_evidence}rpcinfo_checked=${rpcinfo_checked}\nrpcbind_listener=$([ "$listener_status" -eq 0 ] && printf active || printf inactive_or_unavailable)\nguide_distribution_note=${distribution_note:-none}"
 
     if [ "$legacy_status" -eq 0 ]; then
         set_result VULNERABLE "NIS 계열 서비스가 활성 상태입니다." "$legacy_evidence"

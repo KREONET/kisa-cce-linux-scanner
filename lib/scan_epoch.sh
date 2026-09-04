@@ -141,6 +141,8 @@ scan_epoch_begin() {
     if [ "$SCAN_EPOCH_SEQUENCE" -gt 1 ]; then
         scan_source_mark_dirty runtime:systemd || return 2
         scan_source_mark_dirty runtime:listeners || return 2
+        scan_source_mark_dirty runtime:processes || return 2
+        scan_source_mark_dirty runtime:system-manager || return 2
         scan_source_mark_dirty runtime:sysctl || return 2
     fi
 
@@ -162,6 +164,7 @@ scan_epoch_begin() {
     if declare -F pam_reset_epoch_cache >/dev/null 2>&1; then pam_reset_epoch_cache || return 2; fi
     if declare -F systemd_reset_epoch_cache >/dev/null 2>&1; then systemd_reset_epoch_cache || return 2; fi
     if declare -F listener_reset_epoch_cache >/dev/null 2>&1; then listener_reset_epoch_cache || return 2; fi
+    if declare -F runtime_fallback_reset_epoch_cache >/dev/null 2>&1; then runtime_fallback_reset_epoch_cache || return 2; fi
     if declare -F scanner_reset_full_filesystem_cache >/dev/null 2>&1; then scanner_reset_full_filesystem_cache || return 2; fi
     [ "${POLICY_SET_DIGEST:-none}" = "none" ] || policy_context="active"
     case "${EVIDENCE_BUNDLE_ACTIVE:-0}" in 1) evidence_context="active" ;; esac

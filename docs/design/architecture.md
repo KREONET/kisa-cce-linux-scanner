@@ -16,6 +16,7 @@ The implementation separates collection from policy interpretation wherever the 
 | `lib/kisa-cce-collect-main.sh` | Root-only live evidence collection and bundle finalization. |
 | `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, structured debug output, result normalization, report writing, and exit status. |
 | `lib/policy.sh` | Strict policy-directory loader, typed fact lookup, and review-ID-bound attestation lookup. |
+| `lib/runtime_fallback.sh` | Epoch-scoped procfs process, listener, and PID 1 manager facts for Linux environments without native service tools. |
 | `lib/evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
 | `lib/i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
 | `lib/scan_epoch.sh` | Run-scoped snapshot lifecycle, reverse dependencies, dirtiness, and normalized-output propagation. |
@@ -109,7 +110,7 @@ The scanner distinguishes four layers when the subsystem exposes them:
 | Runtime state | Active units, listeners, loaded kernel values, exported resources, or synchronization state. |
 | Typed organization fact | A bounded approved value, owner, ticket, and expiry used as an evaluator input. |
 
-A check may return `GOOD` only when the evidence required by that criterion is conclusive. Ambiguous include graphs, unsupported native syntax, unavailable runtime state, external policy, and approved exceptions are represented as `MANUAL` or `ERROR` according to whether collection completed reliably.
+A check may return `GOOD` only when the evidence required by that criterion is conclusive. Live scans prefer trusted native service tools and fall back to process and socket facts from the current procfs namespace when PID 1 is not systemd or `ss` and `pgrep` are unavailable. Ambiguous include graphs, unsupported native syntax, incomplete procfs tables, unavailable runtime state, external policy, and approved exceptions are represented as `MANUAL` or `ERROR` according to whether collection completed reliably.
 
 ## Shared filesystem collection
 
@@ -123,7 +124,7 @@ U-67 uses a separate single-pass tagged traversal because its `/var/log` mount s
 
 ## Execution-cost controls
 
-Hot path helpers return values through caller-supplied variables, avoiding command-substitution subshells while retaining compatibility wrappers for non-hot paths. The scanner caches the canonical scan root and validated native-command locations for one run. Layered sysctl files and PAM files are parsed once per scan epoch. Service facts use an epoch-scoped systemd snapshot, and every listener query shares one mixed transport snapshot until the next epoch.
+Hot path helpers return values through caller-supplied variables, avoiding command-substitution subshells while retaining compatibility wrappers for non-hot paths. The scanner caches the canonical scan root and validated native-command locations for one run. Layered sysctl files and PAM files are parsed once per scan epoch. Service facts use an epoch-scoped systemd snapshot when applicable. Procfs process and socket tables are also parsed once per epoch, and every listener query shares one mixed transport snapshot until the next epoch.
 
 Report normalization expands evidence separators and normalizes the title, summary, and evidence in one framed external conversion. Evidence without a sensitive-keyword marker bypasses the external redaction pass. Metadata-heavy checks use NUL-delimited GNU `find` records, so one traversal supplies multiple fields without a per-file `stat` process. These choices follow the process model described by the [Bash command-substitution](https://www.gnu.org/software/bash/manual/html_node/Command-Substitution.html) and [builtin-command](https://www.gnu.org/software/bash/manual/html_node/Shell-Builtin-Commands.html) documentation and the batching facilities in the [GNU find format directives](https://www.gnu.org/software/findutils/manual/html_node/find_html/Format-Directives.html).
 
@@ -174,7 +175,11 @@ Ubuntu 26.04 uses sudo-rs as its default sudo provider, while the traditional im
 
 ## Report pipeline
 
-`set_result` validates and retains the four logical fields until dispatch. `record_result` expands evidence separators and builds control-byte-normalized, UTF-8-normalized working values through one framed `iconv` call when available. The Markdown serializer escapes normalized titles and summaries before placing them in headings or prose. Evidence receives targeted credential redaction and an 8192-byte limit, renders tab and carriage return as visible escapes, maps remaining unsafe controls, and indents every line as code so assessed content cannot create Markdown structure. The JSONL copy retains the unprefixed normalized value and additionally removes an incomplete UTF-8 suffix created at the byte boundary. The Markdown evidence section is omitted when its value is empty. Counters increment only after both report writes succeed.
+`set_result` validates and retains the four logical fields until dispatch. `record_result` expands evidence separators and builds control-byte-normalized, UTF-8-normalized working values through one framed `iconv` call when available. The Markdown serializer escapes normalized titles and summaries before placing them in headings or prose. Evidence receives targeted credential redaction and an 8192-byte limit, renders tab and carriage return as visible escapes, maps remaining unsafe controls, and is HTML-escaped before entering a `pre` and `code` container inside a `details` disclosure. Assessed content therefore cannot terminate the code container or create active Markdown or HTML structure.
+
+During a normal scan, Markdown criterion sections are written to a protected run-scoped fragment. Separate protected fragments retain linked `ERROR`, `VULNERABLE`, and `MANUAL` index entries in scan order. After all selected checks complete, `write_report_summary` appends the overview, concatenates the three priority fragments in that order, and then appends the detailed criterion fragment. This produces header, overview, priority queue, and detailed-results ordering without retaining complete report content in shell variables. The fragments are removed with the existing protected scratch workspace.
+
+The JSONL serializer and schema are independent from the Markdown presentation path. Its copy retains the unprefixed normalized evidence value and additionally removes an incomplete UTF-8 suffix created at the byte boundary. The Markdown evidence disclosure is omitted when its value is empty. Counters increment only after the criterion fragment, any priority-index entry, and the JSONL record are written successfully.
 
 Before success, `validate_reports` verifies:
 
@@ -184,6 +189,7 @@ Before success, `validate_reports` verifies:
 - JSONL line count equals result count plus one summary line;
 - Markdown result headings match the JSONL criterion codes and recorded result count;
 - the Markdown header and status-summary rows occur exactly once with the recorded counts.
+- the generated priority links use stable, scanner-controlled `u-nn` anchors rather than title-derived anchors;
 - complete mode contains exactly 67 results and zero final `MANUAL` states.
 
 JSON schema validation is not currently part of the runtime finalization path. The test suite optionally parses JSONL with `jq` when it is installed.

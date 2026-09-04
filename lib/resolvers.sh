@@ -1284,11 +1284,16 @@ sshd_effective_value() {
 
 sshd_manager_has_custom_invocation() {
     local systemctl_path=""
+    local manager_status=0
     local unit=""
     local properties=""
     local load_state=""
     local command_status=0
 
+    if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 3
+    fi
     systemctl_path="$(trusted_command systemctl)" || return 2
     for unit in ssh.service sshd.service ssh@.service sshd@.service; do
         if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
@@ -2599,10 +2604,15 @@ service_state() {
     local active_state=""
     local command_status=0
     local saw_unit=0
+    local manager_status=0
 
     if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -eq 1 ] && declare -F evidence_service_state >/dev/null 2>&1; then
         evidence_service_state "$@"
         return $?
+    fi
+    if runtime_enabled && declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+        runtime_systemd_manager_state || manager_status=$?
+        [ "$manager_status" -ne 1 ] || return 3
     fi
     if [ "$#" -eq 0 ]; then
         trusted_command systemctl >/dev/null 2>&1 || return 2
@@ -2702,6 +2712,9 @@ listener_prepare_epoch_snapshot() {
     local status_file=""
     local temp_file=""
     local command_status=0
+    local proc_rows=""
+    local proc_ss_rows=""
+    local proc_status=0
 
     listener_ensure_epoch_cache || return 2
     snapshot_file="$SCRATCH_DIR/.listener-snapshot-mixed-${LISTENER_CACHE_NAMESPACE}"
@@ -2724,6 +2737,18 @@ listener_prepare_epoch_snapshot() {
 
     temp_file="$(new_scratch_file listener-mixed)" || return 2
     capture_command ss -H -lntup > "$temp_file" 2>/dev/null || command_status=$?
+    if [ "$command_status" -ne 0 ] &&
+        declare -F runtime_listener_snapshot_into >/dev/null 2>&1; then
+        proc_status=0
+        runtime_listener_snapshot_into proc_rows || proc_status=$?
+        listener_proc_rows_to_ss_into "$proc_rows" proc_ss_rows || return 2
+        printf '%s\n' "$proc_ss_rows" > "$temp_file" || return 2
+        case "$proc_status" in
+            0) command_status=0 ;;
+            3) command_status=3 ;;
+            *) command_status=2 ;;
+        esac
+    fi
     systemd_cache_install_facts "$temp_file" "$snapshot_file" || return 2
     systemd_cache_write_status "$status_file" "$command_status" || return 2
     LISTENER_CACHE_COMMAND_STATUS="$command_status"
@@ -2736,22 +2761,67 @@ listener_epoch_facts_for_port() {
     local transport="$2"
 
     listener_prepare_epoch_snapshot || return 2
-    [ "$LISTENER_CACHE_COMMAND_STATUS" -eq 0 ] || return "$LISTENER_CACHE_COMMAND_STATUS"
+    case "$LISTENER_CACHE_COMMAND_STATUS" in 0|3) ;; *) return "$LISTENER_CACHE_COMMAND_STATUS" ;; esac
     case "$transport" in
         any)
-            awk -v port=":$port" '$5 ~ port "$" {print}' "$LISTENER_CACHE_FACTS_FILE"
+            if awk -v port=":$port" '$5 ~ port "$" {print; found=1} END {exit(found ? 0 : 1)}' \
+                "$LISTENER_CACHE_FACTS_FILE"; then
+                return 0
+            fi
             ;;
         tcp|udp)
-            awk -v transport="$transport" -v port=":$port" '
+            if awk -v transport="$transport" -v port=":$port" '
                 $1 == transport && $5 ~ port "$" {
                     $1=""
                     sub(/^[[:space:]]+/, "")
                     print
+                    found=1
                 }
-            ' "$LISTENER_CACHE_FACTS_FILE"
+                END {exit(found ? 0 : 1)}
+            ' "$LISTENER_CACHE_FACTS_FILE"; then
+                return 0
+            fi
             ;;
         *) return 2 ;;
     esac
+    [ "$LISTENER_CACHE_COMMAND_STATUS" -eq 0 ] && return 0
+    return 2
+}
+
+listener_proc_rows_to_ss_into() {
+    local proc_rows="$1"
+    local destination_name="$2"
+    local row=""
+    local transport=""
+    local local_address=""
+    local port=""
+    local process_name=""
+    local endpoint=""
+    local process_field=""
+    local normalized_rows=""
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|proc_rows|destination_name|row|transport|local_address|port|process_name|endpoint|process_field|normalized_rows)
+            return 2
+            ;;
+    esac
+    while IFS= read -r row || [ -n "$row" ]; do
+        [ -n "$row" ] || continue
+        IFS=$'\t' read -r transport local_address port process_name _ <<< "$row"
+        case "$transport:$port" in
+            tcp:[0-9]*|udp:[0-9]*) ;;
+            *) return 2 ;;
+        esac
+        case "$local_address" in
+            *:*) endpoint="[${local_address}]:${port}" ;;
+            *) endpoint="${local_address}:${port}" ;;
+        esac
+        process_field=""
+        [ "$process_name" = "-" ] || process_field="users:((\"${process_name}\"))"
+        [ -z "$normalized_rows" ] || normalized_rows+=$'\n'
+        normalized_rows+="${transport} LISTEN 0 0 ${endpoint} * ${process_field}"
+    done <<< "$proc_rows"
+    printf -v "$destination_name" '%s' "$normalized_rows"
 }
 
 port_listener_facts() {
@@ -2764,6 +2834,10 @@ port_listener_facts() {
     local snapshot_status=0
     local snapshot_generation=0
     local ss_arguments=()
+    local proc_rows=""
+    local proc_status=0
+    local native_status=0
+    local used_proc_fallback=0
 
     case "$transport" in
         tcp)
@@ -2858,7 +2932,23 @@ port_listener_facts() {
         return $?
     fi
 
-    output="$(capture_command ss "${ss_arguments[@]}" 2>/dev/null)" || return $?
+    output="$(capture_command ss "${ss_arguments[@]}" 2>/dev/null)" || native_status=$?
+    if [ "$native_status" -ne 0 ]; then
+        declare -F runtime_listener_facts_for_port_into >/dev/null 2>&1 || return "$native_status"
+        proc_status=0
+        runtime_listener_facts_for_port_into proc_rows "$port" "$transport" || proc_status=$?
+        case "$proc_status" in
+            0)
+                listener_proc_rows_to_ss_into "$proc_rows" output || return 2
+                used_proc_fallback=1
+                ;;
+            1) output=""; used_proc_fallback=1 ;;
+            *) return 2 ;;
+        esac
+    fi
+    if [ "$used_proc_fallback" -eq 1 ] && [ "$transport" != any ]; then
+        output="$(printf '%s\n' "$output" | awk '{$1=""; sub(/^[[:space:]]+/, ""); print}')"
+    fi
     printf '%s\n' "$output" | awk -v field="$local_endpoint_field" -v port=":$port" \
         '$field ~ port "$" {print}'
 }

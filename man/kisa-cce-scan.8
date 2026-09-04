@@ -208,6 +208,9 @@ requires effective UID 0, including when
 is supplied.
 Runtime collection uses trusted native utilities from fixed system paths when
 available.
+When PID 1 is conclusively not systemd, or native process and listener tools
+are unavailable, the scanner uses bounded process and socket facts from the
+current procfs namespace. Incomplete procfs tables remain indeterminate.
 .SS Offline scan
 An absolute
 .B \-\-root
@@ -247,8 +250,8 @@ The scanner creates an owner-only temporary workspace and two randomized
 mode-0600 files:
 .TP
 .I kisa-cce-HOST-TIMESTAMP.RANDOM.md
-Human-readable scanner metadata, criterion sections, optional evidence, and
-summary counts.
+Human-readable scanner metadata, summary counts, a linked priority index,
+criterion sections, and optional collapsible evidence.
 .TP
 .I kisa-cce-HOST-TIMESTAMP.jsonl.RANDOM
 One JSON object per selected criterion followed by one summary object.
@@ -268,14 +271,28 @@ The JSONL file does not repeat the scanner, platform, root, runtime-mode, or
 timestamp header from the Markdown report.
 Retain both files when those provenance fields are required.
 .PP
+The Markdown report places its metadata and status overview first. A linked
+index orders
+.BR ERROR ,
+.BR VULNERABLE ,
+and
+.B MANUAL
+results before the detailed criterion sections. Each criterion uses a compact
+status callout and metadata row.
+.PP
 Evidence separators are expanded, tab and carriage-return bytes are rendered as
-visible escapes in Markdown evidence, remaining unsafe control bytes are
-removed or replaced, and UTF-8 is normalized when
+visible escapes, remaining unsafe control bytes are removed or replaced, and
+UTF-8 is normalized when
 .B iconv
 is available, and targeted credential redaction is applied before an 8192-byte
 limit.
-Markdown titles and summaries are escaped, and evidence lines are indented by
-four spaces so assessed content remains an inert code block.
+Markdown titles and summaries are escaped. Evidence is HTML-escaped and placed
+inside a collapsed
+.B details
+container with an inert
+.B pre/code
+body, so assessed content cannot terminate the container or create active
+Markdown or HTML.
 JSONL additionally removes an incomplete UTF-8 suffix created by byte-boundary
 truncation.
 The Markdown evidence section is omitted when the value is empty; JSONL retains

@@ -37,6 +37,10 @@ REPORT_TEXT=""
 REPORT_JSONL=""
 REPORT_MARKDOWN_OUTPUT_PATH=""
 REPORT_JSONL_OUTPUT_PATH=""
+REPORT_MARKDOWN_BODY=""
+REPORT_PRIORITY_ERROR=""
+REPORT_PRIORITY_VULNERABLE=""
+REPORT_PRIORITY_MANUAL=""
 OUTPUT_DIRECTORY_FD=""
 OUTPUT_DIRECTORY_FD_PATH=""
 OUTPUT_DIRECTORY_DEVICE_INODE=""
@@ -1133,13 +1137,15 @@ set_result() {
 
 evidence_requires_redaction() {
     local input_value="$1"
-    local sensitive_keyword_pattern='password|passwd|secret|token|passphrase|rocommunity|rwcommunity|com2sec|authcommunity|createUser'
+    local sensitive_key_pattern='(^|[[:space:],;({])([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=]'
+    local sensitive_directive_pattern='(^|[[:space:]])(rocommunity6?|rwcommunity6?|com2sec6?|authcommunity|createUser)([[:space:]]|$)'
     local nocasematch_was_set=0
     local match_status=1
 
     shopt -q nocasematch && nocasematch_was_set=1
     shopt -s nocasematch
-    if [[ "$input_value" == *'$'* ]] || [[ "$input_value" =~ $sensitive_keyword_pattern ]]; then
+    if [[ "$input_value" == *'$'* ]] || [[ "$input_value" =~ $sensitive_key_pattern ]] ||
+        [[ "$input_value" =~ $sensitive_directive_pattern ]]; then
         match_status=0
     fi
     if [ "$nocasematch_was_set" -eq 0 ]; then
@@ -1165,11 +1171,11 @@ redact_evidence_into() {
             -e '/^[[:space:]]*com2sec6?[[:space:]]+-Cn[[:space:]]/I! s/^([[:space:]]*com2sec6?[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+)[^[:space:]]+/\1[REDACTED]/I' \
             -e 's/^([[:space:]]*authcommunity[[:space:]]+[^[:space:]]+[[:space:]]+)[^[:space:]]+/\1[REDACTED]/I' \
             -e 's/^([[:space:]]*createUser[[:space:]]+[^[:space:]]+).*/\1 [REDACTED]/I' \
-            -e 's/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)".*"/\1[REDACTED]/Ig' \
-            -e 's/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)".*/\1[REDACTED]/Ig' \
-            -e "s/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)'.*'/\\1[REDACTED]/Ig" \
-            -e "s/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)'.*/\\1[REDACTED]/Ig" \
-            -e 's/((password|passwd|secret|token|passphrase)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1[REDACTED]/Ig' \
+            -e 's/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)".*"/\1\2[REDACTED]/Ig' \
+            -e 's/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)".*/\1\2[REDACTED]/Ig' \
+            -e "s/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)'.*'/\\1\\2[REDACTED]/Ig" \
+            -e "s/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)'.*/\\1\\2[REDACTED]/Ig" \
+            -e 's/(^|[[:space:],;({])(([[:alnum:].-]*[_-]?(password|passwd|secret|token|passphrase)([_.-](hash|value|plaintext|credential|auth|key))?)[[:space:]]*[:=][[:space:]]*)[^[:space:]]+/\1\2[REDACTED]/Ig' \
             <<< "$__kisa_evidence_input")"
     fi
     while [[ "$__kisa_evidence_input" == *$'\n' ]]; do
@@ -1253,6 +1259,20 @@ escape_markdown_scalar_into() {
     input_value="${input_value//|/\\|}"
     input_value="${input_value//</\\<}"
     input_value="${input_value//>/\\>}"
+    printf -v "$destination_name" '%s' "$input_value"
+}
+
+escape_html_text_into() {
+    local input_value="$1"
+    local destination_name="$2"
+
+    case "$destination_name" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|input_value|destination_name) return 2 ;;
+    esac
+    input_value="${input_value//&/\&amp;}"
+    input_value="${input_value//</\&lt;}"
+    input_value="${input_value//>/\&gt;}"
+    input_value="${input_value//#/\&#35;}"
     printf -v "$destination_name" '%s' "$input_value"
 }
 
@@ -1449,8 +1469,11 @@ record_result() {
     local markdown_title=""
     local markdown_summary=""
     local markdown_evidence=""
+    local html_evidence=""
     local markdown_attestation_ticket=""
     local markdown_attestation_approver=""
+    local markdown_output_path=""
+    local priority_output_path=""
     local manual_summary=""
     local manual_review_id=""
     local policy_status=1
@@ -1559,6 +1582,12 @@ record_result() {
             REPORT_WRITE_ERROR=1
             return 1
         fi
+        html_evidence="${markdown_evidence#    }"
+        html_evidence="${html_evidence//$'\n    '/$'\n'}"
+        if ! escape_html_text_into "$html_evidence" html_evidence; then
+            REPORT_WRITE_ERROR=1
+            return 1
+        fi
     fi
     escape_markdown_scalar_into "$normalized_title" markdown_title || {
         REPORT_WRITE_ERROR=1
@@ -1577,7 +1606,54 @@ record_result() {
         return 1
     }
 
-    if {
+    if [ -n "$REPORT_MARKDOWN_BODY" ]; then
+        markdown_output_path="$REPORT_MARKDOWN_BODY"
+        if {
+            printf '<a id="%s"></a>\n\n' "${code,,}"
+            printf '## %s: %s\n\n' "$code" "$markdown_title"
+            printf '> **%s:** `%s`  \n' "$REPORT_LABEL_FINAL_STATUS" "$RESULT_STATUS"
+            printf '> %s\n\n' "$markdown_summary"
+            printf '| %s | %s | %s | %s | %s |\n' \
+                "$REPORT_LABEL_CATEGORY" "$REPORT_LABEL_SEVERITY" "$REPORT_LABEL_TECHNICAL_STATUS" \
+                "$REPORT_LABEL_DECISION_BASIS" "$REPORT_LABEL_APPLICABLE"
+            printf '|---|---|---|---|---|\n'
+            printf '| `%s` | `%s` | `%s` | `%s` | `%s` |\n\n' \
+                "$category" "$severity" "$RESULT_TECHNICAL_STATUS" "$RESULT_DECISION_BASIS" "$RESULT_APPLICABLE"
+            if [ -n "$RESULT_REVIEW_ID" ]; then
+                printf '**%s:** `%s`\n\n' "$REPORT_LABEL_REVIEW_ID" "$RESULT_REVIEW_ID"
+            fi
+            if [ "$RESULT_DECISION_BASIS" = "policy_attestation" ]; then
+                printf '| %s | %s | %s |\n' \
+                    "$REPORT_LABEL_ATTESTATION_TICKET" "$REPORT_LABEL_ATTESTATION_APPROVER" "$REPORT_LABEL_ATTESTATION_EXPIRES"
+                printf '|---|---|---|\n'
+                printf '| %s | %s | `%s` |\n\n' \
+                    "$markdown_attestation_ticket" "$markdown_attestation_approver" "$RESULT_ATTESTATION_EXPIRES"
+            fi
+            printf '[%s: KISA CCE %s](%s)\n\n' "$REPORT_LABEL_REFERENCE" "$code" "$criterion_url"
+            if [ -n "$RESULT_EVIDENCE" ]; then
+                printf '<details>\n<summary>%s</summary>\n\n' "$REPORT_LABEL_EVIDENCE"
+                printf '<pre><code>%s</code></pre>\n' "$html_evidence"
+                printf '</details>\n\n'
+            fi
+            printf '%s\n\n' '---'
+        } >> "$markdown_output_path"; then
+            :
+        else
+            REPORT_WRITE_ERROR=1
+            return 1
+        fi
+        case "$RESULT_STATUS" in
+            ERROR) priority_output_path="$REPORT_PRIORITY_ERROR" ;;
+            VULNERABLE) priority_output_path="$REPORT_PRIORITY_VULNERABLE" ;;
+            MANUAL) priority_output_path="$REPORT_PRIORITY_MANUAL" ;;
+        esac
+        if [ -n "$priority_output_path" ] &&
+            ! printf -- '- [%s: %s](#%s) - `%s`\n' \
+                "$code" "$markdown_title" "${code,,}" "$severity" >> "$priority_output_path"; then
+            REPORT_WRITE_ERROR=1
+            return 1
+        fi
+    elif {
         printf '## %s: %s\n\n' "$code" "$markdown_title"
         printf '| %s | %s |\n' "$REPORT_LABEL_FIELD" "$REPORT_LABEL_VALUE"
         printf '|---|---|\n'
@@ -1813,6 +1889,7 @@ initialize_workspace() {
     local hostname_value=""
     local markdown_report_temp=""
     local normalized_output_parent=""
+    local report_fragment=""
     # shellcheck disable=SC2034
     local canonical_root=""
 
@@ -1863,6 +1940,18 @@ initialize_workspace() {
 
     SCRATCH_DIR="$(mktemp -d "$OUTPUT_DIRECTORY_FD_PATH/.run.XXXXXXXX")" || die "cannot create a secure temporary directory"
     chmod 0700 "$SCRATCH_DIR" || die "cannot set temporary directory permissions"
+    REPORT_MARKDOWN_BODY="$SCRATCH_DIR/report-body.md"
+    REPORT_PRIORITY_ERROR="$SCRATCH_DIR/report-priority-error.md"
+    REPORT_PRIORITY_VULNERABLE="$SCRATCH_DIR/report-priority-vulnerable.md"
+    REPORT_PRIORITY_MANUAL="$SCRATCH_DIR/report-priority-manual.md"
+    for report_fragment in \
+        "$REPORT_MARKDOWN_BODY" \
+        "$REPORT_PRIORITY_ERROR" \
+        "$REPORT_PRIORITY_VULNERABLE" \
+        "$REPORT_PRIORITY_MANUAL"; do
+        : > "$report_fragment" || die "cannot create a secure report fragment"
+        chmod 0600 "$report_fragment" || die "cannot set report fragment permissions"
+    done
     canonical_scan_root_into canonical_root || die "cannot resolve the scan root: $SCAN_ROOT"
     TRUSTED_COMMAND_CACHE=()
     TRUSTED_COMMAND_CACHE_FILE="$SCRATCH_DIR/trusted-command-cache"
@@ -1895,6 +1984,10 @@ cleanup_workspace() {
         rm -rf -- "$SCRATCH_DIR"
     fi
     SCRATCH_DIR=""
+    REPORT_MARKDOWN_BODY=""
+    REPORT_PRIORITY_ERROR=""
+    REPORT_PRIORITY_VULNERABLE=""
+    REPORT_PRIORITY_MANUAL=""
     if [ -n "$output_directory_fd" ]; then
         exec {output_directory_fd}<&- 2>/dev/null || true
     fi
@@ -1929,6 +2022,8 @@ write_report_header() {
     local header_scan_root=""
     local header_started_at=""
     local header_version=""
+    local header_variable=""
+    local header_value=""
 
     sanitize_header_field_into "$KISA_CCE_VERSION" header_version || {
         REPORT_WRITE_ERROR=1
@@ -1992,30 +2087,58 @@ write_report_header() {
         REPORT_WRITE_ERROR=1
         return 1
     }
+    for header_variable in \
+        header_version \
+        header_platform_name \
+        header_platform_id \
+        header_platform_id_like \
+        header_platform_version \
+        header_platform_family \
+        header_platform_base_id \
+        header_platform_base_version \
+        header_scan_root \
+        header_runtime_mode \
+        header_scan_mode \
+        header_policy_directory \
+        header_evidence_bundle \
+        header_evidence_captured_at \
+        header_evidence_machine_id \
+        header_evidence_boot_id \
+        header_evidence_kernel_release \
+        header_evidence_digest \
+        header_evidence_age \
+        header_started_at; do
+        header_value="${!header_variable}"
+        escape_markdown_scalar_into "$header_value" "$header_variable" || {
+            REPORT_WRITE_ERROR=1
+            return 1
+        }
+    done
 
     if {
         printf '# %s\n\n' "$REPORT_LABEL_REPORT_TITLE"
         printf '## %s\n\n' "$REPORT_LABEL_SCAN_INFORMATION"
-        printf '    scanner_version: %s\n' "$header_version"
-        printf '    platform: %s\n' "$header_platform_name"
-        printf '    platform_id: %s\n' "$header_platform_id"
-        printf '    platform_id_like: %s\n' "$header_platform_id_like"
-        printf '    platform_version: %s\n' "$header_platform_version"
-        printf '    platform_family: %s\n' "$header_platform_family"
-        printf '    platform_base: %s %s\n' "$header_platform_base_id" "$header_platform_base_version"
-        printf '    scan_root: %s\n' "$header_scan_root"
-        printf '    runtime_collection: %s\n' "$header_runtime_mode"
-        printf '    scan_mode: %s\n' "$header_scan_mode"
-        printf '    policy_directory: %s\n' "$header_policy_directory"
-        printf '    evidence_bundle: %s\n' "$header_evidence_bundle"
-        printf '    evidence_captured_at: %s\n' "$header_evidence_captured_at"
-        printf '    evidence_machine_id: %s\n' "$header_evidence_machine_id"
-        printf '    evidence_boot_id: %s\n' "$header_evidence_boot_id"
-        printf '    evidence_kernel_release: %s\n' "$header_evidence_kernel_release"
-        printf '    evidence_digest: %s\n' "$header_evidence_digest"
-        printf '    evidence_age_seconds: %s\n' "$header_evidence_age"
-        printf '    started_at: %s\n\n' "$header_started_at"
-        printf '%s\n\n' '---'
+        printf '| %s | %s |\n' "$REPORT_LABEL_FIELD" "$REPORT_LABEL_VALUE"
+        printf '|---|---|\n'
+        printf '| `scanner_version` | %s |\n' "$header_version"
+        printf '| `platform` | %s |\n' "$header_platform_name"
+        printf '| `platform_id` | %s |\n' "$header_platform_id"
+        printf '| `platform_id_like` | %s |\n' "$header_platform_id_like"
+        printf '| `platform_version` | %s |\n' "$header_platform_version"
+        printf '| `platform_family` | %s |\n' "$header_platform_family"
+        printf '| `platform_base` | %s %s |\n' "$header_platform_base_id" "$header_platform_base_version"
+        printf '| `scan_root` | %s |\n' "$header_scan_root"
+        printf '| `runtime_collection` | %s |\n' "$header_runtime_mode"
+        printf '| `scan_mode` | %s |\n' "$header_scan_mode"
+        printf '| `policy_directory` | %s |\n' "$header_policy_directory"
+        printf '| `evidence_bundle` | %s |\n' "$header_evidence_bundle"
+        printf '| `evidence_captured_at` | %s |\n' "$header_evidence_captured_at"
+        printf '| `evidence_machine_id` | %s |\n' "$header_evidence_machine_id"
+        printf '| `evidence_boot_id` | %s |\n' "$header_evidence_boot_id"
+        printf '| `evidence_kernel_release` | %s |\n' "$header_evidence_kernel_release"
+        printf '| `evidence_digest` | %s |\n' "$header_evidence_digest"
+        printf '| `evidence_age_seconds` | %s |\n' "$header_evidence_age"
+        printf '| `started_at` | %s |\n\n' "$header_started_at"
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -2026,18 +2149,50 @@ write_report_header() {
 }
 
 write_report_summary() {
+    local assembly_error=0
+
+    if [ -n "$REPORT_MARKDOWN_BODY" ]; then
+        [ -f "$REPORT_MARKDOWN_BODY" ] && [ ! -L "$REPORT_MARKDOWN_BODY" ] &&
+            [ -f "$REPORT_PRIORITY_ERROR" ] && [ ! -L "$REPORT_PRIORITY_ERROR" ] &&
+            [ -f "$REPORT_PRIORITY_VULNERABLE" ] && [ ! -L "$REPORT_PRIORITY_VULNERABLE" ] &&
+            [ -f "$REPORT_PRIORITY_MANUAL" ] && [ ! -L "$REPORT_PRIORITY_MANUAL" ] || {
+                REPORT_WRITE_ERROR=1
+                return 1
+            }
+    fi
+
     if {
         printf '## %s\n\n' "$REPORT_LABEL_RESULT_SUMMARY"
         printf '| %s | %s |\n' "$REPORT_LABEL_STATUS" "$REPORT_LABEL_COUNT"
         printf '|---|---:|\n'
         printf '| %s | %d |\n' "$REPORT_LABEL_TOTAL" "$COUNT_TOTAL"
-        printf '| %s | %d |\n' "$REPORT_LABEL_GOOD" "$COUNT_GOOD"
+        printf '| %s | %d |\n' "$REPORT_LABEL_ERROR" "$COUNT_ERROR"
         printf '| %s | %d |\n' "$REPORT_LABEL_VULNERABLE" "$COUNT_VULNERABLE"
         printf '| %s | %d |\n' "$REPORT_LABEL_MANUAL" "$COUNT_MANUAL"
+        printf '| %s | %d |\n' "$REPORT_LABEL_GOOD" "$COUNT_GOOD"
         printf '| %s | %d |\n' "$REPORT_LABEL_NOT_APPLICABLE" "$COUNT_NOT_APPLICABLE"
-        printf '| %s | %d |\n' "$REPORT_LABEL_ERROR" "$COUNT_ERROR"
         printf '| %s | %d |\n\n' "$REPORT_LABEL_POLICY_RESOLVED" "$COUNT_POLICY_RESOLVED"
-        printf "%s: \`%s\`\n" "$REPORT_LABEL_COMPLETED_AT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf "%s: \`%s\`\n\n" "$REPORT_LABEL_COMPLETED_AT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        if [ -n "$REPORT_MARKDOWN_BODY" ]; then
+            if [ "$COUNT_ERROR" -gt 0 ]; then
+                printf '### `ERROR` (%d)\n\n' "$COUNT_ERROR"
+                cat -- "$REPORT_PRIORITY_ERROR" || assembly_error=1
+                printf '\n'
+            fi
+            if [ "$COUNT_VULNERABLE" -gt 0 ]; then
+                printf '### `VULNERABLE` (%d)\n\n' "$COUNT_VULNERABLE"
+                cat -- "$REPORT_PRIORITY_VULNERABLE" || assembly_error=1
+                printf '\n'
+            fi
+            if [ "$COUNT_MANUAL" -gt 0 ]; then
+                printf '### `MANUAL` (%d)\n\n' "$COUNT_MANUAL"
+                cat -- "$REPORT_PRIORITY_MANUAL" || assembly_error=1
+                printf '\n'
+            fi
+            printf '%s\n\n' '---'
+            cat -- "$REPORT_MARKDOWN_BODY" || assembly_error=1
+        fi
+        [ "$assembly_error" -eq 0 ]
     } >> "$REPORT_TEXT"; then
         :
     else
@@ -2056,8 +2211,11 @@ write_report_summary() {
 
 validate_reports() {
     local expected_json_lines=$((COUNT_TOTAL + 1))
+    local expected_priority_count=$((COUNT_ERROR + COUNT_VULNERABLE + COUNT_MANUAL))
     local actual_json_lines=""
+    local markdown_anchor_count=""
     local markdown_codes=""
+    local markdown_priority_count=""
     local markdown_result_count=""
     local jsonl_codes=""
 
@@ -2083,6 +2241,22 @@ validate_reports() {
     [ "$(grep -Fxc -- "| $REPORT_LABEL_NOT_APPLICABLE | $COUNT_NOT_APPLICABLE |" "$REPORT_TEXT")" = 1 ] || return 1
     [ "$(grep -Fxc -- "| $REPORT_LABEL_ERROR | $COUNT_ERROR |" "$REPORT_TEXT")" = 1 ] || return 1
     [ "$(grep -Fxc -- "| $REPORT_LABEL_POLICY_RESOLVED | $COUNT_POLICY_RESOLVED |" "$REPORT_TEXT")" = 1 ] || return 1
+    if [ -n "$REPORT_MARKDOWN_BODY" ]; then
+        markdown_anchor_count="$(grep -Ec '^<a id="u-[0-9][0-9]"></a>$' "$REPORT_TEXT")"
+        [ "$markdown_anchor_count" = "$COUNT_TOTAL" ] || return 1
+        markdown_priority_count="$(grep -Ec '^- \[U-[0-9][0-9]: .*\]\(#u-[0-9][0-9]\) - `[^`]+`$' "$REPORT_TEXT")"
+        [ "$markdown_priority_count" = "$expected_priority_count" ] || return 1
+        awk -v expected="$expected_priority_count" '
+            /^- \[U-[0-9][0-9]: / {
+                code=substr($0, 4, 4)
+                if (!match($0, /\]\(#u-[0-9][0-9]\) - `[^`]+`$/)) exit 1
+                target=substr($0, RSTART + 3, 4)
+                if (tolower(code) != target) exit 1
+                count++
+            }
+            END {exit(count == expected ? 0 : 1)}
+        ' "$REPORT_TEXT" || return 1
+    fi
     if [ "$SCAN_MODE" = "complete" ]; then
         [ "$COUNT_TOTAL" -eq 67 ] || return 1
         [ "$COUNT_MANUAL" -eq 0 ] || return 1

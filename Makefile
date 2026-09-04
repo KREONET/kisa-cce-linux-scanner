@@ -26,6 +26,7 @@ LIBRARY_FILES = \
 	lib/kisa-cce-collect-main.sh \
 	lib/kisa-cce-scan-main.sh \
 	lib/policy.sh \
+	lib/runtime_fallback.sh \
 	lib/scan_epoch.sh \
 	lib/resolvers.sh
 
@@ -36,13 +37,20 @@ MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-scan.8
 TEST_FILES = \
 	tests/documentation_links.sh \
 	tests/evidence_bundle_v2.sh \
+	tests/non_systemd_runtime.sh \
 	tests/pam_cache.sh \
 	tests/performance_cache.sh \
+	tests/redaction_paths.sh \
+	tests/report_readability.sh \
+	tests/runtime_fallback.sh \
 	tests/run.sh \
 	tests/scan_epoch.sh \
+	tests/service_evidence_quality.sh \
 	tests/runtime_cache.sh \
 	tests/system_checks.sh \
 	tests/typed_policy.sh \
+	tests/u28_evidence_state.sh \
+	tests/u30_comment_sources.sh \
 	tests/u67_numeric_uid.sh
 
 .PHONY: all check install lint
@@ -55,12 +63,19 @@ check:
 	./tests/documentation_links.sh
 	./tests/run.sh
 	./tests/evidence_bundle_v2.sh
+	./tests/non_systemd_runtime.sh
 	./tests/performance_cache.sh
 	./tests/pam_cache.sh
+	./tests/redaction_paths.sh
+	./tests/report_readability.sh
+	./tests/runtime_fallback.sh
 	./tests/scan_epoch.sh
+	./tests/service_evidence_quality.sh
 	./tests/runtime_cache.sh
 	./tests/system_checks.sh
 	./tests/typed_policy.sh
+	./tests/u28_evidence_state.sh
+	./tests/u30_comment_sources.sh
 	./tests/u67_numeric_uid.sh
 
 lint:

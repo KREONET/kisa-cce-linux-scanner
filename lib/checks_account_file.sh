@@ -1657,6 +1657,7 @@ check_u_01() {
     local evidence=""
     local listener_output=""
     local listener_status=0
+    local port_listener_status=0
     local custom_invocation_status=1
     local ssh_static_status=0
     local ambiguity_status=1
@@ -1726,12 +1727,11 @@ check_u_01() {
             openssh_active=1
         fi
         [ "$telnet_state" -eq 0 ] && telnet_enabled=1
-        sshd_manager_has_custom_invocation >/dev/null 2>&1
-        custom_invocation_status=$?
-        [ "$custom_invocation_status" -eq 0 ] && static_ambiguous=1
-        if trusted_command ss >/dev/null 2>&1; then
+        listener_status=0
+        port_listener_status=0
+        listener_output="$(port_listener_facts 22 tcp 2>/dev/null)" || port_listener_status=$?
+        if [ "$port_listener_status" -eq 0 ]; then
             listener_checked=1
-            listener_output="$(port_listener_facts 22 tcp 2>/dev/null)" || listener_status=$?
             if [ -n "$listener_output" ]; then
                 ssh_active=1
                 if printf '%s\n' "$listener_output" | grep -Eiq '(^|[^[:alnum:]_])sshd([^[:alnum:]_]|$)'; then
@@ -1744,9 +1744,28 @@ check_u_01() {
                     ssh_listener_unknown=1
                 fi
             fi
-            listener_output="$(port_listener_facts 23 tcp 2>/dev/null)" || listener_status=$?
-            [ -n "$listener_output" ] && telnet_enabled=1
+        else
+            listener_status="$port_listener_status"
         fi
+        port_listener_status=0
+        listener_output="$(port_listener_facts 23 tcp 2>/dev/null)" || port_listener_status=$?
+        if [ "$port_listener_status" -eq 0 ]; then
+            listener_checked=1
+            [ -n "$listener_output" ] && telnet_enabled=1
+        elif [ "$listener_status" -eq 0 ]; then
+            listener_status="$port_listener_status"
+        fi
+        if [ "$ssh_state" -eq 0 ] || [ "$openssh_active" -eq 1 ]; then
+            sshd_manager_has_custom_invocation >/dev/null 2>&1
+            custom_invocation_status=$?
+            if [ "$custom_invocation_status" -eq 3 ]; then
+                # A non-systemd OpenSSH process can use an unobserved custom invocation.
+                custom_invocation_status=0
+            fi
+        else
+            custom_invocation_status=1
+        fi
+        [ "$custom_invocation_status" -eq 0 ] && static_ambiguous=1
         scanner_append_evidence evidence "ssh_runtime_state_code=${ssh_state}"
         scanner_append_evidence evidence "telnet_runtime_state_code=${telnet_state}"
         scanner_append_evidence evidence "listener_table_checked=${listener_checked}"
@@ -3983,7 +4002,7 @@ check_u_22() {
 
     path="$(optional_rooted_read_path /etc/services 2>/dev/null)" || path_status=$?
     if [ "$path_status" -eq 1 ]; then
-        set_result ERROR "/etc/services가 존재하지 않습니다." "path=/etc/services"
+        set_result NOT_APPLICABLE "/etc/services가 존재하지 않습니다." "path=/etc/services" false
         return
     elif [ "$path_status" -ne 0 ]; then
         set_result ERROR "/etc/services 경로를 안전한 일반 파일로 읽지 못했습니다." "path=/etc/services"
@@ -4301,9 +4320,6 @@ scanner_tcp_listener_state() {
     local status=0
 
     runtime_snapshot_available || return 2
-    if [ "${EVIDENCE_BUNDLE_ACTIVE:-0}" -ne 1 ]; then
-        trusted_command ss >/dev/null 2>&1 || return 2
-    fi
     for port in "$@"; do
         output="$(port_listener_facts "$port" tcp 2>/dev/null)"
         status=$?
@@ -5992,13 +6008,27 @@ scanner_u28_firewalld_offline_probe() {
 }
 
 scanner_u28_firewalld_probe() {
+    local status=0
+
     SCANNER_U28_RULE_COUNT=0
-    SCANNER_U28_PROBE_EVIDENCE="firewalld_state=inactive"
+    SCANNER_U28_PROBE_EVIDENCE="firewalld_state=probing"
     if runtime_enabled; then
-        scanner_u28_firewalld_runtime_probe
+        scanner_u28_firewalld_runtime_probe || status=$?
     else
-        scanner_u28_firewalld_offline_probe
+        scanner_u28_firewalld_offline_probe || status=$?
     fi
+    if [ "$SCANNER_U28_PROBE_EVIDENCE" = "firewalld_state=probing" ]; then
+        case "$status" in
+            1) SCANNER_U28_PROBE_EVIDENCE="firewalld_state=inactive" ;;
+            2) SCANNER_U28_PROBE_EVIDENCE="firewalld_state=unavailable,collection_error=true" ;;
+            3) SCANNER_U28_PROBE_EVIDENCE="firewalld_state=ambiguous" ;;
+            *)
+                SCANNER_U28_PROBE_EVIDENCE="firewalld_state=unavailable,collection_error=true"
+                status=2
+                ;;
+        esac
+    fi
+    return "$status"
 }
 
 check_u_28() {
@@ -6084,6 +6114,7 @@ scanner_u30_shell_source_token() {
 
     awk -v line="$line" 'BEGIN {
         sub(/^[[:space:]]+/, "", line)
+        if (line == "" || line ~ /^#/) exit 1
         sub(/[[:space:]]+#.*$/, "", line)
         sub(/^builtin[[:space:]]+/, "", line)
         if (line ~ /^\.[[:space:]]+/) sub(/^\.[[:space:]]+/, "", line)
@@ -6182,6 +6213,7 @@ scanner_u30_shell_expand_file() {
     local file_status=0
     local source_name=""
     local line=""
+    local parse_line=""
     local line_number=0
     local source_token=""
     local source_path=""
@@ -6199,9 +6231,11 @@ scanner_u30_shell_expand_file() {
     while IFS= read -r line || [ -n "$line" ]; do
         line_number=$((line_number + 1))
         printf '%s\t%s\t%s\n' "$source_name" "$line_number" "$line" >> "$stream_file" || return 2
-        case "$line" in *'/etc/profile.d/'*'.sh'*) profile_iterator_seen=1 ;; esac
+        parse_line="${line#"${line%%[![:space:]]*}"}"
+        case "$parse_line" in ''|\#*) continue ;; esac
+        case "$parse_line" in *'/etc/profile.d/'*'.sh'*) profile_iterator_seen=1 ;; esac
         source_status=0
-        source_token="$(scanner_u30_shell_source_token "$line" 2>/dev/null)" || source_status=$?
+        source_token="$(scanner_u30_shell_source_token "$parse_line" 2>/dev/null)" || source_status=$?
         [ "$source_status" -ne 2 ] || return 2
         if [ "$source_status" -eq 3 ]; then
             printf '%s\t%s\t%s\n' "$source_name" "$line_number" '__SCANNER_U30_UNRESOLVED_SOURCE__' >> "$stream_file" || return 2
@@ -6894,6 +6928,7 @@ scanner_u30_value_state() {
 
 check_u_30() {
     local records_file=""
+    local unique_records_file=""
     local collector_status=0
     local pam_status=0
     local record=""
@@ -6951,6 +6986,16 @@ check_u_30() {
         set_result ERROR "FTP UMASK 적용 경로를 안전하게 해석하지 못했습니다." "setting=UMASK"
         return
     }
+
+    unique_records_file="$(new_scratch_file u30-records-unique)" || {
+        set_result ERROR "셸 UMASK 설정 경로를 안전하게 해석하지 못했습니다." "setting=UMASK,normalization=scratch_unavailable"
+        return
+    }
+    awk '!seen[$0]++' "$records_file" > "$unique_records_file" || {
+        set_result ERROR "셸 UMASK 설정 경로를 안전하게 해석하지 못했습니다." "setting=UMASK,normalization=failed"
+        return
+    }
+    records_file="$unique_records_file"
 
     while IFS=$'\t' read -r value source certainty scope value_kind; do
         [ -n "$scope" ] || continue
