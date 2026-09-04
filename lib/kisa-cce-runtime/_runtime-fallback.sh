@@ -33,6 +33,7 @@ declare -gA PROCFS_RUNTIME_PID_EXE=()
 declare -gA PROCFS_RUNTIME_PROCESS_NAME=()
 declare -gA PROCFS_RUNTIME_SOCKET_PID=()
 declare -gA PROCFS_RUNTIME_SOCKET_COMM=()
+declare -gA PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY=()
 
 procfs_runtime_destination_is_valid() {
     case "${1-}" in
@@ -102,6 +103,7 @@ runtime_fallback_reset_epoch_cache() {
     PROCFS_RUNTIME_PROCESS_NAME=()
     PROCFS_RUNTIME_SOCKET_PID=()
     PROCFS_RUNTIME_SOCKET_COMM=()
+    PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY=()
 }
 
 procfs_runtime_ensure_epoch() {
@@ -307,8 +309,8 @@ runtime_process_state() {
 }
 
 runtime_systemd_manager_state() {
-    local snapshot_status=0
     local manager_name=""
+    local manager_file="$RUNTIME_FALLBACK_PROC_ROOT/1/comm"
     local marker_path="$RUNTIME_FALLBACK_RUN_ROOT/systemd/system"
 
     if declare -F scan_dependency_register >/dev/null 2>&1; then
@@ -319,9 +321,8 @@ runtime_systemd_manager_state() {
         return "$PROCFS_RUNTIME_MANAGER_STATUS"
     fi
     PROCFS_RUNTIME_MANAGER_READY=1
-    procfs_runtime_prepare_process_snapshot || snapshot_status=$?
-    manager_name="${PROCFS_RUNTIME_PID_RAW_COMM[1]-}"
-    if [ -z "$manager_name" ]; then
+    if [ ! -f "$manager_file" ] || [ ! -r "$manager_file" ] ||
+        ! IFS= read -r manager_name < "$manager_file" || [ -z "$manager_name" ]; then
         PROCFS_RUNTIME_MANAGER_STATUS=2
     elif [ "$manager_name" != "systemd" ]; then
         PROCFS_RUNTIME_MANAGER_STATUS=1
@@ -330,8 +331,22 @@ runtime_systemd_manager_state() {
     else
         PROCFS_RUNTIME_MANAGER_STATUS=2
     fi
-    [ "$snapshot_status" -ne 2 ] || PROCFS_RUNTIME_MANAGER_STATUS=2
     return "$PROCFS_RUNTIME_MANAGER_STATUS"
+}
+
+procfs_runtime_listener_index_append() {
+    local transport="$1"
+    local port="$2"
+    local row_value="$3"
+    local key=""
+
+    for key in "$transport:$port" "any:$port"; do
+        if [ -n "${PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY[$key]+present}" ]; then
+            PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY["$key"]+=$'\n'"$row_value"
+        else
+            PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY["$key"]="$row_value"
+        fi
+    done
 }
 
 procfs_runtime_ipv4_into() {
@@ -462,6 +477,7 @@ procfs_runtime_parse_socket_table() {
             "$pid_value" "$inode_value" "$normalized_state"
         [ -z "$PROCFS_RUNTIME_LISTENER_ROWS" ] || PROCFS_RUNTIME_LISTENER_ROWS+=$'\n'
         PROCFS_RUNTIME_LISTENER_ROWS+="$normalized_row"
+        procfs_runtime_listener_index_append "${table_name%6}" "$port_value" "$normalized_row"
     done
     exec {table_fd}<&-
     PROCFS_RUNTIME_SOCKET_MALFORMED_ROWS=$((PROCFS_RUNTIME_SOCKET_MALFORMED_ROWS + malformed_rows))
@@ -481,6 +497,7 @@ procfs_runtime_prepare_listener_snapshot() {
     PROCFS_RUNTIME_SOCKET_TABLES_READ=0
     PROCFS_RUNTIME_SOCKET_TABLE_ERRORS=0
     PROCFS_RUNTIME_SOCKET_MALFORMED_ROWS=0
+    PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY=()
 
     # Process ownership enriches positive facts but is not required to prove that
     # a local endpoint exists or is absent from a complete socket table set.
@@ -528,11 +545,8 @@ runtime_listener_facts_for_port_into() {
     local requested_port="$2"
     local requested_transport="${3:-any}"
     local snapshot_status=0
-    local row_value=""
-    local row_transport=""
-    local row_address=""
-    local row_port=""
     local matched_rows=""
+    local lookup_key=""
 
     procfs_runtime_destination_is_valid "$destination_name" || return 2
     if declare -F scan_dependency_register >/dev/null 2>&1; then
@@ -542,14 +556,8 @@ runtime_listener_facts_for_port_into() {
     [ "$requested_port" -le 65535 ] || return 2
     case "$requested_transport" in any|tcp|udp) ;; *) return 2 ;; esac
     procfs_runtime_prepare_listener_snapshot || snapshot_status=$?
-    while IFS= read -r row_value || [ -n "$row_value" ]; do
-        [ -n "$row_value" ] || continue
-        IFS=$'\t' read -r row_transport row_address row_port _ <<< "$row_value"
-        [ "$row_port" = "$requested_port" ] || continue
-        [ "$requested_transport" = any ] || [ "$row_transport" = "$requested_transport" ] || continue
-        [ -z "$matched_rows" ] || matched_rows+=$'\n'
-        matched_rows+="$row_value"
-    done <<< "$PROCFS_RUNTIME_LISTENER_ROWS"
+    lookup_key="$requested_transport:$requested_port"
+    matched_rows="${PROCFS_RUNTIME_LISTENER_ROWS_BY_KEY[$lookup_key]-}"
     printf -v "$destination_name" '%s' "$matched_rows"
     [ -z "$matched_rows" ] || return 0
     [ "$snapshot_status" -eq 0 ] && return 1

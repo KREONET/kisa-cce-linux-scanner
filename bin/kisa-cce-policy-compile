@@ -2,7 +2,7 @@
 
 # SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 
-# The public wrapper clears the caller environment before Bash loads scanner code.
+# The public wrapper clears the caller environment before Bash loads compiler code.
 
 console_uptime() {
     wrapper_uptime_value=""
@@ -32,25 +32,20 @@ console_uptime() {
 console_emit() {
     printf '%s\n' "$1" | while IFS= read -r wrapper_line; do
         wrapper_uptime="$(console_uptime)"
-        printf '[%s] kisa-cce-scan: %s\n' "$wrapper_uptime" "$wrapper_line"
+        printf '[%s] kisa-cce-policy-compile: %s\n' "$wrapper_uptime" "$wrapper_line"
     done
 }
 
 case "$0" in
-    /*) scanner_path="$0" ;;
-    *) scanner_path="$PWD/$0" ;;
+    /*) compiler_path="$0" ;;
+    *) compiler_path="$PWD/$0" ;;
 esac
-scanner_directory="${scanner_path%/*}"
-case "${LANG:-}" in
-    en|en_*) scanner_language="en" ;;
-    *) scanner_language="ko" ;;
-esac
-
+compiler_directory="${compiler_path%/*}"
 main_file=""
 for candidate_main_file in \
-    "$scanner_directory/../lib/kisa-cce-cli/_scan-main.sh" \
-    "$scanner_directory/../lib/kisa-cce-linux-scanner/kisa-cce-cli/_scan-main.sh" \
-    "$scanner_directory/../libexec/kisa-cce-linux-scanner/kisa-cce-cli/_scan-main.sh"; do
+    "$compiler_directory/../lib/kisa-cce-cli/_policy-compile-main.sh" \
+    "$compiler_directory/../lib/kisa-cce-linux-scanner/kisa-cce-cli/_policy-compile-main.sh" \
+    "$compiler_directory/../libexec/kisa-cce-linux-scanner/kisa-cce-cli/_policy-compile-main.sh"; do
     if [ -r "$candidate_main_file" ]; then
         main_file="$candidate_main_file"
         break
@@ -58,9 +53,8 @@ for candidate_main_file in \
 done
 
 if [ -z "$main_file" ]; then
-    console_emit "ERROR: scanner runtime not found" >&2
+    console_emit "ERROR: policy compiler runtime not found" >&2
     exit 2
 fi
 
-exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KISA_CCE_LANGUAGE="$scanner_language" \
-    /bin/bash "$main_file" "$@"
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash "$main_file" "$@"

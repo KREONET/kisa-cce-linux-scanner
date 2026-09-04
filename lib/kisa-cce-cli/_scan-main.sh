@@ -23,8 +23,12 @@ case "${BASH_SOURCE[0]}" in
     */*) source_parent="${BASH_SOURCE[0]%/*}" ;;
     *) source_parent="." ;;
 esac
-SCANNER_LIBRARY_DIR="$(CDPATH='' cd -P -- "$source_parent" && pwd)" || exit 2
+SCANNER_CLI_DIRECTORY="$(CDPATH='' cd -P -- "$source_parent" && pwd)" || exit 2
 unset source_parent
+case "$SCANNER_CLI_DIRECTORY" in
+    */kisa-cce-cli) SCANNER_LIBRARY_DIR="${SCANNER_CLI_DIRECTORY%/kisa-cce-cli}" ;;
+    *) SCANNER_LIBRARY_DIR="" ;;
+esac
 
 bootstrap_console_uptime_into() {
     local __kisa_bootstrap_destination="$1"
@@ -104,6 +108,8 @@ select_runtime_layout() {
     local candidate_root=""
     local candidate_data_dir=""
 
+    DEFAULT_POLICY_DIRECTORY="/etc/kisa-cce-scanner/policy.d"
+
     case "$SCANNER_LIBRARY_DIR" in
         */lib/kisa-cce-linux-scanner)
             candidate_root="${SCANNER_LIBRARY_DIR%/lib/kisa-cce-linux-scanner}"
@@ -122,13 +128,13 @@ select_runtime_layout() {
             ;;
     esac
 
-    if [ -r "$SCANNER_LIBRARY_DIR/core.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/i18n.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/policy.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/runtime_fallback.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/scan_epoch.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/evidence.sh" ] &&
-        [ -r "$SCANNER_LIBRARY_DIR/resolvers.sh" ] &&
+    if [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-core/_core.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-core/_i18n.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-policy/_policy.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-runtime/_runtime-fallback.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-core/_scan-epoch.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-runtime/_evidence.sh" ] &&
+        [ -r "$SCANNER_LIBRARY_DIR/kisa-cce-resolvers/_resolvers.sh" ] &&
         [ -r "$candidate_data_dir/criteria.tsv" ] &&
         [ -r "$candidate_data_dir/VERSION" ]; then
         DATA_DIR="$candidate_data_dir"
@@ -149,26 +155,26 @@ case "$KISA_CCE_VERSION" in
 esac
 
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/i18n.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-core/_i18n.sh"
 i18n_load_catalog || bootstrap_die "cannot read the localization catalog: $I18N_LOCALE_DIRECTORY/$KISA_CCE_LANGUAGE"
 i18n_load_console_catalog || bootstrap_die "cannot read the English console catalog: $I18N_LOCALE_DIRECTORY/en"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/core.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-core/_core.sh"
 initialize_report_labels || bootstrap_die "cannot initialize localized report labels"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/scan_epoch.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-core/_scan-epoch.sh"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/runtime_fallback.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-runtime/_runtime-fallback.sh"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/policy.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-policy/_policy.sh"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/evidence.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-runtime/_evidence.sh"
 # shellcheck source=/dev/null
-. "$SCANNER_LIBRARY_DIR/resolvers.sh"
+. "$SCANNER_LIBRARY_DIR/kisa-cce-resolvers/_resolvers.sh"
 
-check_files=("$SCANNER_LIBRARY_DIR"/checks_*.sh)
+check_files=("$SCANNER_LIBRARY_DIR/kisa-cce-checks"/_*.sh)
 if [ ! -e "${check_files[0]}" ]; then
-    die "check group files not found: $SCANNER_LIBRARY_DIR/checks_*.sh"
+    die "check group files not found: $SCANNER_LIBRARY_DIR/kisa-cce-checks/_*.sh"
 fi
 for check_file in "${check_files[@]}"; do
     # shellcheck source=/dev/null
@@ -208,8 +214,8 @@ Options:
   --root PATH              Inspect PATH as a root; --root / keeps live collection.
   --output-dir PATH        Store scan reports; validated but unused with --explain-sysctl.
   --checks U-01,U-02       Run only the comma-separated check codes.
-  --mode audit|complete    Select conservative audit or strict complete mode.
-  --policy-dir PATH        Load reviewed criterion attestations from PATH.
+  --mode MODE              Select audit, complete, or all-or-nothing automation mode.
+  --policy-dir PATH        Override the installed default policy directory.
   --evidence-bundle PATH   Use a validated live-runtime bundle with an offline root.
   --evidence-max-age SEC   Reject evidence older than SEC; default: 3600.
   --no-runtime             Skip live security state; live-root scans retain mount topology.
@@ -223,7 +229,7 @@ Options:
 Exit status:
   0  No scanner errors or vulnerable results were recorded.
   1  At least one vulnerable result was recorded.
-  2  Invocation, platform, scanner, or report error; errors take precedence.
+  2  Invocation, scanner, report, or blocked automation error; errors take precedence.
 EOF
 }
 
@@ -363,8 +369,15 @@ trap 'debug_emit_signal_exit INT 130; exit 130' INT
 trap 'debug_emit_signal_exit TERM 143; exit 143' TERM
 
 case "$SCAN_MODE" in
-    audit|complete) ;;
-    *) die "--mode must be audit or complete: $SCAN_MODE" ;;
+    audit|complete|automation) ;;
+    *) die "--mode must be audit, complete, or automation: $SCAN_MODE" ;;
+esac
+case "$SCAN_MODE" in
+    complete|automation)
+        if [ -z "$POLICY_DIRECTORY" ] && [ -d "$DEFAULT_POLICY_DIRECTORY" ]; then
+            POLICY_DIRECTORY="$DEFAULT_POLICY_DIRECTORY"
+        fi
+        ;;
 esac
 case "$EVIDENCE_MAX_AGE_SECONDS" in
     ''|*[!0-9]*) die "--evidence-max-age must be a positive integer in seconds" ;;
@@ -403,16 +416,16 @@ elif [ "$(id -u)" -ne 0 ]; then
     die "a full live scan requires root privileges; use --root for offline analysis"
 fi
 
-if [ "$SCAN_MODE" = "complete" ]; then
-    [ -z "$SELECTED_CHECKS" ] || die "complete mode requires all checks from U-01 through U-67"
-    [ "$ALLOW_UNSUPPORTED" -eq 0 ] || die "--allow-unsupported cannot be used in complete mode"
-    [ -z "$EXPLAIN_SYSCTL_KEY" ] || die "--explain-sysctl cannot be used in complete mode"
-    [ -n "$POLICY_DIRECTORY" ] || die "complete mode requires --policy-dir"
+if [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; then
+    [ -z "$SELECTED_CHECKS" ] || die "$SCAN_MODE mode requires all checks from U-01 through U-67"
+    [ "$ALLOW_UNSUPPORTED" -eq 0 ] || die "--allow-unsupported cannot be used in $SCAN_MODE mode"
+    [ -z "$EXPLAIN_SYSCTL_KEY" ] || die "--explain-sysctl cannot be used in $SCAN_MODE mode"
+    [ -n "$POLICY_DIRECTORY" ] || die "$SCAN_MODE mode requires --policy-dir"
     if [ "$SCAN_ROOT" = "/" ]; then
-        [ "$NO_RUNTIME_REQUESTED" -eq 0 ] || die "--no-runtime cannot be used for a live complete scan"
-        [ -z "$EVIDENCE_BUNDLE_PATH" ] || die "a live complete scan uses current host state and does not accept an evidence bundle"
+        [ "$NO_RUNTIME_REQUESTED" -eq 0 ] || die "--no-runtime cannot be used for a live $SCAN_MODE scan"
+        [ -z "$EVIDENCE_BUNDLE_PATH" ] || die "a live $SCAN_MODE scan uses current host state and does not accept an evidence bundle"
     else
-        [ -n "$EVIDENCE_BUNDLE_PATH" ] || die "an offline complete scan requires --evidence-bundle"
+        [ -n "$EVIDENCE_BUNDLE_PATH" ] || die "an offline $SCAN_MODE scan requires --evidence-bundle"
     fi
 fi
 if [ -n "$EVIDENCE_BUNDLE_PATH" ] && [ "$NO_RUNTIME_REQUESTED" -eq 1 ]; then
@@ -568,6 +581,14 @@ while IFS=$'\t' read -r code category severity title || [ -n "$code" ]; do
     run_one_check "$code" "$category" "$severity" "$title" || true
 done < "$CRITERIA_FILE"
 
+if [ "$SCAN_MODE" = "automation" ] &&
+    { [ "$COUNT_TOTAL" -ne 67 ] || [ "$COUNT_MANUAL" -gt 0 ] || [ "$COUNT_ERROR" -gt 0 ] || [ "$REPORT_WRITE_ERROR" -gt 0 ]; }; then
+    verbose "summary total=${COUNT_TOTAL} good=${COUNT_GOOD} vulnerable=${COUNT_VULNERABLE} manual=${COUNT_MANUAL} not_applicable=${COUNT_NOT_APPLICABLE} error=${COUNT_ERROR}"
+    debug_emit report_publication status blocked mode automation total "$COUNT_TOTAL" \
+        manual "$COUNT_MANUAL" error "$COUNT_ERROR"
+    scan_epoch_end
+    die "automation mode did not publish reports because one or more criteria remain unresolved or erroneous"
+fi
 write_report_summary || die "cannot write the report summary"
 verbose "summary total=${COUNT_TOTAL} good=${COUNT_GOOD} vulnerable=${COUNT_VULNERABLE} manual=${COUNT_MANUAL} not_applicable=${COUNT_NOT_APPLICABLE} error=${COUNT_ERROR}"
 if ! validate_reports; then
@@ -578,6 +599,19 @@ if ! report_output_paths_are_current; then
     REPORT_WRITE_ERROR=1
     debug_emit report_validation status failed component path_binding total "$COUNT_TOTAL"
     die "output directory path changed during the scan: $OUTPUT_PARENT"
+fi
+if [ "$SCAN_MODE" = "automation" ]; then
+    publish_automation_reports || {
+        REPORT_WRITE_ERROR=1
+        debug_emit report_publication status failed mode automation total "$COUNT_TOTAL"
+        die "cannot publish the completed automation reports safely"
+    }
+    report_output_paths_are_current || {
+        REPORT_WRITE_ERROR=1
+        die "output directory path changed while publishing automation reports: $OUTPUT_PARENT"
+    }
+    AUTOMATION_REPORTS_COMMITTED=1
+    debug_emit report_publication status published mode automation total "$COUNT_TOTAL"
 fi
 debug_emit report_validation status passed total "$COUNT_TOTAL"
 console_emit "markdown_report=$REPORT_MARKDOWN_OUTPUT_PATH"

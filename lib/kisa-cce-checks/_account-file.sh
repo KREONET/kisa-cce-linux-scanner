@@ -76,6 +76,118 @@ scanner_validate_gshadow_database() {
     ' "$file"
 }
 
+scanner_account_nss_source_state_into() {
+    local __kisa_nss_destination="$1"
+    local __kisa_nss_file=""
+    local __kisa_nss_path_status=0
+    local __kisa_nss_parse_status=0
+
+    case "$__kisa_nss_destination" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|__kisa_nss_*) return 2 ;;
+    esac
+    printf -v "$__kisa_nss_destination" '%s' unresolved
+    __kisa_nss_file="$(optional_rooted_read_path /etc/nsswitch.conf 2>/dev/null)" || __kisa_nss_path_status=$?
+    case "$__kisa_nss_path_status" in
+        0) ;;
+        1)
+            printf -v "$__kisa_nss_destination" '%s' absent
+            return 1
+            ;;
+        *)
+            printf -v "$__kisa_nss_destination" '%s' path_error
+            return 2
+            ;;
+    esac
+    LC_ALL=C awk '
+        {
+            line=$0
+            sub(/#.*/, "", line)
+            if (line !~ /^[[:space:]]*(passwd|group)[[:space:]]*:/) next
+            key=line
+            sub(/^[[:space:]]*/, "", key)
+            sub(/[[:space:]]*:.*$/, "", key)
+            value=line
+            sub(/^[^:]*:[[:space:]]*/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            records[key]++
+            if (value != "files") non_files=1
+        }
+        END {
+            if (records["passwd"] == 1 && records["group"] == 1 && !non_files) exit 0
+            exit 1
+        }
+    ' "$__kisa_nss_file" || __kisa_nss_parse_status=$?
+    case "$__kisa_nss_parse_status" in
+        0)
+            printf -v "$__kisa_nss_destination" '%s' files_only
+            return 0
+            ;;
+        1)
+            printf -v "$__kisa_nss_destination" '%s' external_or_unresolved
+            return 1
+            ;;
+        *)
+            printf -v "$__kisa_nss_destination" '%s' parse_error
+            return 2
+            ;;
+    esac
+}
+
+scanner_account_shadow_completeness_into() {
+    local __kisa_shadow_passwd_file="$1"
+    local __kisa_shadow_destination="$2"
+    local __kisa_shadow_file=""
+    local __kisa_shadow_path_status=0
+    local __kisa_shadow_counts=""
+    local __kisa_shadow_missing=0
+    local __kisa_shadow_orphaned=0
+
+    case "$__kisa_shadow_destination" in
+        ''|[0-9]*|*[!A-Za-z0-9_]*|__kisa_shadow_*) return 2 ;;
+    esac
+    printf -v "$__kisa_shadow_destination" '%s' 'shadow_status=unresolved'
+    __kisa_shadow_file="$(optional_rooted_read_path /etc/shadow 2>/dev/null)" || __kisa_shadow_path_status=$?
+    case "$__kisa_shadow_path_status" in
+        0) ;;
+        1)
+            printf -v "$__kisa_shadow_destination" '%s' 'shadow_status=absent'
+            return 1
+            ;;
+        *)
+            printf -v "$__kisa_shadow_destination" '%s' 'shadow_status=path_error'
+            return 2
+            ;;
+    esac
+    if ! scanner_validate_shadow_database "$__kisa_shadow_file"; then
+        printf -v "$__kisa_shadow_destination" '%s' 'shadow_status=invalid'
+        return 2
+    fi
+    __kisa_shadow_counts="$(awk -F: '
+        FNR == NR {passwd_account[$1]=1; next}
+        {
+            shadow_account[$1]=1
+            if (!($1 in passwd_account)) orphaned++
+        }
+        END {
+            for (account in passwd_account) if (!(account in shadow_account)) missing++
+            print missing+0, orphaned+0
+        }
+    ' "$__kisa_shadow_passwd_file" "$__kisa_shadow_file")" || {
+        printf -v "$__kisa_shadow_destination" '%s' 'shadow_status=parse_error'
+        return 2
+    }
+    read -r __kisa_shadow_missing __kisa_shadow_orphaned <<< "$__kisa_shadow_counts"
+    if [ "$__kisa_shadow_missing" -eq 0 ] && [ "$__kisa_shadow_orphaned" -eq 0 ]; then
+        printf -v "$__kisa_shadow_destination" \
+            'shadow_status=complete\nmissing_shadow_accounts=0\norphan_shadow_accounts=0'
+        return 0
+    fi
+    printf -v "$__kisa_shadow_destination" \
+        'shadow_status=incomplete\nmissing_shadow_accounts=%s\norphan_shadow_accounts=%s' \
+        "$__kisa_shadow_missing" "$__kisa_shadow_orphaned"
+    return 1
+}
+
 scanner_stat_gid() {
     local path="$1"
     local stat_path=""
@@ -161,9 +273,20 @@ scanner_append_evidence() {
 scanner_evidence_path() {
     local path="$1"
     local displayed_path=""
+    local sanitized_path=""
+    local character=""
+    local index_value=0
+    local LC_ALL=C
 
     display_path_into "$path" displayed_path || return 2
-    printf '%s' "$displayed_path" | LC_ALL=C tr '\n\r\t' '???' | LC_ALL=C tr -cd '[:print:]'
+    displayed_path="${displayed_path//$'\n'/?}"
+    displayed_path="${displayed_path//$'\r'/?}"
+    displayed_path="${displayed_path//$'\t'/?}"
+    for ((index_value = 0; index_value < ${#displayed_path}; index_value++)); do
+        character="${displayed_path:index_value:1}"
+        case "$character" in [[:print:]]) sanitized_path+="$character" ;; esac
+    done
+    printf '%s' "$sanitized_path"
 }
 
 scanner_directory_searchable() {
@@ -875,6 +998,15 @@ scanner_password_pam_lines() {
 
 SCANNER_AUTHSELECT_UNMANAGED=0
 
+scanner_authselect_command_exists() {
+    local candidate=""
+
+    for candidate in /usr/sbin/authselect /usr/bin/authselect /sbin/authselect /bin/authselect; do
+        [ ! -e "$candidate" ] && [ ! -L "$candidate" ] || return 0
+    done
+    return 1
+}
+
 scanner_authselect_configuration_valid() {
     local authselect_path=""
     local check_status=0
@@ -883,7 +1015,13 @@ scanner_authselect_configuration_valid() {
     SCANNER_AUTHSELECT_UNMANAGED=0
     platform_is_rhel_family || return 0
     runtime_enabled || return 0
-    authselect_path="$(trusted_command authselect)" || return 2
+    authselect_path="$(trusted_command authselect)" || {
+        if scanner_authselect_command_exists; then
+            return 2
+        fi
+        SCANNER_AUTHSELECT_UNMANAGED=1
+        return 0
+    }
     "$authselect_path" check >/dev/null 2>&1
     check_status=$?
     case "$check_status" in
@@ -2546,6 +2684,8 @@ check_u_06() {
     local uid_minimum_record=""
     local uid_minimum=1000
     local general_account_count=0
+    local nss_source_state="unresolved"
+    local nss_source_status=0
 
     su_path="$(optional_rooted_read_path /usr/bin/su 2>/dev/null)" || su_path_status=$?
     case "$su_path_status" in
@@ -2589,7 +2729,19 @@ check_u_06() {
         END {print count+0}
     ' "$passwd_file")"
     if [ "$general_account_count" -eq 0 ]; then
-        set_result MANUAL "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다." "local_general_accounts=0"
+        scanner_account_nss_source_state_into nss_source_state || nss_source_status=$?
+        if [ "$nss_source_status" -eq 2 ]; then
+            set_result ERROR "/etc/nsswitch.conf 경로를 안전한 일반 파일로 읽지 못했습니다." \
+                "local_general_accounts=0\nnss_account_sources=${nss_source_state}"
+        elif [ "$nss_source_status" -eq 0 ] && [ "$nss_source_state" = "files_only" ]; then
+            set_result NOT_APPLICABLE \
+                "로컬 일반 사용자와 외부 NSS 계정 소스가 없어 su 제한 점검 대상이 없습니다." \
+                "local_general_accounts=0\nnss_account_sources=files_only" false
+        else
+            set_result MANUAL \
+                "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다." \
+                "local_general_accounts=0\nnss_account_sources=${nss_source_state}"
+        fi
         return
     fi
 
@@ -2741,6 +2893,8 @@ check_u_07() {
     local last_path=""
     local last_status=0
     local recent_login_records=0
+    local shadow_evidence=""
+    local shadow_status=0
 
     passwd_file="$(optional_rooted_read_path /etc/passwd 2>/dev/null)" || passwd_status=$?
     if [ "$passwd_status" -ne 0 ] || ! scanner_validate_passwd_database "$passwd_file"; then
@@ -2772,6 +2926,24 @@ check_u_07() {
     scanner_append_evidence evidence "login_capable_accounts=${count}"
     scanner_append_evidence evidence "local_accounts=${account_count}"
     scanner_append_evidence evidence "accounts=$(printf '%s\n' "$accounts" | head -n 20 | paste -sd, -)"
+    if [ "$count" -eq 1 ] && [ "$accounts" = "root" ]; then
+        scanner_append_evidence evidence "root_only_login_capable=true"
+        scanner_account_shadow_completeness_into "$passwd_file" shadow_evidence || shadow_status=$?
+        scanner_append_evidence evidence "$shadow_evidence"
+        if [ "$shadow_status" -eq 0 ]; then
+            set_result GOOD \
+                "완전한 로컬 계정 자료에서 로그인 가능한 계정은 필수 관리자 계정 root뿐입니다." \
+                "$evidence"
+            return
+        elif [ "$shadow_status" -eq 2 ]; then
+            set_result ERROR \
+                "U-07 계정 검토에 필요한 /etc/shadow를 안전하게 읽고 검증하지 못했습니다." \
+                "$evidence"
+            return
+        fi
+    else
+        scanner_append_evidence evidence "root_only_login_capable=false"
+    fi
     if runtime_enabled; then
         last_path="$(trusted_command last 2>/dev/null || true)"
         if [ -n "$last_path" ]; then
@@ -3659,6 +3831,7 @@ check_u_17() {
     local scanned=0
     local violations=0
     local errors=0
+    local dangling_links=0
     local evidence=""
     local masks=0
     local paths=(
@@ -3711,7 +3884,13 @@ check_u_17() {
         if [ -L "$path" ]; then
             resolved_path="$(resolve_rooted_read_path "$path" 2>/dev/null || true)"
             if [ -z "$resolved_path" ]; then
-                errors=$((errors + 1))
+                if [ "$SCAN_ROOT" = "/" ] && [ ! -e "$path" ]; then
+                    dangling_links=$((dangling_links + 1))
+                    [ "$dangling_links" -le 20 ] &&
+                        scanner_append_evidence evidence "dangling_startup_alias=$(scanner_evidence_path "$path")"
+                else
+                    errors=$((errors + 1))
+                fi
                 continue
             fi
         elif [ ! -f "$path" ]; then
@@ -3731,6 +3910,7 @@ check_u_17() {
     evidence="scanned_paths=${scanned}
 violations=${violations}
 metadata_errors=${errors}
+dangling_aliases=${dangling_links}
 masks=${masks}
 ${evidence}"
     if [ "$errors" -gt 0 ]; then
@@ -3741,6 +3921,10 @@ ${evidence}"
         debug_emit filesystem_snapshot phase result name startup status vulnerable \
             paths "$scanned" violations "$violations" masks "$masks"
         set_result VULNERABLE "root 소유가 아니거나 일반 사용자 쓰기가 허용된 시작 스크립트가 있습니다." "$evidence"
+    elif [ "$dangling_links" -gt 0 ]; then
+        debug_emit filesystem_snapshot phase result name startup status ambiguous \
+            paths "$scanned" dangling "$dangling_links" masks "$masks"
+        set_result MANUAL "대상이 없는 시스템 시작 별칭의 필요성과 잔여 구성을 확인해야 합니다." "$evidence"
     elif [ "$scanned" -eq 0 ]; then
         debug_emit filesystem_snapshot phase result name startup status absent paths 0 masks "$masks"
         set_result NOT_APPLICABLE "로컬 시스템 시작 스크립트를 찾지 못했습니다." "$evidence" false
@@ -6111,23 +6295,28 @@ check_u_29() {
 
 scanner_u30_shell_source_token() {
     local line="$1"
+    local token=""
 
-    awk -v line="$line" 'BEGIN {
-        sub(/^[[:space:]]+/, "", line)
-        if (line == "" || line ~ /^#/) exit 1
-        sub(/[[:space:]]+#.*$/, "", line)
-        sub(/^builtin[[:space:]]+/, "", line)
-        if (line ~ /^\.[[:space:]]+/) sub(/^\.[[:space:]]+/, "", line)
-        else if (line ~ /^source[[:space:]]+/) sub(/^source[[:space:]]+/, "", line)
-        else if (line ~ /(^|[;[:space:]])(\.|source)[[:space:]]+/) exit 3
-        else exit 1
-        sub(/^[[:space:]]+/, "", line)
-        split(line, fields, /[[:space:]]+/)
-        token=fields[1]
-        sub(/;$/, "", token)
-        if (token == "") exit 2
-        print token
-    }'
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in ''|\#*) return 1 ;; esac
+    case "$line" in *[[:space:]]\#*) line="${line%%[[:space:]]\#*}" ;; esac
+    case "$line" in
+        builtin[[:space:]]*)
+            line="${line#builtin}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            ;;
+    esac
+    case "$line" in
+        .[[:space:]]*) line="${line#.}" ;;
+        source[[:space:]]*) line="${line#source}" ;;
+        *[\;[:space:]].[[:space:]]*|*[\;[:space:]]source[[:space:]]*) return 3 ;;
+        *) return 1 ;;
+    esac
+    line="${line#"${line%%[![:space:]]*}"}"
+    token="${line%%[[:space:]]*}"
+    token="${token%;}"
+    [ -n "$token" ] || return 2
+    printf '%s\n' "$token"
 }
 
 scanner_u30_normalize_shell_source_path() {

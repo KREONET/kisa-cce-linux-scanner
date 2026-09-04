@@ -6,7 +6,7 @@ of each resolver's contract.
 
 ## Scan epoch
 
-`lib/scan_epoch.sh` defines one immutable scan epoch. The main process starts an
+`lib/kisa-cce-core/_scan-epoch.sh` defines one immutable scan epoch. The main process starts an
 epoch after the protected scratch directory and platform context are available.
 The epoch key includes the resolver schema, scanner version, platform profile,
 policy digest, policy evaluation date, and evidence-bundle digest.
@@ -70,9 +70,31 @@ invocation, environment, and credential properties needed by existing
 resolvers. Bulk-query incompatibility falls back conservatively.
 
 Listeners use one mixed `ss -H -lntup` snapshot for the epoch. TCP, UDP, and
-mixed queries filter that snapshot without recollection. A failed collection is
-also memoized. Evidence-bundle helpers remain authoritative for offline bundle
-scans and never execute host runtime commands.
+mixed queries use an associative `transport:port` index built with that
+snapshot, without recollection or repeated file scans. A failed collection is
+also memoized. When procfs supplies the listener snapshot, its normalized rows
+use the same indexed query contract.
+
+The system-manager probe reads only PID 1's `comm` record and the systemd runtime
+marker. It does not build the full process snapshot. Named-process queries use
+the epoch process map first; `pgrep` is only a positive fallback when procfs is
+unavailable or incomplete. A negative `pgrep` result cannot turn incomplete
+procfs evidence into a conclusive absence. Evidence-bundle helpers remain
+authoritative for offline bundle scans and never execute host runtime commands.
+
+### Shell startup parsing and evidence paths
+
+U-30 recognizes direct dot and `source` directives with Bash built-ins before
+expanding the shell startup graph. It preserves the prior conditional,
+unresolved-source, cycle, and depth-limit boundaries without starting one
+`awk` process per input line. Each expanded file still has a separate
+single-pass UMASK control-flow parser because shell startup syntax is not
+interchangeable with PAM, sysctl, or another drop-in format.
+
+Filesystem evidence paths are normalized with Bash built-ins after rooted path
+resolution. Newline, carriage-return, and tab bytes retain the previous `?`
+replacement, and non-printable bytes are discarded without starting `tr` for
+each path.
 
 ## Cache boundaries
 
@@ -97,7 +119,9 @@ on wall-clock thresholds:
 - `tests/pam_cache.sh`: PAM IR, DFS, fallback, and status caching;
 - `tests/runtime_cache.sh`: systemd, aliases, listeners, and runtime failures;
 - `tests/scan_epoch.sh`: dependency invalidation and normalized-output change
-  propagation.
+  propagation;
+- `tests/u30_comment_sources.sh`: direct, conditional, indirect, and commented
+  shell source parsing without per-line external commands.
 
 ## Benchmark procedure
 
@@ -148,3 +172,29 @@ end-to-end latency claims.
 
 The complete median and p95 data is stored in
 [`benchmarks/2026-09-03-aarch64.tsv`](benchmarks/2026-09-03-aarch64.tsv).
+
+### 2026-09-04 live Ubuntu 26.04 acceptance
+
+A second benchmark compared commit `3006285` with the working tree in the same
+Apple container Ubuntu 26.04 VM. It used one warm-up and 20 interleaved live
+full scans per implementation. The result set remained 27 `GOOD`, 13
+`VULNERABLE`, 7 `MANUAL`, 20 `NOT_APPLICABLE`, and 0 `ERROR` in both trees.
+
+| Metric | Baseline median / p95 | Optimized median / p95 | Median change |
+|---|---:|---:|---:|
+| Wall time, seconds | 2.984 / 3.194 | 2.811 / 2.997 | -5.8% |
+| Shell and child CPU, seconds | 2.912 / 3.130 | 2.693 / 2.876 | -7.5% |
+| `/proc/stat` process-creation delta | 3,444 / 3,446 | 2,845 / 2,845 | -17.4% |
+| Scanner-process RSS, KiB | 11,962 / 11,976 | 12,100 / 12,112 | +1.2% |
+
+Wall and CPU use Bash's reserved-word timer. The process counter includes fork
+and clone events and is therefore a process-creation proxy, not an `execve`
+count. RSS has 10 interleaved samples and measures the scanner process rather
+than an aggregate child-process high-water mark. The image did not contain GNU
+`time` or `strace`, and network access was unavailable, so those tools were not
+installed for this run. Runtime call-count regressions separately establish
+that the process-map and listener indexes remove 39 `pgrep` and 67 listener
+filter `awk` invocations from the measured fixture.
+
+The complete values are stored in
+[`benchmarks/2026-09-04-ubuntu-26.04-live.tsv`](benchmarks/2026-09-04-ubuntu-26.04-live.tsv).

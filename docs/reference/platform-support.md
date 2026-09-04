@@ -85,7 +85,22 @@ The repository currently contains deterministic generated fixtures, not retained
 | Product/version identity detection | Covered for every listed matrix row. |
 | Debian-family and Enterprise Linux semantic adapters | Covered by targeted synthetic fixtures, including guide-explicit platform branches and known version-specific configuration and service layouts. |
 | Full 67-result cardinality | Covered on representative generated roots. |
-| Containerized userspace regression | Passed on 2026-09-03 for Debian 12/13, Ubuntu 22.04/24.04/26.04, and Rocky Linux 8.10/9.8/10.2 on arm64. Each image passed `make check`; each distribution's packaged ShellCheck passed `make lint`; and each container-root `--debug` smoke produced 67 results plus one valid JSONL summary without exposing its secret sentinel. |
+| Containerized userspace regression | Passed on 2026-09-04 for Debian 12/13, Ubuntu 22.04/24.04/26.04, and Rocky Linux 8.10/9.8/10.2 on arm64. Every image passed `make check`, its packaged ShellCheck gate, source and installed CLI smoke tests, YAML policy compilation, schema-2 evidence collection, sysctl explanation, and a selected debug scan. Every full root scan produced 67 results with zero `ERROR`. |
 | Booted-host package and runtime acceptance on every matrix row | Not performed in this repository. |
 
-The containerized run used Apple container 1.3.1 with read-only source mounts. Test-tool packages were added to locally prepared OCI images before execution. These tests cover the installed userspace, supported Bash range, configuration adapters, report integrity, and static-only mount-boundary collection. They do not represent a booted systemd host, SELinux enforcement, host storage topology, or live service and listener acceptance.
+The full root scan results were:
+
+| Container | `GOOD` | `VULNERABLE` | `MANUAL` | `NOT_APPLICABLE` | `ERROR` |
+|---|---:|---:|---:|---:|---:|
+| Debian 12 | 29 | 12 | 5 | 21 | 0 |
+| Debian 13 | 28 | 12 | 6 | 21 | 0 |
+| Ubuntu 22.04 | 28 | 12 | 6 | 21 | 0 |
+| Ubuntu 24.04 | 27 | 14 | 6 | 20 | 0 |
+| Ubuntu 26.04 | 27 | 13 | 7 | 20 | 0 |
+| Rocky Linux 8.10 | 29 | 11 | 9 | 18 | 0 |
+| Rocky Linux 9.8 | 32 | 8 | 8 | 19 | 0 |
+| Rocky Linux 10.2 | 31 | 8 | 9 | 19 | 0 |
+
+The containerized run used Apple container 1.3.1 with read-only source mounts and the function-grouped `lib/kisa-cce-*` layout. Test-tool packages were added to locally prepared OCI images before execution. Each staged installation retained private `_*.sh` modules below its functional directory. The installed policy compiler converted the neutral YAML example into a mode-0700 directory with a mode-0600 TSV and a validated policy digest.
+
+Minimal images without a machine ID correctly rejected evidence collection; the acceptance run seeded an ephemeral valid machine ID, then verified schema version 2, all 11 checksums, directory mode 0700, and file mode 0600. Non-systemd containers resolved `kernel.randomize_va_space` read-only through `/proc/sys`, reporting `loader=no-system-manager` and runtime value `2`. These tests cover the installed userspace, supported Bash and ShellCheck ranges, configuration adapters, report integrity, and static-only mount-boundary collection. They do not represent a booted systemd host, SELinux enforcement, host storage topology, or live service and listener acceptance.

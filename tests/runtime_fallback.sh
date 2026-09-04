@@ -33,6 +33,16 @@ status_of() {
     printf '%s\n' "$status_value"
 }
 
+assert_status() {
+    local expected="$1"
+    local description="$2"
+    local status_value=0
+
+    shift 2
+    "$@" || status_value=$?
+    assert_equal "$expected" "$status_value" "$description"
+}
+
 case "${BASH_SOURCE[0]}" in
     */*) test_parent="${BASH_SOURCE[0]%/*}" ;;
     *) test_parent=. ;;
@@ -41,6 +51,9 @@ project_directory="$(CDPATH='' cd -P -- "$test_parent/.." && pwd)" || exit 2
 test_directory="$(mktemp -d "${TMPDIR:-/tmp}/kisa-cce-runtime-fallback.XXXXXXXX")" || exit 2
 proc_root="$test_directory/proc"
 run_root="$test_directory/run"
+find_count_file="$test_directory/find-count"
+find_wrapper="$test_directory/find-wrapper"
+actual_find="$(command -v find)"
 
 cleanup() {
     chmod -R u+rwX "$test_directory" 2>/dev/null || :
@@ -50,6 +63,15 @@ trap cleanup EXIT
 
 mkdir -p "$proc_root/net" "$proc_root/1/fd" "$proc_root/100/fd" "$proc_root/200/fd" \
     "$run_root/systemd/system"
+printf '0\n' > "$find_count_file"
+cat > "$find_wrapper" <<EOF
+#!/bin/sh
+count=0
+IFS= read -r count < "$find_count_file" || exit 90
+printf '%s\n' "\$((count + 1))" > "$find_count_file" || exit 90
+exec "$actual_find" "\$@"
+EOF
+chmod 0755 "$find_wrapper"
 printf 'systemd\n' > "$proc_root/1/comm"
 ln -s /usr/lib/systemd/systemd "$proc_root/1/exe"
 printf 'web-worker\n' > "$proc_root/100/comm"
@@ -82,11 +104,15 @@ printf '%s\n' \
 
 RUNTIME_FALLBACK_PROC_ROOT="$proc_root"
 RUNTIME_FALLBACK_RUN_ROOT="$run_root"
-RUNTIME_FALLBACK_FIND_COMMAND="$(command -v find)"
+RUNTIME_FALLBACK_FIND_COMMAND="$find_wrapper"
 SCAN_EPOCH_ID=1
 
-# shellcheck source=../lib/runtime_fallback.sh disable=SC1091
-. "$project_directory/lib/runtime_fallback.sh"
+# shellcheck source=../lib/kisa-cce-runtime/_runtime-fallback.sh disable=SC1091
+. "$project_directory/lib/kisa-cce-runtime/_runtime-fallback.sh"
+
+assert_status 0 "running systemd manager" runtime_systemd_manager_state
+IFS= read -r find_count < "$find_count_file"
+assert_equal 0 "$find_count" "manager probe avoids full process enumeration"
 
 process_rows=""
 status=0
@@ -97,7 +123,9 @@ assert_contains "$process_rows" $'100\tweb-worker\t/usr/bin/web' \
 assert_equal 0 "$(status_of runtime_process_state web-worker)" "process lookup by comm"
 assert_equal 0 "$(status_of runtime_process_state web)" "process lookup by executable"
 assert_equal 1 "$(status_of runtime_process_state absent-process)" "complete process absence"
-assert_equal 0 "$(status_of runtime_systemd_manager_state)" "running systemd manager"
+assert_status 0 "running systemd manager" runtime_systemd_manager_state
+IFS= read -r find_count < "$find_count_file"
+assert_equal 2 "$find_count" "process snapshot performs one executable and descriptor enumeration"
 
 listener_rows=""
 status=0
@@ -116,9 +144,11 @@ case "$listener_rows" in *$'\t5353\t'*) fail "connected UDP socket was retained"
 
 port_rows=""
 status=0
+PROCFS_RUNTIME_LISTENER_ROWS="not-the-index"
 runtime_listener_facts_for_port_into port_rows 443 tcp || status=$?
 assert_equal 0 "$status" "positive listener query"
 assert_contains "$port_rows" $'\t443\tweb-worker\t' "listener query rows"
+PROCFS_RUNTIME_LISTENER_ROWS="$listener_rows"
 assert_equal 1 "$(status_of runtime_listener_facts_for_port_into port_rows 9999 any)" \
     "complete listener absence"
 
@@ -128,14 +158,14 @@ mv "$proc_root/net/tcp.next" "$proc_root/net/tcp"
 printf 'bash\n' > "$proc_root/1/comm"
 assert_equal 0 "$(status_of runtime_listener_facts_for_port_into port_rows 8080 tcp)" \
     "same-epoch listener cache"
-assert_equal 0 "$(status_of runtime_systemd_manager_state)" "same-epoch manager cache"
+assert_status 0 "same-epoch manager cache" runtime_systemd_manager_state
 
 SCAN_EPOCH_ID=2
 assert_equal 1 "$(status_of runtime_listener_facts_for_port_into port_rows 8080 tcp)" \
     "new epoch listener refresh"
 assert_equal 0 "$(status_of runtime_listener_facts_for_port_into port_rows 9090 tcp)" \
     "new epoch listener value"
-assert_equal 1 "$(status_of runtime_systemd_manager_state)" "non-systemd PID 1"
+assert_status 1 "non-systemd PID 1" runtime_systemd_manager_state
 
 # Malformed and unreadable tables preserve positive facts but make absence unknown.
 printf '%s\n' 'header local_address' 'malformed socket row' > "$proc_root/net/tcp"
@@ -181,7 +211,7 @@ assert_equal 0 "$(status_of runtime_process_state web-restored)" "explicit proce
 printf 'systemd\n' > "$proc_root/1/comm"
 rm -rf "$run_root/systemd/system"
 SCAN_EPOCH_ID=6
-assert_equal 2 "$(status_of runtime_systemd_manager_state)" "ambiguous systemd marker"
+assert_status 2 "ambiguous systemd marker" runtime_systemd_manager_state
 
 RUNTIME_FALLBACK_PROC_ROOT="$test_directory/missing-proc"
 SCAN_EPOCH_ID=7

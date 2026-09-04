@@ -34,13 +34,35 @@ KISA_CCE_VERSION="test"
 SCAN_ROOT="$root_directory"
 RUNTIME_MODE=off
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/resolvers.sh
-. "$project_directory/lib/resolvers.sh"
-# shellcheck source=../lib/checks_account_file.sh
-. "$project_directory/lib/checks_account_file.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+. "$project_directory/lib/kisa-cce-resolvers/_resolvers.sh"
+# shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+. "$project_directory/lib/kisa-cce-checks/_account-file.sh"
 SCRATCH_DIR="$scratch_directory"
+
+assert_source_token() {
+    local expected_status="$1"
+    local expected_token="$2"
+    local input_line="$3"
+    local actual_token=""
+    local actual_status=0
+
+    actual_token="$(scanner_u30_shell_source_token "$input_line")" || actual_status=$?
+    [ "$actual_status" -eq "$expected_status" ] ||
+        fail "source token status for [$input_line]: expected=$expected_status actual=$actual_status"
+    [ "$actual_token" = "$expected_token" ] ||
+        fail "source token for [$input_line]: expected=[$expected_token] actual=[$actual_token]"
+}
+
+assert_source_token 0 /etc/direct-source 'source /etc/direct-source'
+assert_source_token 0 /etc/dot-source '. /etc/dot-source;'
+assert_source_token 0 /etc/builtin-source 'builtin source /etc/builtin-source # comment'
+assert_source_token 3 '' 'if true; then source /etc/conditional-source; fi'
+assert_source_token 3 '' 'command . /etc/indirect-source'
+assert_source_token 1 '' '# source /etc/commented-source'
+assert_source_token 1 '' 'printf "%s" source'
 
 cat > "$root_directory/etc/profile" <<'EOF'
 umask 027

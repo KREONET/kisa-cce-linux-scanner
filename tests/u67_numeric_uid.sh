@@ -19,10 +19,10 @@ project_directory="$(CDPATH='' cd -P -- "$test_parent/.." && pwd)" || exit 2
 
 KISA_CCE_VERSION=0.1.0
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/checks_system.sh
-. "$project_directory/lib/checks_system.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-checks/_system.sh
+. "$project_directory/lib/kisa-cce-checks/_system.sh"
 
 assert_status() {
     local expected="$1"

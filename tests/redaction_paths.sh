@@ -24,8 +24,8 @@ esac
 project_directory="$(CDPATH='' cd -P -- "$test_parent/.." && pwd)" || exit 2
 
 export KISA_CCE_VERSION="test"
-# shellcheck source=../lib/core.sh disable=SC1091
-. "$project_directory/lib/core.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh disable=SC1091
+. "$project_directory/lib/kisa-cce-core/_core.sh"
 
 assert_redaction() {
     local expected="$1"

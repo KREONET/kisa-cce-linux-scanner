@@ -26,7 +26,9 @@ supported releases, lifecycle scope, and exclusions.
 - Shares full-filesystem traversals, batches metadata collection, and caches run-scoped path, command, systemd, procfs process, and listener facts to avoid repeated collection.
 - Supports source-tree execution and relocatable `DESTDIR` package staging.
 - Provides strict complete mode with typed policy facts, review-bound attestations, and validated runtime evidence bundles.
+- Provides all-or-nothing automation mode that publishes no report when a result remains unresolved or erroneous.
 - Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and normalized time-source state before an offline scan.
+- Includes `kisa-cce-policy-compile` for converting a restricted, dependency-free YAML authoring format into validated scanner TSV policy files.
 
 The criterion reference is published at [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).
 
@@ -77,6 +79,21 @@ sudo ./bin/kisa-cce-scan \
   --evidence-bundle /var/lib/kisa-cce-evidence/server-20260903T120000Z
 ```
 
+Use `--mode automation` with the same policy and runtime-evidence inputs when a machine consumer must receive only a complete set of `GOOD`, `VULNERABLE`, and `NOT_APPLICABLE` final statuses. A blocked automation run exits with status `2` and publishes no report.
+
+`make install` creates `/etc/kisa-cce-scanner/policy.d/00-default.tsv`. The file contains no criterion approval. Installed complete and automation runs use that directory when `--policy-dir` is omitted. Source-tree runs must pass the intended policy directory explicitly unless the installed default already exists. Add reviewed attestations and typed facts before expecting complete or automation mode to publish a report.
+
+Author policy in YAML, then compile it into a new policy generation:
+
+```bash
+install -d -m 0700 ./policy-build
+./bin/kisa-cce-policy-compile \
+  --input ./examples/policy.yml \
+  --output-dir ./policy-build/policy-20260904
+```
+
+The compiler accepts only the documented policy YAML subset and validates its output through the canonical TSV loader. Deploy the generated directory as root-owned configuration before using it for a privileged live scan. The scanner runtime continues to consume TSV and gains no YAML dependency.
+
 Explain one sysctl key without changing it:
 
 ```bash
@@ -95,7 +112,7 @@ See [Operator usage](docs/operators/usage.md) for privileges, options, reports, 
 | [Contributor guide](docs/developers/README.md) | Contributor workflow, review checklist, and macOS container matrix testing. |
 | [Packaging](docs/packaging/README.md) | `DESTDIR` layout and Debian/RPM integration. |
 
-The installed command manuals are available as `kisa-cce-scan(8)` and `kisa-cce-collect(8)`.
+The installed command manuals are available as `kisa-cce-scan(8)`, `kisa-cce-collect(8)`, and `kisa-cce-policy-compile(8)`.
 
 ## Installation staging
 
@@ -106,7 +123,7 @@ make install DESTDIR="$package_root" prefix=/usr
 "$package_root/usr/bin/kisa-cce-scan" --version
 ```
 
-With `prefix=/usr`, private Bash files are installed under `/usr/lib/kisa-cce-linux-scanner`, runtime data and PO catalogs under `/usr/share/kisa-cce-linux-scanner`, and the command manuals under `/usr/share/man/man8`. Repository Markdown is not installed by this target.
+With `prefix=/usr`, private Bash files are grouped by function under `/usr/lib/kisa-cce-linux-scanner/kisa-cce-*`; every private filename begins with `_`. Runtime data and PO catalogs are installed under `/usr/share/kisa-cce-linux-scanner`, and command manuals under `/usr/share/man/man8`. Repository Markdown is not installed by this target.
 
 ## Validation
 

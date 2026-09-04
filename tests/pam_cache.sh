@@ -68,10 +68,10 @@ capture_expansion() {
 mkdir -p -- "$ROOT_DIRECTORY/etc/pam.d" "$SCRATCH_DIR"
 KISA_CCE_VERSION="test"
 
-# shellcheck source=../lib/core.sh
-. "$PROJECT_DIRECTORY/lib/core.sh"
-# shellcheck source=../lib/resolvers.sh
-. "$PROJECT_DIRECTORY/lib/resolvers.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$PROJECT_DIRECTORY/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+. "$PROJECT_DIRECTORY/lib/kisa-cce-resolvers/_resolvers.sh"
 
 DEBUG=1
 exec {DEBUG_FD}> "$DEBUG_FILE" || fail "debug capture descriptor could not be opened"

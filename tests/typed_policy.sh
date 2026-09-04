@@ -26,8 +26,8 @@ case "${BASH_SOURCE[0]}" in
 esac
 project_directory="$(CDPATH='' cd -P -- "$test_parent/.." && pwd)" || exit 2
 
-# shellcheck source=../lib/policy.sh disable=SC1091
-. "$project_directory/lib/policy.sh"
+# shellcheck source=../lib/kisa-cce-policy/_policy.sh disable=SC1091
+. "$project_directory/lib/kisa-cce-policy/_policy.sh"
 
 write_attestation() {
     local directory="$1"

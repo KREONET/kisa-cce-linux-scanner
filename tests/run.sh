@@ -238,18 +238,20 @@ test_shell_syntax() (
     for file in "$PROJECT_DIR"/bin/*; do
         /bin/sh -n "$file" || fail "CLI wrapper syntax check failed: $file"
     done
-    for file in "$PROJECT_DIR"/lib/*.sh "$PROJECT_DIR"/tests/*.sh; do
+    while IFS= read -r -d '' file; do
         /bin/bash -n "$file" || fail "syntax check failed: $file"
-    done
+    done < <(find "$PROJECT_DIR/lib" "$PROJECT_DIR/tests" -type f -name '*.sh' -print0)
 )
 
 test_manpage_contract() (
     local manpage="$PROJECT_DIR/man/kisa-cce-scan.8"
     local collector_manpage="$PROJECT_DIR/man/kisa-cce-collect.8"
+    local compiler_manpage="$PROJECT_DIR/man/kisa-cce-policy-compile.8"
     local option=""
 
     [ -r "$manpage" ] || fail "manual page is missing"
     [ -r "$collector_manpage" ] || fail "collector manual page is missing"
+    [ -r "$compiler_manpage" ] || fail "policy compiler manual page is missing"
     for option in \
         '\-\-root' \
         '\-\-output-dir' \
@@ -272,10 +274,13 @@ test_manpage_contract() (
     grep -Fq -- '\-\-evidence-bundle' "$manpage" || fail "manual page is missing evidence bundle option"
     grep -Fq -- '\-\-policy-dir' "$manpage" || fail "manual page is missing policy directory option"
     grep -Fq -- '\-\-output-dir' "$collector_manpage" || fail "collector manual page is missing output option"
+    grep -Fq -- '\-\-input' "$compiler_manpage" || fail "policy compiler manual page is missing input option"
+    grep -Fq -- '\-\-output-dir' "$compiler_manpage" || fail "policy compiler manual page is missing output option"
 
     if command -v mandoc >/dev/null 2>&1; then
         mandoc -T lint "$manpage" >/dev/null || fail "manual page lint failed"
         mandoc -T lint "$collector_manpage" >/dev/null || fail "collector manual page lint failed"
+        mandoc -T lint "$compiler_manpage" >/dev/null || fail "policy compiler manual page lint failed"
     fi
 )
 
@@ -306,12 +311,12 @@ test_policy_and_evidence_contracts() (
     SELECTED_CHECKS=""
     VERBOSE=0
     SCRATCH_DIR="$scratch"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/policy.sh
-    . "$PROJECT_DIR/lib/policy.sh"
-    # shellcheck source=../lib/evidence.sh
-    . "$PROJECT_DIR/lib/evidence.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-policy/_policy.sh
+    . "$PROJECT_DIR/lib/kisa-cce-policy/_policy.sh"
+    # shellcheck source=../lib/kisa-cce-runtime/_evidence.sh
+    . "$PROJECT_DIR/lib/kisa-cce-runtime/_evidence.sh"
 
     validate_evidence_bundle "$bundle" "$root" || fail "valid evidence bundle was rejected: $EVIDENCE_VALIDATION_ERROR"
     EVIDENCE_BUNDLE_ACTIVE=1
@@ -432,8 +437,8 @@ test_platform_support_matrix() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
 
     while IFS='|' read -r platform_id platform_version platform_name platform_id_like ubuntu_codename expected_family expected_base_id expected_base_version; do
         case_number=$((case_number + 1))
@@ -547,14 +552,14 @@ test_pam_facility_scoping_and_platform_capabilities() (
     mkdir -p -- "$root/etc/pam.d" "$root/etc/security/pwquality.conf.d" "$root/lib64/security" "$root/usr/bin" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform rhel 8.10 "Red Hat Enterprise Linux 8.10"
     printf '%s\n' 'root:x:0:0:root:/root:/bin/bash' 'operator:x:1000:1000::/home/operator:/bin/bash' > "$root/etc/passwd"
@@ -736,14 +741,14 @@ test_time_and_sysctl_platform_adapters() (
     mkdir -p -- "$root/etc/bind" "$root/etc/chrony" "$root/etc/ntpsec/conf.d" "$root/etc/ntpsec/ntp.d" "$root/etc/sysctl.d" "$root/var/log/apt" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_system.sh
-    . "$PROJECT_DIR/lib/checks_system.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_system.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -887,6 +892,11 @@ test_time_and_sysctl_platform_adapters() (
     status=$?
     assert_equal 2 "$status" "mismatched systemd-sysctl path and argv"
 
+    trusted_command() { return 1; }
+    runtime_systemd_manager_state() { return 1; }
+    output="$(sysctl_loader_kind)" || fail "non-systemd manager without systemctl was rejected"
+    assert_equal no-system-manager "$output" "non-systemd sysctl loader state"
+
     {
         printf '%s\n' '#!/bin/sh'
         printf '%s\n' 'printf "*192.0.2.10 .GPS. 1 u 8 64 377 1.0 0.1 0.1\\n"'
@@ -935,8 +945,8 @@ test_core_report_counts_and_permissions() (
     RUNTIME_MODE="off"
     OUTPUT_PARENT="$output"
     SELECTED_CHECKS=""
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
 
     detect_platform || fail "supported platform was not detected"
     initialize_workspace
@@ -1054,8 +1064,8 @@ test_result_normalization_differential() (
     OUTPUT_PARENT="$result_directory"
     SELECTED_CHECKS=""
     VERBOSE=0
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
 
     legacy_normalize_utf8() {
         if [ -x /usr/bin/iconv ]; then
@@ -1399,8 +1409,8 @@ test_report_write_failures() (
     SCAN_ROOT="/"
     RUNTIME_MODE="off"
     VERBOSE=0
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
 
     REPORT_TEXT="$failure_directory"
     REPORT_JSONL="$json_file"
@@ -1462,8 +1472,8 @@ test_process_security_context() (
 
     SCAN_ROOT="$TEST_TEMP/offline-root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
     SCANNER_PROCESS_STATUS_FILE="$status_file"
     SCANNER_PROCESS_EUID_OVERRIDE=0
 
@@ -1511,8 +1521,8 @@ test_debug_event_encoding() (
     local index_value=0
     local line_count=""
 
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
     DEBUG=1
     exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
     DEBUG_OUTPUT_FD="$debug_fd"
@@ -1600,8 +1610,8 @@ test_trusted_command_scope_policy() (
     mkdir -p -- "$offline_root"
     SCAN_ROOT="/"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
 
     resolve_trusted_command_path() {
         resolver_calls=$((resolver_calls + 1))
@@ -1666,12 +1676,12 @@ test_path_scratch_and_listener_cache_semantics() (
 
     SCAN_ROOT="$root_a"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
 
     canonical_directory_into "$root_a/etc/.." logical_path || fail "canonical directory output failed"
@@ -1889,8 +1899,8 @@ test_existing_output_directory_is_not_mutated() (
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
     OUTPUT_PARENT="$output"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
     if (initialize_workspace >/dev/null 2>&1); then
         fail "insecure existing output directory was accepted"
     fi
@@ -1946,10 +1956,10 @@ test_sysctl_layering_masks_and_drift() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
     SCRATCH_DIR="$TEST_TEMP/sysctl-scratch"
 
     actual="$(sysctl_static_value net.ipv4.ip_forward)" || fail "dotted sysctl key was unresolved"
@@ -2019,6 +2029,13 @@ test_sysctl_layering_masks_and_drift() (
     explanation="$(sysctl_explain net.ipv4.ip_forward)"
     assert_contains "$explanation" "drift=none" "matching runtime value"
 
+    sysctl_loader_kind() { printf '%s\n' no-system-manager; }
+    explanation="$(sysctl_explain net.ipv4.ip_forward)" || fail "non-systemd sysctl explanation failed"
+    assert_contains "$explanation" "loader=no-system-manager" "non-systemd loader explanation"
+    assert_contains "$explanation" "persistent=unconfigured" "non-systemd persistent state"
+    assert_contains "$explanation" "runtime=2" "non-systemd runtime value"
+    sysctl_loader_kind() { printf '%s\n' systemd-sysctl; }
+
     mkdir -p -- "$root/run/credentials/@system"
     printf '%s\n' 'net.ipv4.ip_forward=2' > "$root/run/credentials/@system/sysctl.extra"
     if sysctl_explain net.ipv4.ip_forward >/dev/null 2>&1; then
@@ -2057,10 +2074,10 @@ test_offline_absolute_symlinks_stay_inside_scan_root() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
     SCRATCH_DIR="$scratch"
 
     expanded="$(pam_expand_service system-auth auth)" || fail "rooted PAM absolute symlink was not resolved"
@@ -2099,12 +2116,12 @@ test_layered_consumer_errors_and_symlink_escape() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
 
     set_test_platform rhel 10.2 "Red Hat Enterprise Linux 10.2"
@@ -2160,10 +2177,10 @@ test_layered_directory_symlink_escape() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
     SCRATCH_DIR="$scratch"
 
     select_layered_files .conf /etc/ssh/sshd_config.d >/dev/null 2>&1
@@ -2233,17 +2250,24 @@ test_cli_platform_selection_and_reports() (
     local header_root="$TEST_TEMP/header-control-root"
     local header_output="$TEST_TEMP/header-control-output"
 
-    mkdir -p -- "$scanner_copy/bin" "$scanner_copy/lib" "$scanner_copy/data" \
+    mkdir -p -- "$scanner_copy/bin" \
+        "$scanner_copy/lib/kisa-cce-checks" \
+        "$scanner_copy/lib/kisa-cce-cli" \
+        "$scanner_copy/lib/kisa-cce-core" \
+        "$scanner_copy/lib/kisa-cce-policy" \
+        "$scanner_copy/lib/kisa-cce-resolvers" \
+        "$scanner_copy/lib/kisa-cce-runtime" \
+        "$scanner_copy/data" \
         "$scanner_copy/share/kisa-cce-linux-scanner/locale"
     cp -- "$PROJECT_DIR/bin/kisa-cce-scan" "$scanner_copy/bin/kisa-cce-scan"
-    cp -- "$PROJECT_DIR/lib/core.sh" "$scanner_copy/lib/core.sh"
-    cp -- "$PROJECT_DIR/lib/evidence.sh" "$scanner_copy/lib/evidence.sh"
-    cp -- "$PROJECT_DIR/lib/i18n.sh" "$scanner_copy/lib/i18n.sh"
-    cp -- "$PROJECT_DIR/lib/kisa-cce-scan-main.sh" "$scanner_copy/lib/kisa-cce-scan-main.sh"
-    cp -- "$PROJECT_DIR/lib/policy.sh" "$scanner_copy/lib/policy.sh"
-    cp -- "$PROJECT_DIR/lib/runtime_fallback.sh" "$scanner_copy/lib/runtime_fallback.sh"
-    cp -- "$PROJECT_DIR/lib/scan_epoch.sh" "$scanner_copy/lib/scan_epoch.sh"
-    cp -- "$PROJECT_DIR/lib/resolvers.sh" "$scanner_copy/lib/resolvers.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-core/_core.sh" "$scanner_copy/lib/kisa-cce-core/_core.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-runtime/_evidence.sh" "$scanner_copy/lib/kisa-cce-runtime/_evidence.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-core/_i18n.sh" "$scanner_copy/lib/kisa-cce-core/_i18n.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-cli/_scan-main.sh" "$scanner_copy/lib/kisa-cce-cli/_scan-main.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-policy/_policy.sh" "$scanner_copy/lib/kisa-cce-policy/_policy.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-runtime/_runtime-fallback.sh" "$scanner_copy/lib/kisa-cce-runtime/_runtime-fallback.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-core/_scan-epoch.sh" "$scanner_copy/lib/kisa-cce-core/_scan-epoch.sh"
+    cp -- "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh" "$scanner_copy/lib/kisa-cce-resolvers/_resolvers.sh"
     cp -- "$PROJECT_DIR/data/criteria.tsv" "$scanner_copy/data/criteria.tsv"
     cp -- "$PROJECT_DIR/data/VERSION" "$scanner_copy/data/VERSION"
     cp -R -- "$PROJECT_DIR/share/kisa-cce-linux-scanner/locale/en" \
@@ -2252,7 +2276,7 @@ test_cli_platform_selection_and_reports() (
     {
         printf '%s\n' '#!/bin/bash'
         printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "fixture=true password=debug-evidence-secret-7b31e1"; }'
-    } > "$scanner_copy/lib/checks_fixture.sh"
+    } > "$scanner_copy/lib/kisa-cce-checks/_fixture.sh"
     chmod 0755 -- "$scanner_copy/bin/kisa-cce-scan"
 
     write_os_release "$supported_root" ubuntu 26.04 "Ubuntu 26.04 LTS"
@@ -2652,13 +2676,15 @@ test_installed_layouts() (
         {
             printf '%s\n' '#!/bin/bash'
             printf '%s\n' 'check_u_01() { set_result GOOD "SSH의 root 직접 접속이 차단되어 있습니다." "layout=true"; }'
-        } > "$private_library_path/checks_fixture.sh"
+        } > "$private_library_path/kisa-cce-checks/_fixture.sh"
 
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-scan")" \
             "$layout_name installed command mode"
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-collect")" \
             "$layout_name installed collector mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-scan-main.sh")" \
+        assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-policy-compile")" \
+            "$layout_name installed policy compiler mode"
+        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-cli/_scan-main.sh")" \
             "$layout_name private main mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/criteria.tsv")" \
             "$layout_name criterion data mode"
@@ -2670,6 +2696,8 @@ test_installed_layouts() (
             "$layout_name installed manual page mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-collect.8")" \
             "$layout_name installed collector manual mode"
+        assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-policy-compile.8")" \
+            "$layout_name installed policy compiler manual mode"
         [ ! -e "$installed_prefix/share/doc/kisa-cce-linux-scanner" ] ||
             fail "$layout_name install unexpectedly copied repository documentation"
         command_output="$(CDPATH='' cd -P -- "$TEST_TEMP" &&
@@ -2683,6 +2711,11 @@ test_installed_layouts() (
         assert_contains "$command_output" \
             "kisa-cce-collect: kisa-cce-collect evidence-schema-2" \
             "$layout_name installed collector version"
+        command_output="$("$installed_prefix/bin/kisa-cce-policy-compile" --version 2>&1)" ||
+            fail "$layout_name installed policy compiler version command failed"
+        assert_contains "$command_output" \
+            "kisa-cce-policy-compile: kisa-cce-policy-compile $(sed -n '1p' "$PROJECT_DIR/data/VERSION") policy-yaml-schema=1" \
+            "$layout_name installed policy compiler version"
         command_status=0
         command_output="$("$installed_prefix/bin/kisa-cce-collect" \
             --output-dir $'relative\nforged-line' 2>&1)" || command_status=$?
@@ -2950,12 +2983,12 @@ test_conservative_account_regressions() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
 
@@ -3082,6 +3115,15 @@ test_conservative_account_regressions() (
         fi
     done
 
+    trusted_command() { return 1; }
+    scanner_authselect_command_exists() { return 1; }
+    scanner_authselect_configuration_valid || fail "absent optional authselect command was rejected"
+    assert_equal 1 "$SCANNER_AUTHSELECT_UNMANAGED" "absent authselect unmanaged state"
+    scanner_authselect_command_exists() { return 0; }
+    if scanner_authselect_configuration_valid; then
+        fail "present but untrusted authselect command was accepted"
+    fi
+
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
     runtime_enabled() { return 1; }
 
@@ -3102,12 +3144,12 @@ test_conservative_service_regressions() (
         "$root/usr/sbin" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
 
@@ -3199,12 +3241,12 @@ test_chrony_peer_and_empty_log_handling() (
 
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_system.sh
-    . "$PROJECT_DIR/lib/checks_system.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_system.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
 
@@ -3255,12 +3297,12 @@ test_u02_rhel_dual_password_stacks() (
     mkdir -p -- "$root/etc/pam.d" "$root/etc/security" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform rhel 10.2 "Red Hat Enterprise Linux 10.2"
 
@@ -3375,12 +3417,12 @@ test_kisa_account_platform_goldens() (
         "$root/usr/lib64/security" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
 
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
@@ -3587,12 +3629,12 @@ test_kisa_service_platform_goldens() (
     mkdir -p -- "$root/etc/snmp" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
 
     runtime_enabled() { return 1; }
@@ -3691,12 +3733,12 @@ test_enterprise_service_variant_goldens() (
         "$wants_directory" "$root/usr/lib/systemd/system" "$root/etc/snmp" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform rhel 8.10 "Red Hat Enterprise Linux 8.10"
     printf '%s\n' 'options { listen-on port 53 { 127.0.0.1; }; };' > "$root/etc/named.conf"
@@ -3741,12 +3783,12 @@ test_bind_stock_environment_goldens() (
     mkdir -p -- "$root/etc/bind" "$root/etc/default" "$root/etc/sysconfig" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="on"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
 
     {
@@ -3811,12 +3853,12 @@ test_debian_tftp_activation_goldens() (
         "$root/etc/init.d" "$root/etc/rc2.d" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -3867,12 +3909,12 @@ test_service_false_positive_goldens() (
         "$service_wants" "$root/usr/lib/systemd/system" "$root/etc/xinetd.d" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -3933,12 +3975,12 @@ test_ufw_sysctl_and_firewall_goldens() (
         "$root/usr/lib/systemd/system" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform ubuntu 26.04 "Ubuntu 26.04 LTS"
 
@@ -4015,12 +4057,12 @@ test_u28_backend_goldens() (
     mkdir -p -- "$scratch"
     SCAN_ROOT="$wrapper_root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
 
     enable_u28_unit() {
@@ -4438,12 +4480,12 @@ test_kisa_time_provider_goldens() (
     mkdir -p -- "$root/etc/chrony" "$root/etc/ntpsec" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="on"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_system.sh
-    . "$PROJECT_DIR/lib/checks_system.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_system.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
     SCRATCH_DIR="$scratch"
 
     runtime_enabled() { return 0; }
@@ -4530,12 +4572,12 @@ test_timesyncd_runtime_goldens() (
     mkdir -p -- "$root/etc/systemd" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="on"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_system.sh
-    . "$PROJECT_DIR/lib/checks_system.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_system.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -4590,14 +4632,14 @@ test_u30_effective_umask_platform_goldens() (
     mkdir -p -- "$root" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
-    # shellcheck source=../lib/checks_service.sh
-    . "$PROJECT_DIR/lib/checks_service.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_service.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
     SCRATCH_DIR="$scratch"
 
     service_detect_ftp() {
@@ -4910,12 +4952,12 @@ test_account_u04_u19_false_conclusive_paths() (
         "$root/customroot" "$root/lib/security" "$scratch"
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -5107,8 +5149,8 @@ test_account_u04_u19_false_conclusive_paths() (
 
     ln -s -- missing.service "$startup_root/usr/lib/systemd/system/dangling.service"
     check_u_17
-    assert_equal ERROR "$RESULT_STATUS" "U-17 preserves dangling startup alias errors"
-    assert_contains "$RESULT_EVIDENCE" "metadata_errors=1" "U-17 dangling startup alias count"
+    assert_equal MANUAL "$RESULT_STATUS" "U-17 live dangling startup alias review"
+    assert_contains "$RESULT_EVIDENCE" "dangling_aliases=1" "U-17 dangling startup alias count"
 )
 
 test_account_u20_u33_false_conclusive_paths() (
@@ -5126,14 +5168,14 @@ test_account_u20_u33_false_conclusive_paths() (
         mkdir -p -- "$scan_root" "$scratch"
         SCAN_ROOT="$scan_root"
         RUNTIME_MODE="off"
-        # shellcheck source=../lib/core.sh
-        . "$PROJECT_DIR/lib/core.sh"
-        # shellcheck source=../lib/resolvers.sh
-        . "$PROJECT_DIR/lib/resolvers.sh"
-        # shellcheck source=../lib/checks_account_file.sh
-        . "$PROJECT_DIR/lib/checks_account_file.sh"
-        # shellcheck source=../lib/checks_service.sh
-        . "$PROJECT_DIR/lib/checks_service.sh"
+        # shellcheck source=../lib/kisa-cce-core/_core.sh
+        . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+        # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+        . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_service.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
         SCRATCH_DIR="$scratch"
         set_test_platform debian 13 "Debian GNU/Linux 13"
     }
@@ -5385,12 +5427,12 @@ test_shared_full_filesystem_collector() (
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
     SELECTED_CHECKS=""
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
     : > "$find_count_file"
@@ -5626,12 +5668,12 @@ test_shared_collector_excludes_workspace() (
     SCAN_ROOT="/"
     RUNTIME_MODE="auto"
     SELECTED_CHECKS="U-33"
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_account_file.sh
-    . "$PROJECT_DIR/lib/checks_account_file.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
     SCRATCH_DIR="$scratch"
     REPORT_TEXT="$root/.current-report.txt"
     REPORT_JSONL="$root/.current-report.jsonl"
@@ -5667,16 +5709,16 @@ test_remaining_criterion_goldens() (
         SCAN_ROOT="$1"
         RUNTIME_MODE="off"
         SELECTED_CHECKS=""
-        # shellcheck source=../lib/core.sh
-        . "$PROJECT_DIR/lib/core.sh"
-        # shellcheck source=../lib/resolvers.sh
-        . "$PROJECT_DIR/lib/resolvers.sh"
-        # shellcheck source=../lib/checks_account_file.sh
-        . "$PROJECT_DIR/lib/checks_account_file.sh"
-        # shellcheck source=../lib/checks_service.sh
-        . "$PROJECT_DIR/lib/checks_service.sh"
-        # shellcheck source=../lib/checks_system.sh
-        . "$PROJECT_DIR/lib/checks_system.sh"
+        # shellcheck source=../lib/kisa-cce-core/_core.sh
+        . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+        # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+        . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_account-file.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_account-file.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_service.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_service.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_system.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
         SCRATCH_DIR="$2"
         set_test_platform debian 13 "Debian GNU/Linux 13"
     }
@@ -5878,6 +5920,16 @@ test_remaining_criterion_goldens() (
         service_detect_dns() { return 1; }
         check_u_62
         assert_equal GOOD "$RESULT_STATUS" "U-62 configured local warning surfaces"
+
+        printf '%s\n' 'Ubuntu 26.04 LTS \\n \\l' > "$root/etc/issue"
+        printf '%s\n' 'Debian GNU/Linux 13' > "$root/etc/motd"
+        check_u_62
+        assert_equal VULNERABLE "$RESULT_STATUS" "U-62 product-only local banners are not warnings"
+
+        printf '%s\n' 'Organization portal' > "$root/etc/issue"
+        printf '%s\n' 'Welcome' > "$root/etc/motd"
+        check_u_62
+        assert_equal MANUAL "$RESULT_STATUS" "U-62 unrecognized local banner wording remains unresolved"
 
         check_u_66
         assert_equal MANUAL "$RESULT_STATUS" "U-66 offline logging policy review"
@@ -6290,12 +6342,12 @@ test_u67_single_pass_inventory() (
     SCAN_ROOT="$root"
     RUNTIME_MODE="off"
     SELECTED_CHECKS=""
-    # shellcheck source=../lib/core.sh
-    . "$PROJECT_DIR/lib/core.sh"
-    # shellcheck source=../lib/resolvers.sh
-    . "$PROJECT_DIR/lib/resolvers.sh"
-    # shellcheck source=../lib/checks_system.sh
-    . "$PROJECT_DIR/lib/checks_system.sh"
+    # shellcheck source=../lib/kisa-cce-core/_core.sh
+    . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    # shellcheck source=../lib/kisa-cce-checks/_system.sh
+    . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
     SCRATCH_DIR="$scratch"
     set_test_platform debian 13 "Debian GNU/Linux 13"
 
@@ -6337,12 +6389,12 @@ test_u67_single_pass_inventory() (
         SCAN_ROOT="/"
         RUNTIME_MODE="off"
         SELECTED_CHECKS=""
-        # shellcheck source=../lib/core.sh
-        . "$PROJECT_DIR/lib/core.sh"
-        # shellcheck source=../lib/resolvers.sh
-        . "$PROJECT_DIR/lib/resolvers.sh"
-        # shellcheck source=../lib/checks_system.sh
-        . "$PROJECT_DIR/lib/checks_system.sh"
+        # shellcheck source=../lib/kisa-cce-core/_core.sh
+        . "$PROJECT_DIR/lib/kisa-cce-core/_core.sh"
+        # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+        . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+        # shellcheck source=../lib/kisa-cce-checks/_system.sh
+        . "$PROJECT_DIR/lib/kisa-cce-checks/_system.sh"
         SCRATCH_DIR="$live_scratch"
         set_test_platform debian 13 "Debian GNU/Linux 13"
         printf '%s\n' '#!/bin/sh' "printf '%s\\n' '/var/log/encoded\\040mount ext4'" > "$live_findmnt_fixture"

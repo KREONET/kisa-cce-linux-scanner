@@ -122,7 +122,7 @@ A mismatch, altered checksum, unsupported schema, unsafe path, missing identity,
 
 ## Library interface
 
-Source `lib/evidence.sh` from the scanner process, then validate before reading global paths:
+Source `lib/kisa-cce-runtime/_evidence.sh` from the scanner process, then validate before reading global paths:
 
 ```bash
 if ! validate_evidence_bundle "$EVIDENCE_BUNDLE_OPTION" "$SCAN_ROOT"; then

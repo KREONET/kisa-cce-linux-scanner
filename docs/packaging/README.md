@@ -8,12 +8,22 @@ The source tree exposes one relocatable install interface for Debian-family and 
 |---|---|---:|
 | `/usr/bin/kisa-cce-scan` | User-facing command | `0755` |
 | `/usr/bin/kisa-cce-collect` | Live runtime evidence collector | `0755` |
-| `/usr/lib/kisa-cce-linux-scanner/*.sh` | Private Bash scanner and sourced modules | `0644` |
+| `/usr/bin/kisa-cce-policy-compile` | Restricted YAML-to-TSV policy compiler | `0755` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-checks/_*.sh` | Criterion implementations | `0644` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-cli/_*.sh` | Private CLI entry points | `0644` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-core/_*.sh` | Core, localization, and scan-epoch modules | `0644` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-policy/_*.sh` | Policy loader and YAML compiler modules | `0644` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-resolvers/_*.sh` | Configuration resolvers | `0644` |
+| `/usr/lib/kisa-cce-linux-scanner/kisa-cce-runtime/_*.sh` | Runtime and evidence modules | `0644` |
 | `/usr/share/kisa-cce-linux-scanner/criteria.tsv` | Criterion catalog | `0644` |
 | `/usr/share/kisa-cce-linux-scanner/VERSION` | Runtime version | `0644` |
 | `/usr/share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po` | Korean and English report catalogs | `0644` |
 | `/usr/share/man/man8/kisa-cce-scan.8` | System administration manual | `0644` |
 | `/usr/share/man/man8/kisa-cce-collect.8` | Evidence collector manual | `0644` |
+| `/usr/share/man/man8/kisa-cce-policy-compile.8` | Policy compiler manual | `0644` |
+| `/etc/kisa-cce-scanner/policy.d/00-default.tsv` | Header-only criterion attestation configuration | `0600` |
+
+The policy directory uses mode `0700`. `make install` does not replace the policy file when it already exists or is a symbolic link. Debian packages should declare the file as a conffile through their normal packaging workflow. RPM packages should install it with the appropriate no-replace configuration attribute. The shipped file contains no approval decision; package installation must not synthesize site policy. Typed fact files are not installed because even a header-only fact set can carry a non-neutral closed-set meaning.
 
 The project deliberately uses the requested cross-distribution path `/usr/lib/kisa-cce-linux-scanner`. Debian permits this location, although its policy recommends `/usr/share` when a directory is entirely architecture-independent. An RPM spec must not substitute `%{_libdir}`, because that macro can select `/usr/lib64`; use the exact noarch private path instead. The launcher also supports `/usr/libexec/kisa-cce-linux-scanner` as an RPM packaging override:
 
@@ -60,7 +70,8 @@ BuildArch: noarch
     bindir=%{_bindir} \
     pkglibdir=%{_prefix}/lib/kisa-cce-linux-scanner \
     datadir=%{_datadir}/kisa-cce-linux-scanner \
-    mandir=%{_mandir}
+    mandir=%{_mandir} \
+    sysconfdir=%{_sysconfdir}
 ```
 
 List the installed files explicitly under `%files`. Use RPM path macros where they preserve the intended noarch layout; keep `%{_prefix}/lib/kisa-cce-linux-scanner` explicit so the package does not move between `/usr/lib` and `/usr/lib64` across architectures.

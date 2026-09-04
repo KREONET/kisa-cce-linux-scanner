@@ -6,7 +6,7 @@ Policy attestations record decisions that require an authorized organizational r
 
 An attestation applies only when its criterion code and `review_id` match the current review basis and its expiration date has not passed. A typed fact applies only when its type-specific identity matches the current observation and its expiration date has not passed.
 
-The loader is implemented as a Bash 4.3 or newer source module in `lib/policy.sh`. It parses policy files as data and never evaluates their contents as shell code.
+The loader is implemented as a Bash 4.3 or newer source module in `lib/kisa-cce-policy/_policy.sh`. It parses policy files as data and never evaluates their contents as shell code.
 
 ## Directory contract
 
@@ -16,6 +16,61 @@ The loader is implemented as a Bash 4.3 or newer source module in `lib/policy.sh
 - The optional `PATH/facts/time-sources.tsv` file contains approved time-source facts. When `facts` exists, it may contain only this file. Unknown, hidden, or nested entries are rejected so that a misspelled or unsupported fact file is not silently ignored.
 
 A directory with no matching attestation files and no `facts/time-sources.tsv` file is valid. An existing `facts` directory without the time-source file is also valid and means that no typed time-source fact set was supplied.
+
+## Shipped default directory
+
+The source tree provides `etc/kisa-cce-scanner/policy.d/00-default.tsv`. `make install` creates the following default configuration without replacing an existing file:
+
+```text
+/etc/kisa-cce-scanner/policy.d/00-default.tsv
+```
+
+Complete and automation modes select this installed directory when `--policy-dir` is omitted and the directory exists. An explicit `--policy-dir` always takes precedence. Source-tree execution does not implicitly trust the repository copy because a root scanner commonly reads a checkout owned by a non-root developer. If the installed directory is absent, the mode rejects the invocation as missing policy input.
+
+`00-default.tsv` contains only the attestation header, so it approves no criterion result. The default does not create `facts/time-sources.tsv`: a header-only typed-fact file would be an explicit empty allowlist and would therefore change U-65 rather than act as a neutral template. The shipped file provides a safe policy structure but does not manufacture organization-specific decisions or turn unresolved evidence into `GOOD`.
+
+The installed directory uses mode `0700`, and the file uses mode `0600`. Distribution packages should preserve administrator changes by treating this path as a configuration file, using the native conffile or no-replace mechanism.
+
+## YAML authoring and compilation
+
+`kisa-cce-policy-compile` converts a policy-specific YAML subset into a new TSV policy directory. YAML is an authoring format only; `kisa-cce-scan` continues to read the canonical TSV schemas described below.
+
+```bash
+sudo install -m 0600 ./policy.yml /etc/kisa-cce-scanner/policy.yml
+sudo kisa-cce-policy-compile \
+  --input /etc/kisa-cce-scanner/policy.yml \
+  --output-dir /etc/kisa-cce-scanner/policy-20260904
+```
+
+The output directory must not exist. The compiler stages files under the same trusted parent, validates the generated directory with `policy_load_dir`, and publishes it using a no-replace rename. It creates `50-compiled.tsv` and creates `facts/time-sources.tsv` only when `time_sources` appears in the YAML document. Generated directories use mode `0700`; generated files use mode `0600`.
+
+The complete authoring shape is:
+
+```yaml
+schema_version: 1
+attestations:
+  - code: U-64
+    decision: GOOD
+    review_id: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    ticket: SEC-2026-0142
+    approver: security-governance
+    expires: 2026-12-31
+time_sources:
+  - provider: chrony
+    host: time1.example.net
+    address: 192.0.2.10
+    ticket: TIME-2026-001
+    approver: time-owners
+    expires: 2026-12-31
+```
+
+`schema_version: 1` must precede the policy sections. `attestations` is required and may be `[]`. `time_sources` is optional; omission means no typed fact set, while `time_sources: []` deliberately creates an explicit empty allowlist. Mapping field order is unrestricted, but every required field must occur exactly once.
+
+The parser accepts blank lines, full-line comments, block lists, plain scalars, and restricted single- or double-quoted scalars. List markers use exactly two spaces; continuation fields use exactly four. Double quotes support only `\"` and `\\`; single quotes use `''` for one literal quote. Ambiguous plain scalars must be quoted.
+
+It rejects ASCII and Unicode C1 control characters, malformed UTF-8, tabs, carriage returns, anchors, aliases, tags, merge keys, flow collections, block scalars, multiple documents, unknown keys, duplicate keys, invalid indentation, and inline comments in plain scalars. The input is never sourced or evaluated. The existing policy loader performs the final criterion, review ID, date, provider, address, duplicate, and digest validation.
+
+The maintained neutral template is [`examples/policy.yml`](../../examples/policy.yml).
 
 The policy directory, the optional `facts` directory, and every consumed file must meet all of these requirements:
 

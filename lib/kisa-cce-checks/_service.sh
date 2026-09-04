@@ -771,25 +771,39 @@ service_named_process_state() {
     local process_name=""
     local pgrep_path=""
     local command_status=1
+    local procfs_status=2
+    local procfs_queried=0
 
     SERVICE_NAMED_PROCESS_EVIDENCE=""
     runtime_enabled || {
         SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=runtime_disabled\n"
         return 2
     }
+    for process_name in "$@"; do
+        case "$process_name" in ''|*[!A-Za-z0-9._@:+-]*) return 2 ;; esac
+    done
+    if declare -F runtime_process_state >/dev/null 2>&1; then
+        procfs_queried=1
+        runtime_process_state "$@"
+        procfs_status=$?
+        case "$procfs_status" in
+            0)
+                SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=true\n"
+                return 0
+                ;;
+            1)
+                SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=false\n"
+                return 1
+                ;;
+        esac
+    fi
     pgrep_path="$(trusted_command pgrep 2>/dev/null || true)"
     [ -n "$pgrep_path" ] || {
-        if declare -F runtime_process_state >/dev/null 2>&1; then
-            runtime_process_state "$@"
-            command_status=$?
-            case "$command_status" in
-                0) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=true\n" ;;
-                1) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,matched=false\n" ;;
-                *) SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs,error=true\n" ;;
-            esac
-            return "$command_status"
+        if [ "$procfs_queried" -eq 1 ]; then
+            SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs_incomplete,pgrep=unavailable\n"
+        else
+            SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=unavailable\n"
         fi
-        SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=unavailable\n"
         return 2
     }
     for process_name in "$@"; do
@@ -803,6 +817,10 @@ service_named_process_state() {
             return 2
         fi
     done
+    if [ "$procfs_queried" -eq 1 ] && [ "$procfs_status" -ne 0 ] && [ "$procfs_status" -ne 1 ]; then
+        SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=procfs_incomplete,pgrep_matched=false\n"
+        return 2
+    fi
     SERVICE_NAMED_PROCESS_EVIDENCE="process_probe=inactive\n"
     return 1
 }
@@ -1998,13 +2016,32 @@ service_detect_snmp() {
 
 service_warning_file_state() {
     local physical_path="$1"
+    local grep_status=0
 
+    [ -f "$physical_path" ] && [ -r "$physical_path" ] || return 2
     [ -s "$physical_path" ] || return 1
-    if grep -Eiq \
+    grep -Eiq \
         'authori[sz]ed|unauthori[sz]ed|prohibit|monitor|security notice|warning|인가|비인가|금지|모니터링|보안|경고|접근' \
-        "$physical_path" 2>/dev/null; then
-        return 0
-    fi
+        "$physical_path" 2>/dev/null || grep_status=$?
+    [ "$grep_status" -ne 0 ] || return 0
+    [ "$grep_status" -ne 2 ] || return 2
+    grep_status=0
+    grep -Eiq \
+        '(^|[^[:alpha:]])(vsftpd|proftpd|pure-ftpd|debian|ubuntu|rhel|red[[:space:]]+hat|almalinux|rocky|oracle[[:space:]]+linux|centos|linux[[:space:]]+mint|pop!?_?os|zorin|elementary|kde[[:space:]]+neon|version|hostname|kernel)([^[:alpha:]]|$)' \
+        "$physical_path" 2>/dev/null || grep_status=$?
+    [ "$grep_status" -ne 0 ] || return 1
+    [ "$grep_status" -ne 2 ] || return 2
+    return 2
+}
+
+service_login_warning_value_state() {
+    local value="$1"
+    local state=0
+
+    service_banner_value_state "$value" || state=$?
+    [ "$state" -ne 0 ] || return 0
+    [ "$state" -ne 1 ] || return 1
+    service_banner_discloses_identity "$value" && return 1
     return 2
 }
 
@@ -4095,30 +4132,35 @@ EOF
 service_warning_collection_state() {
     local logical_path=""
     local physical_path=""
-    local saw_content=0
+    local state=0
+    local unresolved_content=0
 
     for logical_path in "$@"; do
         physical_path="$(fs_path "$logical_path")"
         if [ -f "$physical_path" ]; then
-            if service_warning_file_state "$physical_path"; then
-                return 0
-            elif [ -s "$physical_path" ]; then
-                saw_content=1
-            fi
+            state=0
+            service_warning_file_state "$physical_path" || state=$?
+            case "$state" in
+                0) return 0 ;;
+                1) ;;
+                *) unresolved_content=1 ;;
+            esac
         elif [ -d "$physical_path" ]; then
             while IFS= read -r physical_path; do
-                if service_warning_file_state "$physical_path"; then
-                    return 0
-                elif [ -s "$physical_path" ]; then
-                    saw_content=1
-                fi
+                state=0
+                service_warning_file_state "$physical_path" || state=$?
+                case "$state" in
+                    0) return 0 ;;
+                    1) ;;
+                    *) unresolved_content=1 ;;
+                esac
             done <<EOF
 $(find -P "$physical_path" -maxdepth 1 -type f -print 2>/dev/null | LC_ALL=C sort)
 EOF
         fi
     done
 
-    [ "$saw_content" -eq 1 ] && return 2
+    [ "$unresolved_content" -eq 1 ] && return 2
     return 1
 }
 
@@ -4270,7 +4312,7 @@ check_u_62() {
                 elif [ "$banner_status" -eq 2 ]; then
                     unresolved_count=$((unresolved_count + 1))
                 else
-                    service_banner_value_state "$banner_value"
+                    service_login_warning_value_state "$banner_value"
                     state=$?
                     [ "$state" -eq 1 ] && missing_count=$((missing_count + 1))
                     [ "$state" -eq 2 ] && unresolved_count=$((unresolved_count + 1))
@@ -4311,7 +4353,7 @@ check_u_62() {
                 ;;
             *) banner_value="" ;;
         esac
-        service_banner_value_state "$banner_value"
+        service_login_warning_value_state "$banner_value"
         state=$?
         [ "$state" -eq 1 ] && missing_count=$((missing_count + 1))
         [ "$state" -eq 2 ] && unresolved_count=$((unresolved_count + 1))
@@ -4339,7 +4381,7 @@ check_u_62() {
                 }
                 END {if (last != "") print last}
             ' "$bind_configuration")"
-            service_banner_value_state "$bind_version"
+            service_login_warning_value_state "$bind_version"
             state=$?
             [ "$state" -eq 1 ] && missing_count=$((missing_count + 1))
             [ "$state" -eq 2 ] && unresolved_count=$((unresolved_count + 1))

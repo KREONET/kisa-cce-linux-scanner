@@ -4,7 +4,7 @@
 
 # Verifies conclusive procfs runtime fallback on a non-systemd Linux root.
 
-# shellcheck disable=SC1091,SC2034
+# shellcheck disable=SC1090,SC1091,SC2034
 
 set -u
 
@@ -31,6 +31,8 @@ root_directory="$test_directory/root"
 proc_root="$test_directory/proc"
 run_root="$test_directory/run"
 scratch_directory="$test_directory/scratch"
+pgrep_count_file="$test_directory/pgrep-count"
+pgrep_command="$test_directory/pgrep"
 trap 'rm -rf -- "$test_directory"' EXIT
 
 mkdir -p -- "$root_directory/etc" "$root_directory/var/log" \
@@ -44,6 +46,15 @@ for table_name in tcp tcp6 udp udp6; do
 done
 printf '%s\n' 'root:x:0:0:root:/root:/bin/bash' > "$root_directory/etc/passwd"
 printf '%s\n' 'root:x:0:' > "$root_directory/etc/group"
+printf '0\n' > "$pgrep_count_file"
+cat > "$pgrep_command" <<EOF
+#!/bin/sh
+count=0
+IFS= read -r count < "$pgrep_count_file" || exit 90
+printf '%s\n' "\$((count + 1))" > "$pgrep_count_file" || exit 90
+exit 1
+EOF
+chmod 0755 "$pgrep_command"
 
 KISA_CCE_VERSION="test"
 SCAN_ROOT="$root_directory"
@@ -61,13 +72,13 @@ RUNTIME_FALLBACK_PROC_ROOT="$proc_root"
 RUNTIME_FALLBACK_RUN_ROOT="$run_root"
 RUNTIME_FALLBACK_FIND_COMMAND="$(command -v find)"
 
-. "$project_directory/lib/core.sh"
-. "$project_directory/lib/scan_epoch.sh"
-. "$project_directory/lib/runtime_fallback.sh"
-. "$project_directory/lib/resolvers.sh"
-. "$project_directory/lib/checks_account_file.sh"
-. "$project_directory/lib/checks_service.sh"
-. "$project_directory/lib/checks_system.sh"
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+. "$project_directory/lib/kisa-cce-core/_scan-epoch.sh"
+. "$project_directory/lib/kisa-cce-runtime/_runtime-fallback.sh"
+. "$project_directory/lib/kisa-cce-resolvers/_resolvers.sh"
+. "$project_directory/lib/kisa-cce-checks/_account-file.sh"
+. "$project_directory/lib/kisa-cce-checks/_service.sh"
+. "$project_directory/lib/kisa-cce-checks/_system.sh"
 
 PLATFORM_ID=ubuntu
 PLATFORM_VERSION=26.04
@@ -76,7 +87,13 @@ PLATFORM_BASE_ID=ubuntu
 PLATFORM_BASE_VERSION=26.04
 runtime_enabled() { return 0; }
 runtime_snapshot_available() { return 0; }
-trusted_command() { return 127; }
+trusted_command() {
+    if [ "$1" = pgrep ]; then
+        printf '%s\n' "$pgrep_command"
+        return 0
+    fi
+    return 127
+}
 scanner_u28_tcp_wrapper_probe() { SCANNER_U28_PROBE_EVIDENCE=wrapper_policy=absent; return 1; }
 scanner_u28_ufw_probe() { SCANNER_U28_PROBE_EVIDENCE=ufw_state=inactive; return 1; }
 scanner_u28_nftables_probe() { SCANNER_U28_PROBE_EVIDENCE=nftables_state=inactive; return 1; }
@@ -114,5 +131,20 @@ check_u_65
 assert_status VULNERABLE "U-65 absent time service"
 check_u_66
 assert_status VULNERABLE "U-66 absent logging provider"
+
+IFS= read -r pgrep_count < "$pgrep_count_file"
+[ "$pgrep_count" -eq 0 ] || fail "complete procfs process facts invoked pgrep $pgrep_count times"
+
+mkdir -p "$proc_root/2/comm"
+SCAN_EPOCH_ID=2
+status=0
+service_named_process_state definitely-absent || status=$?
+[ "$status" -eq 2 ] || fail "partial procfs plus negative pgrep established absence: status=$status"
+IFS= read -r pgrep_count < "$pgrep_count_file"
+[ "$pgrep_count" -eq 1 ] || fail "partial procfs did not invoke pgrep exactly once: count=$pgrep_count"
+case "$SERVICE_NAMED_PROCESS_EVIDENCE" in
+    process_probe=procfs_incomplete,pgrep_matched=false*) ;;
+    *) fail "partial process evidence was not preserved: $SERVICE_NAMED_PROCESS_EVIDENCE" ;;
+esac
 
 printf 'PASS: non-systemd procfs runtime integration\n'

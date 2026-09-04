@@ -75,7 +75,7 @@ container run --rm \
   --mount type=bind,source="$repository_root",target=/src,readonly \
   --workdir /src \
   "$TEST_IMAGE" \
-  /bin/bash -lc 'make lint && mandoc -T lint man/kisa-cce-scan.8 && mandoc -T lint man/kisa-cce-collect.8'
+  /bin/bash -lc 'make lint && mandoc -T lint man/kisa-cce-scan.8 && mandoc -T lint man/kisa-cce-collect.8 && mandoc -T lint man/kisa-cce-policy-compile.8'
 ```
 
 The read-only bind mount confirms that tests and package staging use protected temporary directories instead of modifying the checkout. The `--mount` syntax and key-only `readonly` option follow Apple's [mount option reference](https://github.com/apple/container/blob/main/docs/volumes.md#options-for---mount).

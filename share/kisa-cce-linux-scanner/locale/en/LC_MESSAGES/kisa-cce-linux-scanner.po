@@ -760,6 +760,12 @@ msgstr "A temporary file could not be created to analyze password storage locati
 msgid "계정의 업무 필요성과 최근 사용 여부는 조직의 계정 대장 및 인증 로그로 확인해야 합니다."
 msgstr "Account business necessity and recent use must be verified against the organization's account inventory and authentication logs."
 
+msgid "완전한 로컬 계정 자료에서 로그인 가능한 계정은 필수 관리자 계정 root뿐입니다."
+msgstr "The complete local account records show that root is the only login-capable account."
+
+msgid "U-07 계정 검토에 필요한 /etc/shadow를 안전하게 읽고 검증하지 못했습니다."
+msgstr "/etc/shadow could not be read and validated safely for the U-07 account review."
+
 msgid "계정이 존재하지 않는 GID 금지"
 msgstr "Prohibit GIDs without corresponding groups"
 
@@ -840,6 +846,9 @@ msgstr "No local system startup scripts were found."
 
 msgid "로컬 일반 사용자 계정은 없지만 외부 계정 소스까지 부재함을 입증하지 못했습니다."
 msgstr "No local regular user accounts exist, but the absence of external account sources could not be established."
+
+msgid "로컬 일반 사용자와 외부 NSS 계정 소스가 없어 su 제한 점검 대상이 없습니다."
+msgstr "No local regular users or external NSS account sources exist, so the su restriction check is not applicable."
 
 msgid "로컬 파일시스템 마운트 목록을 완전하게 수집하지 못했습니다."
 msgstr "The local filesystem mount list could not be collected completely."
@@ -1143,6 +1152,9 @@ msgstr "Metadata for some log files or directories could not be collected."
 
 msgid "일부 시스템 시작 스크립트의 메타데이터를 확인하지 못했습니다."
 msgstr "Metadata for some system startup scripts could not be verified."
+
+msgid "대상이 없는 시스템 시작 별칭의 필요성과 잔여 구성을 확인해야 합니다."
+msgstr "Dangling system startup aliases and their residual configuration require review."
 
 msgid "일부 파일의 소유자 메타데이터를 확인하지 못했습니다."
 msgstr "Owner metadata for some files could not be verified."

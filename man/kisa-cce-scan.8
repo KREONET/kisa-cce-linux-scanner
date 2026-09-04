@@ -86,7 +86,7 @@ Run only the comma-separated criterion codes.
 Codes are case-insensitive, whitespace is removed, and duplicates are ignored.
 Results retain catalog order rather than argument order.
 .TP
-.BI \-\-mode " audit|complete"
+.BI \-\-mode " audit|complete|automation"
 Select the result contract.
 Audit mode preserves indeterminate results as
 .BR MANUAL .
@@ -94,12 +94,23 @@ Complete mode requires all 67 criteria, a policy directory, live runtime
 collection or a matching evidence bundle, and emits no
 .B MANUAL
 result.
+Automation mode applies the same input and attestation requirements, stages
+both reports privately, and publishes them only when every final status is
+.BR GOOD ,
+.BR VULNERABLE ,
+or
+.BR NOT_APPLICABLE .
 .TP
 .BI \-\-policy-dir " PATH"
 Load strict TSV attestations and supported typed facts from the absolute
 directory
 .IR PATH .
-Complete mode requires this option.
+This option overrides the default policy directory.  Complete and automation
+modes use
+.I /etc/kisa-cce-scanner/policy.d
+when it exists.  Source-tree execution does not implicitly trust the repository
+policy skeleton.  Either mode rejects the invocation when no explicit or
+installed default policy directory exists.
 .TP
 .BI \-\-evidence-bundle " PATH"
 Use the validated owner-only runtime evidence directory at
@@ -200,6 +211,30 @@ An offline complete scan requires both
 .B \-\-policy-dir
 and
 .BR \-\-evidence-bundle .
+.SS Automation scan
+Automation mode requires all 67 criteria and the same policy, platform, and
+runtime evidence as complete mode.  It does not accept partial selection,
+.BR \-\-allow-unsupported ,
+sysctl explanation, or a live
+.B \-\-no-runtime
+scan.
+.PP
+Reports are staged in the owner-only workspace.  If a final
+.B MANUAL
+or
+.B ERROR
+remains, the scanner exits with status 2, prints no report path, and removes
+the staged files.  Successful reports contain only
+.BR GOOD ,
+.BR VULNERABLE ,
+and
+.B NOT_APPLICABLE
+final statuses.  The two report renames are rollback-protected but cannot form
+one filesystem transaction across both files.
+.PP
+Both status fields use the published three-state set.  A policy-resolved result
+retains its decision basis, review ID, attestation metadata, and original manual
+summary as evidence.
 .SS Live scan
 Scanning
 .B /
@@ -341,7 +376,8 @@ result.
 .TP
 .B 2
 Invocation, platform detection, sysctl diagnosis, collection, report writing,
-report integrity, or at least one criterion produced an error.
+report integrity, at least one criterion error, or an unresolved automation
+result prevented publication.
 .TP
 .B 130
 The process received SIGINT.
@@ -392,7 +428,9 @@ The following paths describe a package installed with
 Installed public command.
 .TP
 .I /usr/lib/kisa-cce-linux-scanner/
-Default private Bash implementation directory.
+Default private Bash implementation root.  Functional subdirectories use the
+.B kisa-cce-
+prefix, and private module filenames begin with an underscore.
 .TP
 .I /usr/share/kisa-cce-linux-scanner/criteria.tsv
 Ordered criterion catalog.
@@ -410,7 +448,9 @@ Platform identification inside the live or offline root.
 Default live-root report directory.
 .TP
 .I /etc/kisa-cce-scanner/policy.d/
-Recommended directory for reviewed criterion attestations.
+Installed default directory for reviewed criterion attestations and typed
+facts.  The shipped header-only attestation file contains no criterion
+approval.  No typed fact file is installed by default.
 .SH EXAMPLES
 Run a live audit of all 67 criteria:
 .PP
@@ -444,6 +484,7 @@ kisa-cce-scan --debug 2>./kisa-cce-debug.log
 .EE
 .SH SEE ALSO
 .BR kisa-cce-collect (8),
+.BR kisa-cce-policy-compile (8),
 .BR sysctl (8),
 .BR sysctl.d (5),
 .BR systemd-sysctl.service (8),

@@ -38,6 +38,9 @@ LISTENER_CACHE_RESET_SEQUENCE=0
 LISTENER_CACHE_NAMESPACE=""
 LISTENER_CACHE_COMMAND_STATUS=2
 LISTENER_CACHE_FACTS_FILE=""
+LISTENER_CACHE_INDEX_READY=0
+declare -gA LISTENER_CACHE_ROWS_BY_KEY=()
+SYSCTL_PROC_ROOT="${SYSCTL_PROC_ROOT:-/proc/sys}"
 
 resolver_debug_emit() {
     [ "${DEBUG:-0}" = "1" ] || return 0
@@ -1922,6 +1925,7 @@ sysctl_runtime_value_into() {
     local runtime_separator=""
     local runtime_status=0
     local resolver_id=""
+    local proc_runtime_file=""
 
     case "$destination_name" in
         ''|[0-9]*|*[!A-Za-z0-9_]*|key|destination_name|cache_key|runtime_file|runtime_value|runtime_line|runtime_separator|runtime_status|resolver_id)
@@ -1950,6 +1954,21 @@ sysctl_runtime_value_into() {
 
     runtime_file="$(new_scratch_file sysctl-runtime)" || return 2
     capture_command sysctl -n "$key" > "$runtime_file" 2>/dev/null || runtime_status=$?
+    if [ "$runtime_status" -eq 127 ]; then
+        case "$key" in
+            *'/'*) ;;
+            *)
+                proc_runtime_file="${SYSCTL_PROC_ROOT%/}/${key//./\/}"
+                if [ -f "$proc_runtime_file" ] && [ -r "$proc_runtime_file" ] && [ ! -L "$proc_runtime_file" ]; then
+                    : > "$runtime_file"
+                    while IFS= read -r runtime_line || [ -n "$runtime_line" ]; do
+                        printf '%s\n' "$runtime_line" >> "$runtime_file" || return 2
+                    done < "$proc_runtime_file"
+                    runtime_status=0
+                fi
+                ;;
+        esac
+    fi
     if [ "$runtime_status" -eq 0 ]; then
         while IFS= read -r runtime_line || [ -n "$runtime_line" ]; do
             runtime_value+="$runtime_separator$runtime_line"
@@ -1986,9 +2005,29 @@ sysctl_loader_kind() {
         return 0
     fi
 
-    systemctl_path="$(trusted_command systemctl)" || return 2
+    systemctl_path="$(trusted_command systemctl)" || {
+        if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+            runtime_systemd_manager_state
+            command_status=$?
+            if [ "$command_status" -eq 1 ]; then
+                printf 'no-system-manager\n'
+                return 0
+            fi
+        fi
+        return 2
+    }
     if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
-        systemd_epoch_properties_into systemd-sysctl.service properties || return 2
+        if ! systemd_epoch_properties_into systemd-sysctl.service properties; then
+            if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+                runtime_systemd_manager_state
+                command_status=$?
+                if [ "$command_status" -eq 1 ]; then
+                    printf 'no-system-manager\n'
+                    return 0
+                fi
+            fi
+            return 2
+        fi
         command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
     else
         properties="$($systemctl_path show systemd-sysctl.service \
@@ -1996,7 +2035,17 @@ sysctl_loader_kind() {
             -p SetCredential -p SetCredentialEncrypted -p ImportCredential \
             --no-pager 2>/dev/null)" || command_status=$?
     fi
-    [ "$command_status" -eq 0 ] || return 2
+    if [ "$command_status" -ne 0 ]; then
+        if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
+            runtime_systemd_manager_state
+            command_status=$?
+            if [ "$command_status" -eq 1 ]; then
+                printf 'no-system-manager\n'
+                return 0
+            fi
+        fi
+        return 2
+    fi
     if printf '%s\n' "$properties" | awk -F= '
         $1 ~ /^(LoadCredential|LoadCredentialEncrypted)$/ && length($2) > 0 && $2 != "sysctl.extra" {found=1}
         $1 ~ /^(SetCredential|SetCredentialEncrypted)$/ && length($2) > 0 {found=1}
@@ -2168,6 +2217,12 @@ sysctl_explain() {
     [ "$loader_status" -eq 0 ] || loader="unresolved"
     sysctl_static_value_into "$key" filesystem_persistent 2>/dev/null || persistent_status=$?
     persistent="$filesystem_persistent"
+    if [ "$loader" = "no-system-manager" ]; then
+        persistent=""
+        persistent_status=1
+        loader_stream_status="not_applicable"
+        model_drift="not_applicable"
+    fi
     if runtime_enabled; then
         sysctl_runtime_value_into "$key" runtime 2>/dev/null || runtime_status=$?
         if [ "$loader" = "systemd-sysctl" ]; then
@@ -2679,6 +2734,8 @@ listener_reset_epoch_cache() {
     LISTENER_CACHE_NAMESPACE="${current_epoch}-${LISTENER_CACHE_RESET_SEQUENCE}"
     LISTENER_CACHE_COMMAND_STATUS=2
     LISTENER_CACHE_FACTS_FILE=""
+    LISTENER_CACHE_INDEX_READY=0
+    LISTENER_CACHE_ROWS_BY_KEY=()
 }
 
 listener_ensure_epoch_cache() {
@@ -2707,6 +2764,42 @@ listener_commit_epoch_snapshot() {
     case "$commit_status" in 0|1) return 0 ;; *) return 2 ;; esac
 }
 
+listener_build_epoch_index() {
+    local line_value=""
+    local transport=""
+    local endpoint=""
+    local port=""
+    local key=""
+    local transport_row=""
+
+    [ "$LISTENER_CACHE_INDEX_READY" -eq 0 ] || return 0
+    [ -f "$LISTENER_CACHE_FACTS_FILE" ] && [ ! -L "$LISTENER_CACHE_FACTS_FILE" ] || return 2
+    LISTENER_CACHE_ROWS_BY_KEY=()
+    while IFS= read -r line_value || [ -n "$line_value" ]; do
+        [ -n "$line_value" ] || continue
+        read -r transport _ _ _ endpoint _ <<< "$line_value"
+        case "$transport" in tcp|udp) ;; *) continue ;; esac
+        port="${endpoint##*:}"
+        case "$port" in ''|*[!0-9]*) continue ;; esac
+        [ "$port" -le 65535 ] || continue
+        key="any:$port"
+        if [ -n "${LISTENER_CACHE_ROWS_BY_KEY[$key]+present}" ]; then
+            LISTENER_CACHE_ROWS_BY_KEY["$key"]+=$'\n'"$line_value"
+        else
+            LISTENER_CACHE_ROWS_BY_KEY["$key"]="$line_value"
+        fi
+        transport_row="${line_value#"$transport"}"
+        transport_row="${transport_row# }"
+        key="$transport:$port"
+        if [ -n "${LISTENER_CACHE_ROWS_BY_KEY[$key]+present}" ]; then
+            LISTENER_CACHE_ROWS_BY_KEY["$key"]+=$'\n'"$transport_row"
+        else
+            LISTENER_CACHE_ROWS_BY_KEY["$key"]="$transport_row"
+        fi
+    done < "$LISTENER_CACHE_FACTS_FILE"
+    LISTENER_CACHE_INDEX_READY=1
+}
+
 listener_prepare_epoch_snapshot() {
     local snapshot_file=""
     local status_file=""
@@ -2728,6 +2821,7 @@ listener_prepare_epoch_snapshot() {
         [ "$command_status" -le 255 ] || return 2
         LISTENER_CACHE_COMMAND_STATUS="$command_status"
         listener_commit_epoch_snapshot || return 2
+        listener_build_epoch_index || return 2
         resolver_debug_emit listener_snapshot transport mixed cache hit status "$command_status"
         return 0
     fi
@@ -2753,37 +2847,25 @@ listener_prepare_epoch_snapshot() {
     systemd_cache_write_status "$status_file" "$command_status" || return 2
     LISTENER_CACHE_COMMAND_STATUS="$command_status"
     listener_commit_epoch_snapshot || return 2
+    listener_build_epoch_index || return 2
     resolver_debug_emit listener_snapshot transport mixed cache build status "$command_status"
 }
 
 listener_epoch_facts_for_port() {
     local port="$1"
     local transport="$2"
+    local lookup_key=""
+    local matched_rows=""
 
     listener_prepare_epoch_snapshot || return 2
     case "$LISTENER_CACHE_COMMAND_STATUS" in 0|3) ;; *) return "$LISTENER_CACHE_COMMAND_STATUS" ;; esac
-    case "$transport" in
-        any)
-            if awk -v port=":$port" '$5 ~ port "$" {print; found=1} END {exit(found ? 0 : 1)}' \
-                "$LISTENER_CACHE_FACTS_FILE"; then
-                return 0
-            fi
-            ;;
-        tcp|udp)
-            if awk -v transport="$transport" -v port=":$port" '
-                $1 == transport && $5 ~ port "$" {
-                    $1=""
-                    sub(/^[[:space:]]+/, "")
-                    print
-                    found=1
-                }
-                END {exit(found ? 0 : 1)}
-            ' "$LISTENER_CACHE_FACTS_FILE"; then
-                return 0
-            fi
-            ;;
-        *) return 2 ;;
-    esac
+    case "$transport" in any|tcp|udp) ;; *) return 2 ;; esac
+    lookup_key="$transport:$port"
+    matched_rows="${LISTENER_CACHE_ROWS_BY_KEY[$lookup_key]-}"
+    if [ -n "$matched_rows" ]; then
+        printf '%s\n' "$matched_rows"
+        return 0
+    fi
     [ "$LISTENER_CACHE_COMMAND_STATUS" -eq 0 ] && return 0
     return 2
 }

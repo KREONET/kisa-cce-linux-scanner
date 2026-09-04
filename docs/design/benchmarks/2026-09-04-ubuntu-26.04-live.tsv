@@ -1,0 +1,5 @@
+metric	samples	baseline_median	baseline_p95	optimized_median	optimized_p95	unit
+wall_time	20	2.984000	3.194000	2.811000	2.997000	seconds
+shell_and_child_cpu	20	2.911500	3.130000	2.693000	2.876000	seconds
+process_creation_delta	20	3444	3446	2845	2845	processes
+scanner_process_rss	10	11962	11976	12100	12112	KiB

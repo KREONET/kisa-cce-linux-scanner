@@ -47,8 +47,8 @@ assert_contains() {
     case "$actual" in *"$expected"*) ;; *) fail "$context: missing=[$expected]" ;; esac
 }
 
-# shellcheck source=../lib/evidence.sh
-. "$project_directory/lib/evidence.sh"
+# shellcheck source=../lib/kisa-cce-runtime/_evidence.sh
+. "$project_directory/lib/kisa-cce-runtime/_evidence.sh"
 
 write_checksums() {
     local bundle="$1"

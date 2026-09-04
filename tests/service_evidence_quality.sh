@@ -29,10 +29,10 @@ KISA_CCE_VERSION=0.1.0
 SCAN_ROOT=/
 RUNTIME_MODE=on
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/checks_service.sh
-. "$project_directory/lib/checks_service.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-checks/_service.sh
+. "$project_directory/lib/kisa-cce-checks/_service.sh"
 
 runtime_enabled() { return 0; }
 trusted_command() { return 1; }

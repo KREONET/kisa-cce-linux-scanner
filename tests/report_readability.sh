@@ -47,8 +47,8 @@ VERBOSE=0
 DEBUG=0
 SCAN_MODE=audit
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
 
 PLATFORM_NAME='Test Linux <unsafe>'
 PLATFORM_ID='test'

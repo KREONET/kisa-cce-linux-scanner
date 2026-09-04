@@ -60,9 +60,9 @@ Implement `U-NN` as `check_u_nn` in the module responsible for its category:
 
 | Range | Module |
 |---|---|
-| U-01 through U-33 | `lib/checks_account_file.sh` |
-| U-34 through U-63 | `lib/checks_service.sh` |
-| U-64 through U-67 | `lib/checks_system.sh` |
+| U-01 through U-33 | `lib/kisa-cce-checks/_account-file.sh` |
+| U-34 through U-63 | `lib/kisa-cce-checks/_service.sh` |
+| U-64 through U-67 | `lib/kisa-cce-checks/_system.sh` |
 
 Every executed function must call:
 
@@ -132,7 +132,7 @@ Every new debug event requires a regression that verifies its exact schema and s
 
 ## Adding a resolver
 
-Place reusable precedence and path logic in `lib/resolvers.sh`. Keep criterion-specific policy in the relevant check module. A resolver should return distinct statuses for:
+Place reusable precedence and path logic in `lib/kisa-cce-resolvers/_resolvers.sh`. Keep criterion-specific policy in the relevant check module. A resolver should return distinct statuses for:
 
 1. value established;
 2. value absent;
@@ -157,6 +157,7 @@ Changes to collection or reporting should preserve these invariants:
 - hostile `BASH_ENV` and `ENV` values are not loaded;
 - debug mode preserves report content and exit status, emits only framed English diagnostics on standard error, and does not expose raw assessed content;
 - complete mode records 67 final results with no `MANUAL` status;
+- automation mode gates publication on 67 final results with no `MANUAL` or `ERROR` status;
 - policy review IDs change when the complete redacted technical basis changes;
 - evidence bundle identity, checksum, freshness, service, listener, and mount contracts remain enforced.
 
@@ -182,6 +183,7 @@ Update documentation in the same change when modifying:
 |---|---|
 | CLI option, mode, output, or exit behavior | `docs/operators/usage.md` |
 | Installed CLI syntax or operator behavior | `man/kisa-cce-scan.8` |
+| Policy authoring or compiler behavior | `docs/reference/policy-format.md` and `man/kisa-cce-policy-compile.8` |
 | Component boundary or resolver semantics | `docs/design/architecture.md` |
 | Trust assumption, privileged behavior, or sensitive evidence | `docs/design/security-model.md` |
 | Install path or package build interface | `docs/packaging/README.md` |

@@ -34,8 +34,8 @@ reset_count=0
 resolver_reset_epoch_caches() { reset_count=$((reset_count + 1)); }
 debug_emit() { printf '%s\n' "$*" >> "$debug_file"; }
 
-# shellcheck source=../lib/scan_epoch.sh
-. "$project_directory/lib/scan_epoch.sh"
+# shellcheck source=../lib/kisa-cce-core/_scan-epoch.sh
+. "$project_directory/lib/kisa-cce-core/_scan-epoch.sh"
 SCAN_INCREMENTAL_REEVALUATION_ACTIVE=1
 
 scan_epoch_begin || fail "first epoch failed"

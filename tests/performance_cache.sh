@@ -58,10 +58,10 @@ SCAN_EPOCH=1
 SCAN_EPOCH_ACTIVE=1
 IFS= read -r KISA_CCE_VERSION < "$project_directory/data/VERSION" || exit 2
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/resolvers.sh
-. "$project_directory/lib/resolvers.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+. "$project_directory/lib/kisa-cce-resolvers/_resolvers.sh"
 SCRATCH_DIR="$scratch"
 DEBUG=1
 exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
@@ -179,6 +179,14 @@ status=0
 sysctl_runtime_value_into kernel.test value || status=$?
 assert_equal 42 "$status" "runtime failure memoization status"
 assert_equal 2 "$runtime_count" "runtime failure is collected once in its epoch"
+
+mkdir -p "$test_directory/proc-sys/kernel"
+printf '9\n' > "$test_directory/proc-sys/kernel/test"
+SYSCTL_PROC_ROOT="$test_directory/proc-sys"
+capture_command() { return 127; }
+SCAN_EPOCH=8
+sysctl_runtime_value_into kernel.test value || fail "procfs runtime sysctl fallback failed"
+assert_equal 9 "$value" "procfs runtime sysctl fallback value"
 
 exec {debug_fd}>&-
 DEBUG_OUTPUT_FD=""

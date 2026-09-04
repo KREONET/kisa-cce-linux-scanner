@@ -21,6 +21,7 @@ systemctl_count_file="$test_directory/systemctl-count"
 listener_count_file="$test_directory/listener-count"
 systemd_active_file="$test_directory/systemd-active"
 listener_failure_file="$test_directory/listener-failure"
+listener_awk_count_file="$test_directory/listener-awk-count"
 dependency_file="$test_directory/dependencies"
 debug_file="$test_directory/debug-events"
 debug_fd=""
@@ -57,6 +58,7 @@ assert_contains() {
 mkdir -p -- "$scratch"
 printf '0\n' > "$systemctl_count_file"
 printf '0\n' > "$listener_count_file"
+printf '0\n' > "$listener_awk_count_file"
 printf '1\n' > "$systemd_active_file"
 : > "$dependency_file"
 
@@ -68,14 +70,14 @@ LISTENER_SNAPSHOT_CACHE_ENABLED=1
 SCRATCH_DIR="$scratch"
 IFS= read -r KISA_CCE_VERSION < "$project_directory/data/VERSION" || exit 2
 
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/resolvers.sh
-. "$project_directory/lib/resolvers.sh"
-# shellcheck source=../lib/checks_service.sh
-. "$project_directory/lib/checks_service.sh"
-# shellcheck source=../lib/checks_system.sh
-. "$project_directory/lib/checks_system.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh
+. "$project_directory/lib/kisa-cce-resolvers/_resolvers.sh"
+# shellcheck source=../lib/kisa-cce-checks/_service.sh
+. "$project_directory/lib/kisa-cce-checks/_service.sh"
+# shellcheck source=../lib/kisa-cce-checks/_system.sh
+. "$project_directory/lib/kisa-cce-checks/_system.sh"
 SCRATCH_DIR="$scratch"
 DEBUG=1
 exec {debug_fd}> "$debug_file" || fail "debug capture descriptor could not be opened"
@@ -199,6 +201,14 @@ assert_equal 2 "$status" "failed unit memoization"
 IFS= read -r count < "$systemctl_count_file"
 assert_equal 3 "$count" "missing and failed units use one cached fallback each"
 
+awk() {
+    local count=0
+
+    IFS= read -r count < "$listener_awk_count_file" || return 90
+    printf '%s\n' "$((count + 1))" > "$listener_awk_count_file" || return 90
+    command awk "$@"
+}
+
 output="$(port_listener_facts 22 tcp)" || fail "cached TCP listener lookup failed"
 assert_contains "$output" "LISTEN 0 128 0.0.0.0:22" "TCP listener format"
 output="$(port_listener_facts 53 udp)" || fail "cached UDP listener lookup failed"
@@ -207,6 +217,8 @@ output="$(port_listener_facts 22 any)" || fail "cached mixed listener lookup fai
 assert_contains "$output" "tcp LISTEN" "mixed listener format"
 IFS= read -r count < "$listener_count_file"
 assert_equal 1 "$count" "one mixed listener capture per epoch"
+IFS= read -r count < "$listener_awk_count_file"
+assert_equal 0 "$count" "indexed listener queries avoid awk scans"
 
 printf '0\n' > "$systemd_active_file"
 SCAN_EPOCH_ID=2

@@ -11,30 +11,59 @@ datarootdir ?= $(prefix)/share
 datadir ?= $(datarootdir)/$(PACKAGE_NAME)
 mandir ?= $(datarootdir)/man
 man8dir ?= $(mandir)/man8
+sysconfdir ?= /etc
+scannerconfdir ?= $(sysconfdir)/kisa-cce-scanner
+policydir ?= $(scannerconfdir)/policy.d
 
 INSTALL ?= install
 INSTALL_PROGRAM = $(INSTALL) -m 0755
 INSTALL_DATA = $(INSTALL) -m 0644
+INSTALL_POLICY_DATA = $(INSTALL) -m 0600
+
+CHECK_LIBRARY_FILES = \
+	lib/kisa-cce-checks/_account-file.sh \
+	lib/kisa-cce-checks/_service.sh \
+	lib/kisa-cce-checks/_system.sh
+
+CLI_LIBRARY_FILES = \
+	lib/kisa-cce-cli/_collect-main.sh \
+	lib/kisa-cce-cli/_policy-compile-main.sh \
+	lib/kisa-cce-cli/_scan-main.sh
+
+CORE_LIBRARY_FILES = \
+	lib/kisa-cce-core/_core.sh \
+	lib/kisa-cce-core/_i18n.sh \
+	lib/kisa-cce-core/_scan-epoch.sh
+
+POLICY_LIBRARY_FILES = \
+	lib/kisa-cce-policy/_policy.sh \
+	lib/kisa-cce-policy/_policy-yaml.sh
+
+RESOLVER_LIBRARY_FILES = lib/kisa-cce-resolvers/_resolvers.sh
+
+RUNTIME_LIBRARY_FILES = \
+	lib/kisa-cce-runtime/_evidence.sh \
+	lib/kisa-cce-runtime/_runtime-fallback.sh
 
 LIBRARY_FILES = \
-	lib/checks_account_file.sh \
-	lib/checks_service.sh \
-	lib/checks_system.sh \
-	lib/core.sh \
-	lib/evidence.sh \
-	lib/i18n.sh \
-	lib/kisa-cce-collect-main.sh \
-	lib/kisa-cce-scan-main.sh \
-	lib/policy.sh \
-	lib/runtime_fallback.sh \
-	lib/scan_epoch.sh \
-	lib/resolvers.sh
+	$(CHECK_LIBRARY_FILES) \
+	$(CLI_LIBRARY_FILES) \
+	$(CORE_LIBRARY_FILES) \
+	$(POLICY_LIBRARY_FILES) \
+	$(RESOLVER_LIBRARY_FILES) \
+	$(RUNTIME_LIBRARY_FILES)
 
-PROGRAM_FILES = bin/kisa-cce-collect bin/kisa-cce-scan
+PROGRAM_FILES = bin/kisa-cce-collect bin/kisa-cce-policy-compile bin/kisa-cce-scan
 
-MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-scan.8
+MANPAGE_FILES = man/kisa-cce-collect.8 man/kisa-cce-policy-compile.8 man/kisa-cce-scan.8
+
+POLICY_FILES = etc/kisa-cce-scanner/policy.d/00-default.tsv
 
 TEST_FILES = \
+	tests/account_manual_reductions.sh \
+	tests/automation_mode.sh \
+	tests/default_policy.sh \
+	tests/policy_compile.sh \
 	tests/documentation_links.sh \
 	tests/evidence_bundle_v2.sh \
 	tests/non_systemd_runtime.sh \
@@ -60,6 +89,10 @@ all:
 check:
 	/bin/sh -n $(PROGRAM_FILES)
 	/bin/bash -n $(LIBRARY_FILES) $(TEST_FILES) tests/benchmark.sh
+	./tests/account_manual_reductions.sh
+	./tests/automation_mode.sh
+	./tests/default_policy.sh
+	./tests/policy_compile.sh
 	./tests/documentation_links.sh
 	./tests/run.sh
 	./tests/evidence_bundle_v2.sh
@@ -84,16 +117,31 @@ lint:
 install:
 	$(INSTALL) -d \
 		"$(DESTDIR)$(bindir)" \
-		"$(DESTDIR)$(pkglibdir)" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-checks" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-cli" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-core" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-policy" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-resolvers" \
+		"$(DESTDIR)$(pkglibdir)/kisa-cce-runtime" \
 		"$(DESTDIR)$(datadir)" \
 		"$(DESTDIR)$(datadir)/locale/en/LC_MESSAGES" \
 		"$(DESTDIR)$(datadir)/locale/ko/LC_MESSAGES" \
 		"$(DESTDIR)$(man8dir)"
+	$(INSTALL) -d -m 0700 "$(DESTDIR)$(policydir)"
 	$(INSTALL_PROGRAM) $(PROGRAM_FILES) "$(DESTDIR)$(bindir)"
-	$(INSTALL_DATA) $(LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)"
+	$(INSTALL_DATA) $(CHECK_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-checks"
+	$(INSTALL_DATA) $(CLI_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-cli"
+	$(INSTALL_DATA) $(CORE_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-core"
+	$(INSTALL_DATA) $(POLICY_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-policy"
+	$(INSTALL_DATA) $(RESOLVER_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-resolvers"
+	$(INSTALL_DATA) $(RUNTIME_LIBRARY_FILES) "$(DESTDIR)$(pkglibdir)/kisa-cce-runtime"
 	$(INSTALL_DATA) data/criteria.tsv data/VERSION "$(DESTDIR)$(datadir)"
 	$(INSTALL_DATA) share/kisa-cce-linux-scanner/locale/en/LC_MESSAGES/kisa-cce-linux-scanner.po \
 		"$(DESTDIR)$(datadir)/locale/en/LC_MESSAGES"
 	$(INSTALL_DATA) share/kisa-cce-linux-scanner/locale/ko/LC_MESSAGES/kisa-cce-linux-scanner.po \
 		"$(DESTDIR)$(datadir)/locale/ko/LC_MESSAGES"
 	$(INSTALL_DATA) $(MANPAGE_FILES) "$(DESTDIR)$(man8dir)"
+	@if [ ! -e "$(DESTDIR)$(policydir)/00-default.tsv" ] && \
+		[ ! -L "$(DESTDIR)$(policydir)/00-default.tsv" ]; then \
+		$(INSTALL_POLICY_DATA) $(POLICY_FILES) "$(DESTDIR)$(policydir)/00-default.tsv"; \
+	fi

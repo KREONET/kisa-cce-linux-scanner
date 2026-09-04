@@ -46,26 +46,26 @@ docs/
 | [macOS container testing](developers/macos-container-testing.md) | Apple `container` setup, eight-image validation matrix, debug smoke checks, and scoped cleanup. |
 | [Packaging](packaging/README.md) | `DESTDIR` installation and future Debian/RPM integration. |
 
-The installed command manuals are maintained as [kisa-cce-scan(8)](../man/kisa-cce-scan.8) and [kisa-cce-collect(8)](../man/kisa-cce-collect.8).
+The installed command manuals are maintained as [kisa-cce-scan(8)](../man/kisa-cce-scan.8), [kisa-cce-collect(8)](../man/kisa-cce-collect.8), and [kisa-cce-policy-compile(8)](../man/kisa-cce-policy-compile.8).
 
 ## Scope and sources of truth
 
 | Concern | Source of truth |
 |---|---|
-| Accepted product identities and versions | Platform detection in `lib/core.sh`. |
+| Accepted product identities and versions | Platform detection in `lib/kisa-cce-core/_core.sh`. |
 | Lifecycle scope and support policy | `docs/reference/platform-support.md`. |
 | Rendered-guide platform branches | `docs/reference/kisa-platform-semantics.md`. |
 | Criterion codes, categories, severities, and titles | `data/criteria.tsv`. |
-| Command-line behavior | `lib/kisa-cce-scan-main.sh`. |
-| Result and report contracts | `lib/core.sh`. |
-| Configuration precedence | `lib/resolvers.sh` and the subsystem-specific check modules. |
+| Command-line behavior | `lib/kisa-cce-cli/_scan-main.sh`. |
+| Result and report contracts | `lib/kisa-cce-core/_core.sh`. |
+| Configuration precedence | `lib/kisa-cce-resolvers/_resolvers.sh` and the subsystem-specific check modules. |
 | Regression coverage | `tests/run.sh` and focused scripts under `tests/`. |
 | Installed file layout | `Makefile`. |
-| Command manuals | `man/kisa-cce-scan.8` and `man/kisa-cce-collect.8`. |
-| Complete-mode policy contract | `docs/reference/policy-format.md` and `lib/policy.sh`. |
-| Runtime evidence contract | `docs/operators/evidence-bundle.md` and `lib/evidence.sh`. |
-| Report localization contract | `docs/operators/localization.md`, `lib/i18n.sh`, and `share/kisa-cce-linux-scanner/locale`. |
-| Scan cache and invalidation contract | `docs/design/performance.md` and `lib/scan_epoch.sh`. |
+| Command manuals | `man/kisa-cce-scan.8`, `man/kisa-cce-collect.8`, and `man/kisa-cce-policy-compile.8`. |
+| Complete-mode policy contract | `docs/reference/policy-format.md` and `lib/kisa-cce-policy/_policy.sh`. |
+| Runtime evidence contract | `docs/operators/evidence-bundle.md` and `lib/kisa-cce-runtime/_evidence.sh`. |
+| Report localization contract | `docs/operators/localization.md`, `lib/kisa-cce-core/_i18n.sh`, and `share/kisa-cce-linux-scanner/locale`. |
+| Scan cache and invalidation contract | `docs/design/performance.md` and `lib/kisa-cce-core/_scan-epoch.sh`. |
 | Project license | `LICENSE` and `LICENSES/`. |
 | Scanner version | `data/VERSION`. |
 

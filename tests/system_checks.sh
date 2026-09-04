@@ -29,12 +29,12 @@ RUNTIME_MODE="on"
 SCRATCH_DIR="$test_temp/scratch"
 mkdir -p -- "$SCRATCH_DIR" "$test_temp/root/etc" "$test_temp/root/var/log"
 
-# shellcheck source=../lib/i18n.sh
-. "$project_directory/lib/i18n.sh"
-# shellcheck source=../lib/core.sh
-. "$project_directory/lib/core.sh"
-# shellcheck source=../lib/checks_system.sh
-. "$project_directory/lib/checks_system.sh"
+# shellcheck source=../lib/kisa-cce-core/_i18n.sh
+. "$project_directory/lib/kisa-cce-core/_i18n.sh"
+# shellcheck source=../lib/kisa-cce-core/_core.sh
+. "$project_directory/lib/kisa-cce-core/_core.sh"
+# shellcheck source=../lib/kisa-cce-checks/_system.sh
+. "$project_directory/lib/kisa-cce-checks/_system.sh"
 
 assert_summary_catalogued() {
     local source_summary="$1"

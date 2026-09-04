@@ -24,11 +24,12 @@ When implementation and prose disagree, inspect the relevant code and tests, the
 | Change | Start with | Update together |
 |---|---|---|
 | One KISA criterion | Owning `check_u_nn` function and its current fixture | Platform semantics when the decision boundary changes |
-| Shared configuration behavior | `lib/resolvers.sh` and the relevant subsystem parser | Focused cache test, architecture, and every affected criterion fixture |
-| Scan epoch or cache invalidation | `lib/scan_epoch.sh` and `docs/design/performance.md` | Dependency and parse-count regressions |
-| CLI option or terminal output | `lib/kisa-cce-scan-main.sh` and `lib/core.sh` | Usage guide, security model, man page, and installed-layout test |
+| Shared configuration behavior | `lib/kisa-cce-resolvers/_resolvers.sh` and the relevant subsystem parser | Focused cache test, architecture, and every affected criterion fixture |
+| Scan epoch or cache invalidation | `lib/kisa-cce-core/_scan-epoch.sh` and `docs/design/performance.md` | Dependency and parse-count regressions |
+| CLI option or terminal output | `lib/kisa-cce-cli/_scan-main.sh` and `lib/kisa-cce-core/_core.sh` | Usage guide, security model, man page, and installed-layout test |
 | Report text | Owning check and both PO catalogs | Korean and English report golden paths |
-| Evidence bundle | `lib/evidence.sh` or `lib/kisa-cce-collect-main.sh` | Bundle schema documentation and positive and negative validation fixtures |
+| Evidence bundle | `lib/kisa-cce-runtime/_evidence.sh` or `lib/kisa-cce-cli/_collect-main.sh` | Bundle schema documentation and positive and negative validation fixtures |
+| Policy YAML compiler | `lib/kisa-cce-policy/_policy-yaml.sh` or `lib/kisa-cce-cli/_policy-compile-main.sh` | Policy format, parser rejection fixtures, installed-layout test, and compiler man page |
 | Packaging | `Makefile` and `docs/packaging/README.md` | Staged install, upgrade, removal, and command smoke tests |
 
 Begin with the narrowest focused test that can reproduce the behavior. Expand to shared consumers before changing a resolver or collection primitive.
@@ -74,11 +75,11 @@ Do not create a new KISA result for an implementation diagnostic. A selected cat
 
 | Criteria | Primary module | Scope |
 |---|---|---|
-| U-01 through U-33 | `lib/checks_account_file.sh` | Accounts, authentication, and filesystem controls |
-| U-34 through U-63 | `lib/checks_service.sh` | Network services and service configuration |
-| U-64 through U-67 | `lib/checks_system.sh` | Patch, time, logging, and system controls |
+| U-01 through U-33 | `lib/kisa-cce-checks/_account-file.sh` | Accounts, authentication, and filesystem controls |
+| U-34 through U-63 | `lib/kisa-cce-checks/_service.sh` | Network services and service configuration |
+| U-64 through U-67 | `lib/kisa-cce-checks/_system.sh` | Patch, time, logging, and system controls |
 
-Shared precedence and reusable collection logic belongs in `lib/resolvers.sh`. Rooted filesystem, result, report, and trusted-command primitives belong in `lib/core.sh`. Scan-epoch and reverse-dependency state belongs in `lib/scan_epoch.sh`. Keep criterion policy in the owning check module.
+Shared precedence and reusable collection logic belongs in `lib/kisa-cce-resolvers/_resolvers.sh`. Rooted filesystem, result, report, and trusted-command primitives belong in `lib/kisa-cce-core/_core.sh`. Scan-epoch and reverse-dependency state belongs in `lib/kisa-cce-core/_scan-epoch.sh`. Keep criterion policy in the owning check module.
 
 ## Rooted paths and recursive records
 
@@ -144,6 +145,7 @@ When manual pages change, lint each changed page:
 ```bash
 mandoc -T lint man/kisa-cce-scan.8
 mandoc -T lint man/kisa-cce-collect.8
+mandoc -T lint man/kisa-cce-policy-compile.8
 ```
 
 Run containerized userspace validation on the maintained matrix:

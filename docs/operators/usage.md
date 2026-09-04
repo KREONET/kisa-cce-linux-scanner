@@ -60,8 +60,8 @@ The installation layout and package staging interface are documented in [Packagi
 | `--root PATH` | Reads an offline filesystem rooted at the absolute `PATH`. Runtime collection is disabled automatically. |
 | `--output-dir PATH` | Writes both reports below the absolute `PATH`. |
 | `--checks U-01,U-02` | Runs only the comma-separated criterion codes. Input is case-insensitive and duplicate codes are removed. |
-| `--mode audit\|complete` | Preserves `MANUAL` for review or requires all 67 criteria to reach a final result. |
-| `--policy-dir PATH` | Loads strict review attestations and supported typed facts from an absolute directory. Required by complete mode. |
+| `--mode audit\|complete\|automation` | Preserves `MANUAL`, requires final results, or publishes an all-or-nothing automation report. |
+| `--policy-dir PATH` | Overrides the installed default policy directory with an absolute path. Complete and automation modes use `/etc/kisa-cce-scanner/policy.d` when it exists. |
 | `--evidence-bundle PATH` | Uses a validated live-runtime directory with an offline root. |
 | `--evidence-max-age SEC` | Rejects evidence older than `SEC`; default `3600`, maximum `604800`. |
 | `--no-runtime` | Disables live services, procfs processes and listeners, kernel values, and native validators such as `sshd`, `named-checkconf`, `testparm`, and `visudo`. For a live-root scan, local mount topology is still collected to define complete filesystem traversal boundaries. |
@@ -107,6 +107,8 @@ CLI help, progress, warning, and error output is always English. Reports are Kor
 | Sysctl explanation | `kisa-cce-scan --explain-sysctl KEY` | Yes for the live root | Enabled for a live root unless `--no-runtime` is supplied; disabled for an offline root. |
 | Complete live | `kisa-cce-scan --mode complete --policy-dir PATH` | Yes | Current host runtime state. |
 | Complete offline | `kisa-cce-scan --root ROOT --mode complete --policy-dir PATH --evidence-bundle PATH` | Bundle owner | Captured bundle state. |
+| Automation live | `kisa-cce-scan --mode automation --policy-dir PATH` | Yes | Current host runtime state. |
+| Automation offline | `kisa-cce-scan --root ROOT --mode automation --policy-dir PATH --evidence-bundle PATH` | Bundle owner | Captured bundle state. |
 
 Even with `--no-runtime`, scanning `/` requires root. Use an offline root for non-root analysis.
 
@@ -132,11 +134,30 @@ Offline analysis can evaluate persistent files and metadata. It does not require
 
 Complete mode rejects partial selection, unsupported-platform overrides, live `--no-runtime`, stale bundles, and missing policy input. A technical `MANUAL` with a matching attestation becomes the approved final decision. Missing, expired, or mismatched attestations become `ERROR`. `NOT_APPLICABLE` remains a conclusive final state.
 
+The shipped default policy directory is structurally valid but grants no criterion attestation. It does not create a time-source fact file because an explicit empty allowlist would change U-65. Administrators must add reviewed attestations and approved typed facts or use `--policy-dir` with a separately managed directory; otherwise policy-dependent results remain unapproved and automation publication is blocked.
+
+Policies may be authored with the restricted YAML schema and compiled into a new immutable policy generation:
+
+```bash
+sudo install -m 0600 ./policy.yml /etc/kisa-cce-scanner/policy.yml
+sudo kisa-cce-policy-compile \
+  --input /etc/kisa-cce-scanner/policy.yml \
+  --output-dir /etc/kisa-cce-scanner/policy-20260904
+
+sudo kisa-cce-scan \
+  --mode automation \
+  --policy-dir /etc/kisa-cce-scanner/policy-20260904
+```
+
+The compiler never replaces an existing directory. It emits the directory path and canonical policy digest only after the generated TSV passes the normal policy loader. See [Policy format](../reference/policy-format.md) for the accepted YAML subset.
+
+Automation mode uses the same input and attestation rules as complete mode. It stages reports inside the protected scan workspace and publishes them only when all 67 final statuses are `GOOD`, `VULNERABLE`, or `NOT_APPLICABLE`. Both `status` and `technical_status` use that three-state set in a published automation report. A policy-resolved result retains its `decision_basis`, `review_id`, attestation fields, and original manual summary in evidence. If any result remains unresolved or erroneous, the command exits with status `2`, prints no report path, removes the staged files, and leaves the output directory without artifacts from that invocation. It never converts an unresolved result merely to satisfy the publication contract.
+
 See [Policy format](../reference/policy-format.md) and [Runtime evidence bundle](evidence-bundle.md).
 
 ## Reports
 
-Every normal scan produces two files and prints their absolute paths:
+Every audit or complete scan produces two files and prints their absolute paths. A successful automation scan does the same after its publication gate succeeds:
 
 ```text
 [    12.345678] kisa-cce-scan: markdown_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.RANDOM.md
@@ -146,6 +167,8 @@ Every normal scan produces two files and prints their absolute paths:
 When `--output-dir` is omitted, a root invocation uses `/var/log/kisa-cce-scanner`; a non-root offline invocation uses `/tmp/kisa-cce-scanner-<uid>`. The hostname component always identifies the machine running the scanner, not the offline image. The randomized suffix prevents predictable-name collisions. Temporary working files remain in a mode-`0700` directory below the output directory and are removed on normal exit and handled signals.
 
 Report paths are printed only after the final summary and integrity checks succeed. If the process is interrupted, partially written report files can remain in the output directory even though their paths were not printed. Treat such files as incomplete.
+
+Automation reports are written below the protected scratch directory first, then moved into the output directory after result and integrity validation. A blocked automation scan publishes neither file. The two-file publication is rollback-protected but is not a single filesystem transaction; an uncatchable process or host failure during the two renames can leave one file behind without a printed path.
 
 ### Markdown report
 
@@ -190,7 +213,7 @@ The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or t
 |---:|---|
 | `0` | The invocation completed without a process-level failure, and a normal scan recorded no `VULNERABLE` or `ERROR` result. Sysctl explanation mode also returns `0` when its diagnostic completes successfully. |
 | `1` | A normal scan completed without a process-level failure and recorded at least one `VULNERABLE` result but no `ERROR` result. |
-| `2` | Invocation, platform detection, sysctl diagnosis, collection, report creation or integrity, or at least one criterion produced an error. |
+| `2` | Invocation, platform detection, sysctl diagnosis, collection, report creation or integrity, at least one criterion produced an error, or automation publication was blocked by an unresolved result. |
 
 `ERROR` takes precedence over `VULNERABLE`. `MANUAL` and `NOT_APPLICABLE` do not change the exit status by themselves.
 

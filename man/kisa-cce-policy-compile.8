@@ -1,0 +1,121 @@
+.\" SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
+.TH KISA-CCE-POLICY-COMPILE 8 "2026-09-04" "KISA CCE Linux Scanner" "System Administration Commands"
+.SH NAME
+kisa-cce-policy-compile \- compile policy YAML into scanner policy TSV
+.SH SYNOPSIS
+.B kisa-cce-policy-compile
+.BI \-\-input " FILE"
+.BI \-\-output-dir " PATH"
+.SH DESCRIPTION
+.B kisa-cce-policy-compile
+converts an author-friendly, policy-specific YAML subset into the strict TSV
+directory consumed by
+.BR kisa-cce-scan (8).
+The scanner itself does not parse YAML.
+.PP
+The compiler uses no YAML library and does not implement general YAML.  It
+accepts only schema version 1, block lists with fixed mappings, full-line
+comments, plain scalars, and quoted scalars with a restricted escape set.
+Anchors, aliases, tags, merge keys, flow collections, block scalars, multiple
+documents, tabs, carriage returns, and inline comments in plain scalars are
+rejected.  ASCII and Unicode C1 control characters and malformed UTF-8 are
+also rejected.
+.PP
+After conversion, the compiler reloads the generated directory through the
+scanner's canonical policy validator.  Invalid criterion codes, decisions,
+review IDs, dates, providers, source identities, duplicates, or expired-field
+syntax therefore fail before publication.
+.SH OPTIONS
+.TP
+.BI \-\-input " FILE"
+Read the policy YAML from
+.IR FILE .
+The path may be relative to the current directory.  The input must be a
+readable regular file owned by root or the effective user, with no group or
+other write permission.  Symbolic links and untrusted parent paths are
+rejected.
+.TP
+.BI \-\-output-dir " PATH"
+Create a new compiled policy directory at
+.IR PATH .
+The target must not already exist.  The parent must be a trusted physical
+directory.  Existing paths are never overwritten.
+.TP
+.BR \-h ", " \-\-help
+Print command help and exit.
+.TP
+.B \-\-version
+Print the scanner version and policy YAML schema version, then exit.
+.SH YAML SCHEMA
+The document must begin with the schema declaration and an attestation list:
+.PP
+.EX
+schema_version: 1
+attestations:
+  - code: U-64
+    decision: GOOD
+    review_id: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    ticket: SEC-2026-0142
+    approver: security-governance
+    expires: 2026-12-31
+.EE
+.PP
+.B attestations
+is required and may be the explicit empty list
+.BR [] .
+The optional
+.B time_sources
+list uses provider, host, address, ticket, approver, and expires fields.
+Omitting it leaves the typed fact set absent.  Writing
+.B "time_sources: []"
+creates an explicit empty approved-source set and is therefore a policy
+decision rather than a neutral placeholder.
+.PP
+Mapping field order is unrestricted.  Every required field must occur exactly
+once.  List markers use two spaces of indentation, and continuation fields use
+four.  Full-line comments and blank lines are accepted.  Plain values that are
+ambiguous under the restricted grammar must be single- or double-quoted.
+Within double quotes, only an escaped double quote or backslash is accepted.
+Within single quotes, one quote is represented by two consecutive quotes.
+.SH OUTPUT
+On success, the compiler creates an owner-only directory containing
+.I 50-compiled.tsv
+and, when
+.B time_sources
+was supplied,
+.IR facts/time-sources.tsv .
+Directories use mode 0700 and files use mode 0600.
+.PP
+Every terminal line uses the dmesg-style scanner prefix.  Success prints:
+.PP
+.EX
+[    12.345678] kisa-cce-policy-compile: policy_directory=/absolute/path
+[    12.345678] kisa-cce-policy-compile: policy_digest=sha256:HEX_DIGEST
+.EE
+.SH EXIT STATUS
+.TP
+.B 0
+The generated policy directory passed structural and canonical validation.
+.TP
+.B 2
+Invocation, path validation, YAML parsing, policy validation, or publication
+failed.  No completed output directory is reported.
+.SH SECURITY
+The wrapper clears the caller environment before loading Bash code.  YAML is
+parsed as data and is never sourced or evaluated.  Input and output directories
+are pinned by file descriptors, and publication uses a no-replace rename in the
+target parent.
+.PP
+Compilation does not authorize a policy decision.  Review IDs, tickets,
+approvers, and expiration dates remain administrative security inputs.
+.SH FILES
+.TP
+.I /etc/kisa-cce-scanner/policy.d/
+Default installed policy directory consumed by complete and automation scans.
+.TP
+.I /usr/share/doc/kisa-cce-linux-scanner/examples/policy.yml
+Possible package documentation location for the source example.  The upstream
+.B make install
+target does not install repository documentation or examples.
+.SH SEE ALSO
+.BR kisa-cce-scan (8)

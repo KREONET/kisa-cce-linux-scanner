@@ -41,6 +41,11 @@ REPORT_MARKDOWN_BODY=""
 REPORT_PRIORITY_ERROR=""
 REPORT_PRIORITY_VULNERABLE=""
 REPORT_PRIORITY_MANUAL=""
+AUTOMATION_REPORTS_COMMITTED=0
+AUTOMATION_MARKDOWN_MOVED=0
+AUTOMATION_JSONL_MOVED=0
+AUTOMATION_MARKDOWN_PUBLISHED_PATH=""
+AUTOMATION_JSONL_PUBLISHED_PATH=""
 OUTPUT_DIRECTORY_FD=""
 OUTPUT_DIRECTORY_FD_PATH=""
 OUTPUT_DIRECTORY_DEVICE_INODE=""
@@ -1512,7 +1517,7 @@ record_result() {
         result_review_id_into "$code" "$category" "$severity" "$normalized_title" "$RESULT_APPLICABLE" \
             "$normalized_summary" "$full_redacted_evidence" manual_review_id || manual_review_id=""
         RESULT_REVIEW_ID="$manual_review_id"
-        if [ "$SCAN_MODE" = "complete" ]; then
+        if [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; then
             if [ -z "$manual_review_id" ]; then
                 RESULT_STATUS="ERROR"
                 RESULT_DECISION_BASIS="missing_review_id"
@@ -1559,6 +1564,11 @@ record_result() {
         fi
         redact_evidence_into "$normalized_evidence" full_redacted_evidence
         RESULT_SUMMARY="$normalized_summary"
+    fi
+    if [ "$SCAN_MODE" = "automation" ]; then
+        case "$RESULT_STATUS" in
+            GOOD|VULNERABLE|NOT_APPLICABLE) RESULT_TECHNICAL_STATUS="$RESULT_STATUS" ;;
+        esac
     fi
     if declare -F i18n_criterion_title_into >/dev/null 2>&1; then
         i18n_criterion_title_into "$code" "$normalized_title" normalized_title || {
@@ -1890,8 +1900,15 @@ initialize_workspace() {
     local markdown_report_temp=""
     local normalized_output_parent=""
     local report_fragment=""
+    local report_staging_directory=""
     # shellcheck disable=SC2034
     local canonical_root=""
+
+    AUTOMATION_REPORTS_COMMITTED=0
+    AUTOMATION_MARKDOWN_MOVED=0
+    AUTOMATION_JSONL_MOVED=0
+    AUTOMATION_MARKDOWN_PUBLISHED_PATH=""
+    AUTOMATION_JSONL_PUBLISHED_PATH=""
 
     if [ -z "$OUTPUT_PARENT" ]; then
         if [ "$(id -u)" -eq 0 ]; then
@@ -1965,12 +1982,17 @@ initialize_workspace() {
     hostname_value="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-63)"
     [ -n "$hostname_value" ] || hostname_value="host"
 
-    markdown_report_temp="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.XXXXXXXX")" ||
+    if [ "$SCAN_MODE" = "automation" ]; then
+        report_staging_directory="$SCRATCH_DIR"
+    else
+        report_staging_directory="$OUTPUT_DIRECTORY_FD_PATH"
+    fi
+    markdown_report_temp="$(mktemp "$report_staging_directory/kisa-cce-${hostname_value}-${timestamp}.XXXXXXXX")" ||
         die "cannot create the Markdown report"
     REPORT_TEXT="${markdown_report_temp}.md"
     mv -- "$markdown_report_temp" "$REPORT_TEXT" || die "cannot finalize the Markdown report name"
     REPORT_MARKDOWN_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_TEXT##*/}"
-    REPORT_JSONL="$(mktemp "$OUTPUT_DIRECTORY_FD_PATH/kisa-cce-${hostname_value}-${timestamp}.jsonl.XXXXXXXX")" || die "cannot create the JSONL report"
+    REPORT_JSONL="$(mktemp "$report_staging_directory/kisa-cce-${hostname_value}-${timestamp}.jsonl.XXXXXXXX")" || die "cannot create the JSONL report"
     REPORT_JSONL_OUTPUT_PATH="$OUTPUT_PARENT/${REPORT_JSONL##*/}"
     chmod 0600 "$REPORT_TEXT" "$REPORT_JSONL" || die "cannot set report permissions"
 }
@@ -1980,6 +2002,10 @@ cleanup_workspace() {
     local debug_output_fd="${DEBUG_OUTPUT_FD:-}"
     local debug_output_fd_owned="${DEBUG_OUTPUT_FD_OWNED:-0}"
 
+    if [ "$SCAN_MODE" = "automation" ] && [ "$AUTOMATION_REPORTS_COMMITTED" -eq 0 ]; then
+        [ "$AUTOMATION_MARKDOWN_MOVED" -eq 0 ] || rm -f -- "$AUTOMATION_MARKDOWN_PUBLISHED_PATH"
+        [ "$AUTOMATION_JSONL_MOVED" -eq 0 ] || rm -f -- "$AUTOMATION_JSONL_PUBLISHED_PATH"
+    fi
     if [ -n "$SCRATCH_DIR" ] && [ -d "$SCRATCH_DIR" ]; then
         rm -rf -- "$SCRATCH_DIR"
     fi
@@ -1999,6 +2025,39 @@ cleanup_workspace() {
     fi
     DEBUG_OUTPUT_FD=""
     DEBUG_OUTPUT_FD_OWNED=0
+}
+
+publish_automation_reports() {
+    local markdown_destination=""
+    local jsonl_destination=""
+
+    [ "$SCAN_MODE" = "automation" ] || return 0
+    [ "$COUNT_TOTAL" -eq 67 ] && [ "$COUNT_MANUAL" -eq 0 ] && [ "$COUNT_ERROR" -eq 0 ] || return 2
+    [ "$REPORT_WRITE_ERROR" -eq 0 ] || return 2
+    output_directory_binding_is_current || return 2
+    [ -f "$REPORT_TEXT" ] && [ ! -L "$REPORT_TEXT" ] || return 2
+    [ -f "$REPORT_JSONL" ] && [ ! -L "$REPORT_JSONL" ] || return 2
+
+    markdown_destination="$OUTPUT_DIRECTORY_FD_PATH/${REPORT_MARKDOWN_OUTPUT_PATH##*/}"
+    jsonl_destination="$OUTPUT_DIRECTORY_FD_PATH/${REPORT_JSONL_OUTPUT_PATH##*/}"
+    [ ! -e "$markdown_destination" ] && [ ! -L "$markdown_destination" ] || return 2
+    [ ! -e "$jsonl_destination" ] && [ ! -L "$jsonl_destination" ] || return 2
+
+    AUTOMATION_MARKDOWN_PUBLISHED_PATH="$markdown_destination"
+    AUTOMATION_JSONL_PUBLISHED_PATH="$jsonl_destination"
+    mv -n -- "$REPORT_TEXT" "$markdown_destination" || return 2
+    [ ! -e "$REPORT_TEXT" ] || return 2
+    AUTOMATION_MARKDOWN_MOVED=1
+    mv -n -- "$REPORT_JSONL" "$jsonl_destination" || return 2
+    [ ! -e "$REPORT_JSONL" ] || return 2
+    AUTOMATION_JSONL_MOVED=1
+
+    REPORT_TEXT="$markdown_destination"
+    REPORT_JSONL="$jsonl_destination"
+    [ "$(stat_uid "$REPORT_TEXT" 2>/dev/null || true)" = "$(id -u)" ] || return 2
+    [ "$(stat_uid "$REPORT_JSONL" 2>/dev/null || true)" = "$(id -u)" ] || return 2
+    [ "$(stat_mode "$REPORT_TEXT" 2>/dev/null || true)" = "600" ] || return 2
+    [ "$(stat_mode "$REPORT_JSONL" 2>/dev/null || true)" = "600" ] || return 2
 }
 
 write_report_header() {
@@ -2257,9 +2316,20 @@ validate_reports() {
             END {exit(count == expected ? 0 : 1)}
         ' "$REPORT_TEXT" || return 1
     fi
-    if [ "$SCAN_MODE" = "complete" ]; then
+    if [ "$SCAN_MODE" = "complete" ] || [ "$SCAN_MODE" = "automation" ]; then
         [ "$COUNT_TOTAL" -eq 67 ] || return 1
         [ "$COUNT_MANUAL" -eq 0 ] || return 1
+    fi
+    if [ "$SCAN_MODE" = "automation" ]; then
+        [ "$COUNT_ERROR" -eq 0 ] || return 1
+        awk '
+            /^\{"code":"U-[0-9][0-9]"/ {
+                count++
+                if ($0 !~ /"status":"(GOOD|VULNERABLE|NOT_APPLICABLE)"/) exit 1
+                if ($0 !~ /"technical_status":"(GOOD|VULNERABLE|NOT_APPLICABLE)"/) exit 1
+            }
+            END {exit(count == 67 ? 0 : 1)}
+        ' "$REPORT_JSONL" || return 1
     fi
     return 0
 }

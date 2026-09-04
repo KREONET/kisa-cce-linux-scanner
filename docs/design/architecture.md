@@ -12,20 +12,24 @@ The implementation separates collection from policy interpretation wherever the 
 |---|---|
 | `bin/kisa-cce-scan` | Public POSIX launcher. Locates the private main file and starts Bash through a clean environment. |
 | `bin/kisa-cce-collect` | Public launcher for the live-runtime evidence collector. |
-| `lib/kisa-cce-scan-main.sh` | Resolves source/installed paths, parses options, validates the catalog, selects the platform, dispatches checks, and finalizes reports. |
-| `lib/kisa-cce-collect-main.sh` | Root-only live evidence collection and bundle finalization. |
-| `lib/core.sh` | Rooted filesystem access, trusted-command selection, platform detection, structured debug output, result normalization, report writing, and exit status. |
-| `lib/policy.sh` | Strict policy-directory loader, typed fact lookup, and review-ID-bound attestation lookup. |
-| `lib/runtime_fallback.sh` | Epoch-scoped procfs process, listener, and PID 1 manager facts for Linux environments without native service tools. |
-| `lib/evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
-| `lib/i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
-| `lib/scan_epoch.sh` | Run-scoped snapshot lifecycle, reverse dependencies, dirtiness, and normalized-output propagation. |
-| `lib/resolvers.sh` | Shared configuration precedence, include traversal, path confinement, sysctl resolution, and systemd state helpers. |
-| `lib/checks_account_file.sh` | U-01 through U-33 account and filesystem checks. |
-| `lib/checks_service.sh` | U-34 through U-63 service checks. |
-| `lib/checks_system.sh` | U-64 through U-67 patch, time, and logging checks. |
+| `bin/kisa-cce-policy-compile` | Public launcher for strict YAML-to-TSV policy compilation. |
+| `lib/kisa-cce-cli/_scan-main.sh` | Resolves source/installed paths, parses options, validates the catalog, selects the platform, dispatches checks, and finalizes reports. |
+| `lib/kisa-cce-cli/_collect-main.sh` | Root-only live evidence collection and bundle finalization. |
+| `lib/kisa-cce-cli/_policy-compile-main.sh` | Policy compiler CLI, trusted path handling, canonical validation, and atomic publication. |
+| `lib/kisa-cce-core/_core.sh` | Rooted filesystem access, trusted-command selection, platform detection, structured debug output, result normalization, report writing, and exit status. |
+| `lib/kisa-cce-policy/_policy.sh` | Strict policy-directory loader, typed fact lookup, and review-ID-bound attestation lookup. |
+| `lib/kisa-cce-policy/_policy-yaml.sh` | Single-pass parser for the restricted policy YAML authoring schema. |
+| `lib/kisa-cce-runtime/_runtime-fallback.sh` | Epoch-scoped procfs process, listener, and PID 1 manager facts for Linux environments without native service tools. |
+| `lib/kisa-cce-runtime/_evidence.sh` | Evidence bundle validation, identity binding, and runtime state helpers. |
+| `lib/kisa-cce-core/_i18n.sh` | Dependency-free strict PO parsing and localized report string lookup. |
+| `lib/kisa-cce-core/_scan-epoch.sh` | Run-scoped snapshot lifecycle, reverse dependencies, dirtiness, and normalized-output propagation. |
+| `lib/kisa-cce-resolvers/_resolvers.sh` | Shared configuration precedence, include traversal, path confinement, sysctl resolution, and systemd state helpers. |
+| `lib/kisa-cce-checks/_account-file.sh` | U-01 through U-33 account and filesystem checks. |
+| `lib/kisa-cce-checks/_service.sh` | U-34 through U-63 service checks. |
+| `lib/kisa-cce-checks/_system.sh` | U-64 through U-67 patch, time, and logging checks. |
 | `data/criteria.tsv` | Ordered 67-row criterion catalog and report metadata. |
 | `data/VERSION` | Runtime and package version source. |
+| `etc/kisa-cce-scanner/policy.d` | Header-only default policy skeleton installed as root-owned configuration. |
 | `share/kisa-cce-linux-scanner/locale` | Korean and English report catalogs in a package-specific data path. |
 | `tests/run.sh` | Generated-fixture regression suite and staged-installation checks. |
 | `Makefile` | Syntax, test, lint, and `DESTDIR` installation entry points. |
@@ -36,23 +40,38 @@ The public launcher supports the development tree directly:
 
 ```text
 bin/kisa-cce-scan
-lib/kisa-cce-scan-main.sh
-lib/*.sh
+bin/kisa-cce-collect
+bin/kisa-cce-policy-compile
+lib/kisa-cce-checks/_*.sh
+lib/kisa-cce-cli/_*.sh
+lib/kisa-cce-core/_*.sh
+lib/kisa-cce-policy/_*.sh
+lib/kisa-cce-resolvers/_*.sh
+lib/kisa-cce-runtime/_*.sh
 data/criteria.tsv
 data/VERSION
 share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po
+etc/kisa-cce-scanner/policy.d/00-default.tsv
 ```
 
 With `prefix=/usr`, the default installed layout is:
 
 ```text
 /usr/bin/kisa-cce-scan
-/usr/lib/kisa-cce-linux-scanner/*.sh
+/usr/bin/kisa-cce-collect
+/usr/bin/kisa-cce-policy-compile
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-checks/_*.sh
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-cli/_*.sh
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-core/_*.sh
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-policy/_*.sh
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-resolvers/_*.sh
+/usr/lib/kisa-cce-linux-scanner/kisa-cce-runtime/_*.sh
 /usr/share/kisa-cce-linux-scanner/criteria.tsv
 /usr/share/kisa-cce-linux-scanner/VERSION
 /usr/share/kisa-cce-linux-scanner/locale/{ko,en}/LC_MESSAGES/kisa-cce-linux-scanner.po
 /usr/share/man/man8/kisa-cce-scan.8
 /usr/share/man/man8/kisa-cce-collect.8
+/usr/share/man/man8/kisa-cce-policy-compile.8
 ```
 
 The main file derives the data directory from its own private-library location. It does not accept a caller-controlled module path. The same relative-prefix rule allows a command inside a `DESTDIR` staging tree to execute before the package is built, provided the command, private library, and data retain one of the supported relative layouts.
@@ -65,9 +84,9 @@ The main file derives the data directory from its own private-library location. 
 4. CLI arguments and `data/criteria.tsv` are validated before collection begins.
 5. `/etc/os-release` inside the selected scan root determines the product identity, configuration family, and upstream base release.
 6. An offline root disables runtime collection. A live-root scan requires UID 0.
-7. Normal scans validate the output path, pin the output directory by file descriptor, create protected report and scratch files through that descriptor, and start one immutable scan epoch. Sysctl explanation mode creates only a protected temporary workspace and its own epoch.
+7. Normal scans validate the output path, pin the output directory by file descriptor, create protected report and scratch files through that descriptor, and start one immutable scan epoch. Automation mode stages both reports in the protected scratch directory. Sysctl explanation mode creates only a protected temporary workspace and its own epoch.
 8. Catalog rows are read in order. Each `U-NN` row dispatches to `check_u_nn` and produces exactly one result when selected.
-9. The scanner appends a summary, verifies report ownership, permissions, record counts, and the pinned output-directory binding, prints both report paths, and returns the aggregate exit status.
+9. The scanner appends a summary, verifies report ownership, permissions, record counts, and the pinned output-directory binding, prints both report paths, and returns the aggregate exit status. Automation mode first rejects any `MANUAL` or `ERROR`, validates all 67 results, and moves both staged files through the pinned directory before printing their paths.
 
 When `--debug` is active, the main flow and subsystem resolvers emit schema-versioned events through the central debug API. The option also enables normal verbose progress. Debug records go only to the standard-error descriptor captured when `--debug` is accepted during option parsing; result reports and the standard-output report-path protocol are unchanged. The API percent-encodes dynamic field values and applies per-field and per-event limits before using the normal dmesg-framed console writer. It intentionally exposes normalized operational states rather than shell execution, assessed content, result evidence, or native-command output.
 
@@ -153,6 +172,8 @@ The filesystem model selects `.conf` files from these directories:
 
 It implements same-basename priority, lexical application order, `/dev/null` masks, explicit assignments, exclusion directives, glob assignments, and dot/slash key normalization. During a live systemd-based scan, the resolver also requests the loader's `--cat-config` stream and compares that interpretation with the filesystem model and current kernel value. Both `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` are accepted after ownership, mode, and parent-path validation.
 
+In a live non-systemd container, the absence of a systemd loader is an established runtime state rather than a loader error. If no trusted `sysctl` command exists, a dot-form key may use an existing regular `/proc/sys` file as a read-only runtime fallback. Filesystem drop-ins remain visible as static evidence but are not reported as applied persistent state without an active loader.
+
 Unexpected loader commands, unsupported service overrides, or supplied `sysctl.extra` credential material prevent a conclusive result. A stock unit declaration that can load `sysctl.extra` is not itself evidence that a credential was supplied. On Debian-family targets, an active UFW `IPT_SYSCTL` source is resolved as an additional network-sysctl layer. `/etc/sysctl.conf.d` is reported as nonstandard and inactive; it is not treated as a standard source directory.
 
 References: [systemd `sysctl.d(5)`](https://www.freedesktop.org/software/systemd/man/latest/sysctl.d.html), [RHEL 10 kernel parameter management](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/managing_monitoring_and_updating_the_kernel/configuring-kernel-parameters-at-runtime).
@@ -191,6 +212,7 @@ Before success, `validate_reports` verifies:
 - the Markdown header and status-summary rows occur exactly once with the recorded counts.
 - the generated priority links use stable, scanner-controlled `u-nn` anchors rather than title-derived anchors;
 - complete mode contains exactly 67 results and zero final `MANUAL` states.
+- automation mode publishes only when all 67 `status` and `technical_status` fields are `GOOD`, `VULNERABLE`, or `NOT_APPLICABLE`; policy provenance retains the original manual basis, and a blocked run leaves no report artifact from that invocation.
 
 JSON schema validation is not currently part of the runtime finalization path. The test suite optionally parses JSONL with `jq` when it is installed.
 

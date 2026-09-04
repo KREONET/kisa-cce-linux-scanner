@@ -1,0 +1,8 @@
+# KISA CCE policy authoring schema version 1.
+schema_version: 1
+
+# Add review-ID-bound decisions after an audit. The default list approves nothing.
+attestations: []
+
+# Omit time_sources to leave the typed fact set absent. Adding `time_sources: []`
+# creates an explicit empty allowlist instead.
