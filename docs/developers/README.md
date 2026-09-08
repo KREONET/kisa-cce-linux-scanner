@@ -46,7 +46,7 @@ Use a Linux environment with:
 - `make` for validation and staged installation;
 - ShellCheck for `make lint`;
 - `mandoc` when changing a manual page;
-- a container runtime for the distribution matrix.
+- Apple `container` or QEMU for the distribution matrix.
 
 The public launcher executes `/bin/bash`. The stock macOS Bash 3.2 runtime is not a valid target environment; use a Linux container or virtual machine for the required test suite.
 
@@ -168,7 +168,7 @@ Use the distribution-provided Bash and ShellCheck versions. Run permission-sensi
 
 Containerized userspace coverage does not replace acceptance testing on a booted host with systemd, active listeners, real mount topology, and native validators. Record only tests that were actually run.
 
-The project-specific Apple `container` procedure is documented in [macOS container testing](macos-container-testing.md).
+Use [automated Linux guest tests](test-automation.md) for Apple `container` or QEMU. The manual Apple procedure remains in [macOS container testing](macos-container-testing.md).
 
 ## Preparing a review
 

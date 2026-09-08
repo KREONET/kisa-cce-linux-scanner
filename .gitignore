@@ -2,3 +2,6 @@ reports/
 *.jsonl
 /kisa-cce-*.md
 .run.*
+
+.test-results/
+__pycache__/

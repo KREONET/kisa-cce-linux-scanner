@@ -1,5 +1,7 @@
 # Testing with Apple container on macOS
 
+For scripted Apple and QEMU runs, use [automated Linux guest tests](test-automation.md).
+
 This procedure runs the scanner's Linux validation matrix from an Apple silicon Mac. It uses Apple's `container` command to execute OCI images as lightweight Linux virtual machines. It does not replace acceptance testing on booted systems with a real systemd manager, listeners, mount topology, and native validators.
 
 Apple supports `container` on macOS 26 and later on Apple silicon. Install the latest signed package from the [Apple container releases](https://github.com/apple/container/releases), then follow the [official installation instructions](https://github.com/apple/container#initial-install). Do not pin this project documentation to a locally installed `container` version; consult the command reference for the installed release because command availability can vary by release and macOS version.
@@ -204,7 +206,7 @@ container image list
 
 Use an equivalent package-installing Containerfile for Debian-family and Rocky Linux images. Do not commit credentials, proxy configuration, repository tokens, or package caches. After loading, use the imported reference shown by `container image list` as `TEST_IMAGE`. The `container image load --input` interface is documented in the [official command reference](https://github.com/apple/container/blob/main/docs/command-reference.md#container-image-load), and the archive creation syntax follows Docker's [OCI exporter documentation](https://docs.docker.com/build/exporters/oci-docker/).
 
-This workaround changes only how the local test image is prepared. All scanner tests must still run through Apple `container`, with the checkout mounted read-only and the same UID/GID and report checks.
+This workaround changes only how the local test image is prepared. When following this Apple workflow, keep the checkout mounted read-only and preserve the same UID/GID and report checks. The QEMU workflow is an alternative for other hosts.
 
 ## Cleanup
 

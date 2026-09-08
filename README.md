@@ -147,6 +147,8 @@ With `prefix=/usr`, private Bash files are grouped by function under `/usr/lib/k
 
 ## Validation
 
+Use [automated Linux guest tests](docs/developers/test-automation.md) to run the Linux suite through Apple `container` or QEMU.
+
 ```bash
 make check
 make lint

@@ -120,6 +120,7 @@ lint:
 		xargs -n 8 shellcheck --severity=warning -x
 	printf '%s\n' $(TEST_FILES) tests/benchmark.sh | \
 		xargs -n 8 shellcheck --severity=warning
+	shellcheck --severity=warning tools/testing/guest.sh
 
 install:
 	$(INSTALL) -d \
@@ -152,3 +153,16 @@ install:
 		[ ! -L "$(DESTDIR)$(policydir)/00-default.tsv" ]; then \
 		$(INSTALL_POLICY_DATA) $(POLICY_FILES) "$(DESTDIR)$(policydir)/00-default.tsv"; \
 	fi
+
+# These targets run host-side automation and do not install runtime dependencies.
+PYTHON ?= python3
+TEST_ARGS ?=
+.PHONY: check-runner test-apple test-qemu
+check-runner:
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tools/testing -p 'test_*.py'
+
+test-apple:
+	$(PYTHON) tools/testing/run.py --backend apple $(TEST_ARGS)
+
+test-qemu:
+	$(PYTHON) tools/testing/run.py --backend qemu $(TEST_ARGS)
