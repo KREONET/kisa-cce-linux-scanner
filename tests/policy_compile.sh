@@ -256,4 +256,18 @@ BASH_ENV="$environment_file" ENV="$environment_file" \
     fail "clean-environment compiler invocation failed"
 [ ! -e "$environment_marker" ] || fail "compiler wrapper loaded the caller shell environment"
 
+# Schema version 1 keeps its existing compiler and output contract.
+# shellcheck source=../lib/kisa-cce-policy/_policy-yaml.sh disable=SC1091
+. "$project_directory/lib/kisa-cce-policy/_policy-yaml.sh"
+legacy_policy="$test_directory/legacy.yml"
+printf '%s\n' 'schema_version: 1' 'attestations: []' > "$legacy_policy"
+chmod 0600 "$legacy_policy"
+legacy_attestations="$test_directory/legacy-attestations.tsv"
+legacy_time_sources="$test_directory/legacy-time-sources.tsv"
+legacy_errors="$test_directory/legacy-errors.txt"
+policy_yaml_compile "$legacy_policy" "$legacy_attestations" "$legacy_time_sources" "$legacy_errors" ||
+    fail "schema version 1 compatibility failed"
+assert_equal $'code\tdecision\treview_id\tticket\tapprover\texpires' \
+    "$(sed -n '1p' "$legacy_attestations")" "schema version 1 output header"
+
 printf 'PASS: policy YAML compiler\n'

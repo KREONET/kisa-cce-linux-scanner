@@ -17,7 +17,7 @@ The loader is implemented as a Bash 4.3 or newer source module in `lib/kisa-cce-
 This document describes scanner policy schema version 1. The distinct
 schema-version-2 desired state used by
 `kisa-cce-patch --automatic --desired-state FILE` is documented in
-[Autopatcher coverage](autopatcher-coverage.md). The two formats are not
+[Autopatcher coverage](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/reference/autopatcher-coverage.md). The two formats are not
 interchangeable.
 
 ## Directory contract

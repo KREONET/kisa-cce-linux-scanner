@@ -246,13 +246,11 @@ test_shell_syntax() (
 test_manpage_contract() (
     local manpage="$PROJECT_DIR/man/kisa-cce-scan.8"
     local collector_manpage="$PROJECT_DIR/man/kisa-cce-collect.8"
-    local patcher_manpage="$PROJECT_DIR/man/kisa-cce-patch.8"
     local compiler_manpage="$PROJECT_DIR/man/kisa-cce-policy-compile.8"
     local option=""
 
     [ -r "$manpage" ] || fail "manual page is missing"
     [ -r "$collector_manpage" ] || fail "collector manual page is missing"
-    [ -r "$patcher_manpage" ] || fail "patcher manual page is missing"
     [ -r "$compiler_manpage" ] || fail "policy compiler manual page is missing"
     for option in \
         '\-\-root' \
@@ -276,24 +274,12 @@ test_manpage_contract() (
     grep -Fq -- '\-\-evidence-bundle' "$manpage" || fail "manual page is missing evidence bundle option"
     grep -Fq -- '\-\-policy-dir' "$manpage" || fail "manual page is missing policy directory option"
     grep -Fq -- '\-\-output-dir' "$collector_manpage" || fail "collector manual page is missing output option"
-    for option in \
-        '\-\-root' \
-        '\-\-output-dir' \
-        '\-\-checks' \
-        '\-\-apply' \
-        '\-\-automatic' \
-        '\-\-rollback' \
-        '\-\-help' \
-        '\-\-version'; do
-        grep -Fq -- "$option" "$patcher_manpage" || fail "patcher manual page is missing option: $option"
-    done
     grep -Fq -- '\-\-input' "$compiler_manpage" || fail "policy compiler manual page is missing input option"
     grep -Fq -- '\-\-output-dir' "$compiler_manpage" || fail "policy compiler manual page is missing output option"
 
     if command -v mandoc >/dev/null 2>&1; then
         mandoc -T lint "$manpage" >/dev/null || fail "manual page lint failed"
         mandoc -T lint "$collector_manpage" >/dev/null || fail "collector manual page lint failed"
-        mandoc -T lint "$patcher_manpage" >/dev/null || fail "patcher manual page lint failed"
         mandoc -T lint "$compiler_manpage" >/dev/null || fail "policy compiler manual page lint failed"
     fi
 )
@@ -2696,42 +2682,10 @@ test_installed_layouts() (
             "$layout_name installed command mode"
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-collect")" \
             "$layout_name installed collector mode"
-        assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-patch")" \
-            "$layout_name installed patcher mode"
         assert_equal 755 "$(mode_of "$installed_prefix/bin/kisa-cce-policy-compile")" \
             "$layout_name installed policy compiler mode"
         assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-cli/_scan-main.sh")" \
             "$layout_name private main mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-cli/_patch-main.sh")" \
-            "$layout_name private patcher main mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_engine.sh")" \
-            "$layout_name private patch engine mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_configuration-transaction.sh")" \
-            "$layout_name private configuration transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_coverage.sh")" \
-            "$layout_name private patch coverage mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_desired-state-policy.sh")" \
-            "$layout_name private desired-state policy mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_edge-service-transaction.sh")" \
-            "$layout_name private edge-service transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_pam-transaction.sh")" \
-            "$layout_name private PAM transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_account-transaction.sh")" \
-            "$layout_name private account transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_filesystem-transaction.sh")" \
-            "$layout_name private filesystem transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_inventory-transaction.sh")" \
-            "$layout_name private inventory transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_network-service-transaction.sh")" \
-            "$layout_name private network-service transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_orchestrator.sh")" \
-            "$layout_name private orchestrator mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_service-transaction.sh")" \
-            "$layout_name private service transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_system-transaction.sh")" \
-            "$layout_name private system transaction mode"
-        assert_equal 644 "$(mode_of "$private_library_path/kisa-cce-patcher/_metadata-rules.sh")" \
-            "$layout_name private patch rules mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/criteria.tsv")" \
             "$layout_name criterion data mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/kisa-cce-linux-scanner/locale/en/LC_MESSAGES/kisa-cce-linux-scanner.po")" \
@@ -2742,10 +2696,10 @@ test_installed_layouts() (
             "$layout_name installed manual page mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-collect.8")" \
             "$layout_name installed collector manual mode"
-        assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-patch.8")" \
-            "$layout_name installed patcher manual mode"
         assert_equal 644 "$(mode_of "$installed_prefix/share/man/man8/kisa-cce-policy-compile.8")" \
             "$layout_name installed policy compiler manual mode"
+        [ ! -e "$installed_prefix/bin/kisa-cce-patch" ] || fail "scanner installed patcher command"
+        [ ! -e "$private_library_path/kisa-cce-patcher" ] || fail "scanner installed patcher libraries"
         [ ! -e "$installed_prefix/share/doc/kisa-cce-linux-scanner" ] ||
             fail "$layout_name install unexpectedly copied repository documentation"
         command_output="$(CDPATH='' cd -P -- "$TEST_TEMP" &&
@@ -2759,11 +2713,6 @@ test_installed_layouts() (
         assert_contains "$command_output" \
             "kisa-cce-collect: kisa-cce-collect evidence-schema-2" \
             "$layout_name installed collector version"
-        command_output="$("$installed_prefix/bin/kisa-cce-patch" --version 2>&1)" ||
-            fail "$layout_name installed patcher version command failed"
-        assert_contains "$command_output" \
-            "kisa-cce-patch: kisa-cce-patch $(sed -n '1p' "$PROJECT_DIR/data/VERSION")" \
-            "$layout_name installed patcher version"
         command_output="$("$installed_prefix/bin/kisa-cce-policy-compile" --version 2>&1)" ||
             fail "$layout_name installed policy compiler version command failed"
         assert_contains "$command_output" \

@@ -30,9 +30,6 @@ supported releases, lifecycle scope, and exclusions.
 - Provides all-or-nothing scanner automation mode that publishes no report when incomplete technical, runtime, external, or invalid-policy evidence remains.
 - Includes `kisa-cce-collect` for capturing live service, listener, mount, firewall, and normalized time-source state before an offline scan.
 - Includes `kisa-cce-policy-compile` for converting a restricted, dependency-free YAML authoring format into validated scanner TSV policy files.
-- Includes a dry-run-first `kisa-cce-patch` command for two deterministic configuration rules and seven file-metadata rules, including multi-target cron and log rules.
-- Provides an explicit `--automatic --desired-state FILE` mode that evaluates all 67 criteria, dispatches typed domain transactions, and retains protected recovery state.
-- Registers the remediation contract as 9 fixed and 58 conditional rules, with no gated row.
 
 The criterion reference is published at [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).
 
@@ -118,58 +115,7 @@ Explain one sysctl key without changing it:
 sudo ./bin/kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 ```
 
-Review a remediation plan before explicitly applying it:
-
-```bash
-sudo ./bin/kisa-cce-patch \
-  --output-dir /var/lib/kisa-cce-patcher/change-20260904
-
-sudo ./bin/kisa-cce-patch \
-  --output-dir /var/lib/kisa-cce-patcher/change-20260904-apply \
-  --apply
-```
-
-The public patcher supports U-12, U-16, U-18, U-19, U-22, U-29, U-37, U-62,
-and U-67. The default set omits U-62 and U-67; both require an explicit
-live-root selection. U-12 and U-62 install deterministic managed content, while
-the other rules change owner UID and permission bits. Configuration and
-metadata changes share one checksummed rollback transaction and are verified by
-a new scan. The patcher does not reload services or apply arbitrary content.
-See the
-[autopatcher design](docs/design/autopatcher.md).
-
-The complete coverage contract is fixed=9, conditional=58, gated=0. Account,
-PAM, filesystem, inventory, service, network-service, edge-service, and system
-transaction modules implement the conditional domain boundaries. The public
-full-coverage mode binds a complete desired-state v2 profile, complete pre-scan,
-root identity, ordered domain plans, and cross-process rollback.
-
-Run the all-67 automatic workflow without selecting a transaction path
-manually:
-
-```bash
-sudo ./bin/kisa-cce-patch \
-  --automatic \
-  --desired-state /etc/kisa-cce-patcher/desired-state.yml
-```
-
-Automatic mode is root-only and atomically creates a protected transaction below
-`/var/lib/kisa-cce-patcher/transactions`. The profile must contain exactly one
-schema-version-2 desired state for every U-01 through U-67 criterion. Automatic
-mode reaches `verified` only after a fresh 67-result post-scan reports every
-criterion as `GOOD` or `NOT_APPLICABLE`.
-
-The shipped `examples/desired-state-policy-v2.yml` demonstrates only the nine
-fixed rows. It must not be passed to full automatic mode as an all-67 profile.
-Use [`examples/desired-state-policy-v2-full.yml`](examples/desired-state-policy-v2-full.yml)
-as the compile-valid 67-row template, then replace its domain-input path with
-reviewed site data before installation.
-
-The full workflow still requires all typed organization inputs, trusted
-callbacks, fresh live and vendor evidence, and post-boot verification where
-applicable. A verified external prerequisite such as U-64 package action stops
-before mutation with `automatic_status=external_action_required` and exit
-status 3; it is never treated as successful remediation.
+Remediation is maintained and installed separately in [KISA CCE Linux Patcher](https://github.com/KREONET/kisa-cce-linux-patcher).
 
 See [Operator usage](docs/operators/usage.md) for privileges, options, reports, result states, and exit codes.
 
@@ -182,12 +128,11 @@ See [Operator usage](docs/operators/usage.md) for privileges, options, reports, 
 | [Platform support](docs/reference/platform-support.md) | Accepted releases, derivative mapping, and lifecycle sources. |
 | [Contributor guide](docs/developers/README.md) | Contributor workflow, review checklist, and macOS container matrix testing. |
 | [Packaging](docs/packaging/README.md) | `DESTDIR` layout and Debian/RPM integration. |
-| [Autopatcher](docs/design/autopatcher.md) | Fixed-rule planning, all-67 automatic apply, verification, and rollback safety contract. |
-| [Autopatcher coverage](docs/reference/autopatcher-coverage.md) | Fixed/conditional contract, typed desired state, private domains, and all-67 orchestration boundary. |
+| [Autopatcher](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/design/autopatcher.md) | Fixed-rule planning, all-67 automatic apply, verification, and rollback safety contract. |
+| [Autopatcher coverage](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/reference/autopatcher-coverage.md) | Fixed/conditional contract, typed desired state, private domains, and all-67 orchestration boundary. |
 
 The installed command manuals are available as `kisa-cce-scan(8)`,
-`kisa-cce-collect(8)`, `kisa-cce-policy-compile(8)`, and
-`kisa-cce-patch(8)`.
+`kisa-cce-collect(8)`, and `kisa-cce-policy-compile(8)`.
 
 ## Installation staging
 

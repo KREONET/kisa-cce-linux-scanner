@@ -116,7 +116,7 @@ container run --rm \
   --mount type=bind,source="$repository_root",target=/src,readonly \
   --workdir /src \
   "$TEST_IMAGE" \
-  /bin/bash -lc 'make lint && mandoc -T lint man/kisa-cce-scan.8 && mandoc -T lint man/kisa-cce-collect.8 && mandoc -T lint man/kisa-cce-policy-compile.8 && mandoc -T lint man/kisa-cce-patch.8'
+  /bin/bash -lc 'make lint && mandoc -T lint man/kisa-cce-scan.8 && mandoc -T lint man/kisa-cce-collect.8 && mandoc -T lint man/kisa-cce-policy-compile.8'
 ```
 
 The read-only bind mount confirms that tests and package staging use protected temporary directories instead of modifying the checkout. The `--mount` syntax and key-only `readonly` option follow Apple's [mount option reference](https://github.com/apple/container/blob/main/docs/volumes.md#options-for---mount).
@@ -166,93 +166,6 @@ container run --rm \
 ```
 
 Exit status 1 represents a completed scan with at least one `VULNERABLE` result. Exit status 2 can represent a completed minimal-container scan with a criterion `ERROR`; the existence and integrity checks above distinguish that result from an invocation that failed before producing reports. Review the final JSONL summary and debug stream instead of treating either status as an automatic harness failure.
-
-## Metadata patch and rollback smoke
-
-Exercise dry-run, apply, independent post-scan, and guarded rollback in an
-ephemeral offline root. Repeat this test for every matrix image. It changes only
-files created below `/tmp` inside the disposable container:
-
-```bash
-container run --rm \
-  --uid 0 \
-  --gid 0 \
-  --mount type=bind,source="$repository_root",target=/src,readonly \
-  --workdir /src \
-  "$TEST_IMAGE" \
-  /bin/bash -lc '
-    set -eu
-    target_root=/tmp/kisa-cce-patch-root
-    dry_run=/tmp/kisa-cce-patch-dry-run
-    transaction=/tmp/kisa-cce-patch-transaction
-
-    install -d -m 0755 "$target_root/etc" "$target_root/etc/cron.daily" \
-      "$target_root/usr/bin"
-    cp /etc/os-release "$target_root/etc/os-release"
-    printf "%s\n" "root:x:0:0:root:/root:/bin/bash" >"$target_root/etc/passwd"
-    printf "%s\n" "root:!:20000:0:99999:7:::" >"$target_root/etc/shadow"
-    printf "%s\n" "127.0.0.1 localhost" >"$target_root/etc/hosts"
-    printf "%s\n" "ssh 22/tcp" >"$target_root/etc/services"
-    : >"$target_root/etc/hosts.lpd"
-    : >"$target_root/usr/bin/crontab"
-    : >"$target_root/etc/cron.daily/package-job"
-    chmod 0666 "$target_root/etc/passwd" "$target_root/etc/shadow" \
-      "$target_root/etc/hosts" "$target_root/etc/services" \
-      "$target_root/etc/hosts.lpd"
-    chmod 04777 "$target_root/usr/bin/crontab"
-    chmod 0666 "$target_root/etc/cron.daily/package-job"
-
-    ./bin/kisa-cce-patch --root "$target_root" --output-dir "$dry_run"
-    test "$(cat "$dry_run/state")" = planned
-    test "$(stat -c %a "$target_root/etc/shadow")" = 666
-
-    ./bin/kisa-cce-patch \
-      --root "$target_root" \
-      --output-dir "$transaction" \
-      --apply
-    test "$(cat "$transaction/state")" = verified
-    test "$(stat -c %a "$target_root/etc/passwd")" = 644
-    test "$(stat -c %a "$target_root/etc/shadow")" = 400
-    test "$(stat -c %a "$target_root/etc/hosts")" = 644
-    test "$(stat -c %a "$target_root/etc/services")" = 644
-    test "$(stat -c %a "$target_root/etc/hosts.lpd")" = 600
-    test "$(stat -c %a "$target_root/usr/bin/crontab")" = 750
-    test "$(stat -c %a "$target_root/etc/cron.daily/package-job")" = 640
-
-    ./bin/kisa-cce-patch --rollback "$transaction"
-    test "$(cat "$transaction/state")" = rolled_back
-    test "$(stat -c %a "$target_root/etc/shadow")" = 666
-    test "$(stat -c %a "$target_root/usr/bin/crontab")" = 4777
-
-    if ./bin/kisa-cce-patch --root "$target_root" --automatic \
-      >/tmp/kisa-cce-patch-automatic.stdout 2>&1; then
-      exit 1
-    fi
-    grep -F -- "--automatic requires --desired-state FILE" \
-      /tmp/kisa-cce-patch-automatic.stdout >/dev/null
-  '
-```
-
-Also run the negative fixtures in `make check`. A successful smoke test does
-not prove crash durability or behavior on a booted host with concurrent package
-or configuration management.
-
-The default smoke covers the U-37 multi-target rule. It intentionally omits
-U-67 because that rule is live-root-only and depends on the container's actual
-`/var/log` mount and symlink topology. Exercise U-67 apply and rollback only in
-a dedicated disposable live container or VM, then retain its full transaction
-and scanner reports.
-
-Full automatic testing requires an exact 67-row desired-state v2 profile,
-criterion-specific root-owned mode-`0600` domain input files, trusted callback
-executables, and the services or providers named by that profile. The minimal
-offline fixture above deliberately cannot satisfy those prerequisites. Run
-`tests/patch_orchestrator.sh`, `tests/patch_full_automatic.sh`,
-`tests/patch_cli.sh`, and every focused domain transaction test in the
-container matrix, then exercise a complete
-`--automatic --desired-state FILE` run only in a disposable booted VM where
-post-change service, firewall, listener, package, and reboot state can be
-verified.
 
 ## Two different debug options
 
