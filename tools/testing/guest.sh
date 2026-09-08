@@ -20,7 +20,11 @@ source_parent="$(CDPATH='' cd -- "${BASH_SOURCE[0]%/*}" && pwd)"
 repository="$source_parent/kisa-cce-linux-$project"
 results=/tmp/kisa-cce-test-results
 mkdir -p "$results" || exit 2
-chmod 0700 "$results" || exit 2
+# Apple shared mounts can reject chmod even when the requested mode is already set.
+if [ "$(stat -c %a "$results")" != 700 ]; then
+    chmod 0700 "$results" || exit 2
+fi
+[ "$(stat -c %a "$results")" = 700 ] || exit 2
 printf 'phase\tstatus\texit_code\n' > "$results/phases.tsv"
 failed=0
 phase() {
@@ -51,7 +55,8 @@ if [ "$prepare" = --prepare ]; then
             if [ -f /etc/rocky-release ] || [ -f /etc/almalinux-release ]; then
                 dnf install -y epel-release
             fi
-            dnf install -y bash make ShellCheck mandoc jq findutils util-linux shadow-utils tar gzip
+            dnf install -y bash make ShellCheck mandoc jq findutils util-linux shadow-utils tar gzip \
+                coreutils gawk grep sed diffutils
         else
             echo "No supported package manager; use a prepared image." >&2
             exit 2
@@ -111,9 +116,25 @@ if [ "$suite" = all ] || [ "$suite" = smoke ]; then
         phase smoke /bin/bash -eu -o pipefail -c '
             cd "$1"
             result="$2"
+            platform_id="$(sed -n "s/^ID=//p" /etc/os-release | tr -d \"\")"
+            scan_options=()
+            if [ "$platform_id" = fedora ]; then
+                rejection_status=0
+                ./bin/kisa-cce-scan --root / --no-runtime \
+                    --output-dir "$result/rejected-report" \
+                    > "$result/rejection.stdout" 2> "$result/rejection.stderr" || rejection_status=$?
+                test "$rejection_status" -eq 2
+                grep -q "unsupported platform: fedora" "$result/rejection.stderr"
+                test ! -d "$result/rejected-report"
+                scan_options+=(--allow-unsupported)
+                printf "Fedora exploratory smoke: default rejection verified; platform support is not asserted.\n"
+            fi
             status=0
-            ./bin/kisa-cce-scan --root / --no-runtime --debug \
+            ./bin/kisa-cce-scan --root / --no-runtime --debug "${scan_options[@]}" \
                 --output-dir "$result/report" > "$result/scan.stdout" 2> "$result/scan.stderr" || status=$?
+            if [ "$platform_id" = fedora ]; then
+                grep -q "continuing on an unsupported platform: fedora" "$result/scan.stderr"
+            fi
             case "$status" in 0|1|2) ;; *) exit "$status" ;; esac
             markdown="$(sed -n "s/^\[[^]]*\] kisa-cce-scan: markdown_report=//p" "$result/scan.stdout")"
             json="$(sed -n "s/^\[[^]]*\] kisa-cce-scan: jsonl_report=//p" "$result/scan.stdout")"

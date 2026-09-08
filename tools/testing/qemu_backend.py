@@ -144,7 +144,8 @@ def run_qemu(args, payload: Path, output: Path) -> int:
                    "-nic", "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:" + str(port) + "-:22"]
         if getattr(args, "cpu", None):
             command += ["-cpu", args.cpu]
-        elif args.arch == "aarch64":
+        else:
+            # Current Rocky Linux guests require features absent from the default x86 model.
             command += ["-cpu", "max" if accel == "tcg" else "host"]
         if firmware is not None:
             command += ["-bios", str(firmware)]

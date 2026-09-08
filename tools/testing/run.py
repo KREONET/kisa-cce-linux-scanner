@@ -18,6 +18,7 @@ import time
 import uuid
 
 from qemu_backend import run_qemu
+from matrix import resolve_matrix
 
 
 def positive(value):
@@ -30,7 +31,11 @@ def positive(value):
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--backend", required=True, choices=("apple", "qemu"))
-    result.add_argument("--image", required=True, action="append", help="OCI reference or local cloud disk; repeat for a matrix")
+    selection = result.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--image", action="append", help="explicit OCI reference or local cloud disk; repeat for a custom matrix")
+    selection.add_argument("--matrix", choices=("supported",), help="use the reviewed Ubuntu, Debian, Rocky Linux, and Fedora releases")
+    result.add_argument("--distribution", action="append", choices=("ubuntu", "debian", "rocky", "fedora"), help="filter --matrix supported; repeat for multiple distributions")
+    result.add_argument("--image-dir", type=Path, help="QEMU matrix directory containing DISTRIBUTION-VERSION-ARCH.qcow2 images")
     result.add_argument("--suite", default="all", choices=("all", "check", "lint", "smoke"))
     result.add_argument("--scanner-dir", type=Path, help="scanner checkout for patcher integration")
     result.add_argument("--output-dir", type=Path, help="new directory for logs and summary.json")
@@ -168,6 +173,7 @@ def main(argv=None):
         if not (scanner / "bin/kisa-cce-scan").is_file():
             raise ValueError("patcher integration requires --scanner-dir or a sibling scanner checkout")
         repositories["kisa-cce-linux-scanner"] = scanner
+    args.image, matrix = resolve_matrix(args)
     if any(any(ord(character) < 32 for character in value) for value in args.image):
         raise ValueError("image references cannot contain control characters")
     if args.firmware:
@@ -179,6 +185,8 @@ def main(argv=None):
             "cpus": args.cpus, "memory_mib": args.memory,
             "boot_timeout": args.boot_timeout, "timeout": args.timeout,
             "sources": {name: str(path) for name, path in repositories.items()}}
+    if matrix is not None:
+        plan["matrix"] = matrix
     if args.dry_run:
         print(json.dumps(plan, indent=2))
         return 0

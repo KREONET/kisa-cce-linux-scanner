@@ -156,15 +156,21 @@ mandoc -T lint man/kisa-cce-collect.8
 mandoc -T lint man/kisa-cce-policy-compile.8
 ```
 
-Run containerized userspace validation on the maintained matrix:
+Run containerized userspace validation on the matrix reviewed on 2026-09-08:
 
 | Family | Releases |
 |---|---|
 | Debian | 12, 13 |
 | Ubuntu | 22.04 LTS, 24.04 LTS, 26.04 LTS |
 | Rocky Linux | 8.10, 9.8, 10.2 |
+| Fedora | 43, 44 |
 
 Use the distribution-provided Bash and ShellCheck versions. Run permission-sensitive fixture tests as a non-root user, then perform the installed-layout and scanner smoke checks with the privileges they require. For each matrix target, verify `make check`, `make lint`, staged installation, one 67-result scan, Markdown and JSONL cardinality, report modes, and JSONL parsing when `jq` is available.
+
+Use `--matrix supported --prepare` to select these releases. Fedora smoke verifies
+default platform rejection before an exploratory `--allow-unsupported` scan;
+its inclusion does not expand production platform support. See the
+[automated test guide](test-automation.md) for lifecycle scope and snapshot updates.
 
 Containerized userspace coverage does not replace acceptance testing on a booted host with systemd, active listeners, real mount topology, and native validators. Record only tests that were actually run.
 

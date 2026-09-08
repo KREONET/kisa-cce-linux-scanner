@@ -1,0 +1,56 @@
+{
+  "reviewed_on": "2026-09-08",
+  "support_scope": "Upstream standard security maintenance, including Debian LTS; excludes subscription-only extended maintenance and development releases.",
+  "releases": [
+    {
+      "distribution": "ubuntu",
+      "version": "22.04",
+      "image": "docker.io/library/ubuntu:22.04"
+    },
+    {
+      "distribution": "ubuntu",
+      "version": "24.04",
+      "image": "docker.io/library/ubuntu:24.04"
+    },
+    {
+      "distribution": "ubuntu",
+      "version": "26.04",
+      "image": "docker.io/library/ubuntu:26.04"
+    },
+    {
+      "distribution": "debian",
+      "version": "12",
+      "image": "docker.io/library/debian:12-slim"
+    },
+    {
+      "distribution": "debian",
+      "version": "13",
+      "image": "docker.io/library/debian:13-slim"
+    },
+    {
+      "distribution": "rocky",
+      "version": "8.10",
+      "image": "docker.io/rockylinux/rockylinux:8.10"
+    },
+    {
+      "distribution": "rocky",
+      "version": "9.8",
+      "image": "docker.io/rockylinux/rockylinux:9.8"
+    },
+    {
+      "distribution": "rocky",
+      "version": "10.2",
+      "image": "docker.io/rockylinux/rockylinux:10.2"
+    },
+    {
+      "distribution": "fedora",
+      "version": "43",
+      "image": "registry.fedoraproject.org/fedora:43"
+    },
+    {
+      "distribution": "fedora",
+      "version": "44",
+      "image": "registry.fedoraproject.org/fedora:44"
+    }
+  ]
+}

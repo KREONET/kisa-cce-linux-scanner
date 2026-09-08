@@ -46,7 +46,7 @@ docs/
 | [Contributor guide](developers/README.md) | Repository workflow, subsystem boundaries, review checklist, and macOS container validation. |
 | [Development reference](developers/development.md) | Check implementation contract, validation workflow, and release gates. |
 | [Automated Linux guest tests](developers/test-automation.md) | Shared Apple container and QEMU suites, matrix runs, and retained results. |
-| [macOS container testing](developers/macos-container-testing.md) | Apple `container` setup, eight-image validation matrix, debug smoke checks, and scoped cleanup. |
+| [macOS container testing](developers/macos-container-testing.md) | Apple `container` setup, reviewed distribution matrix, debug smoke checks, and scoped cleanup. |
 | [Packaging](packaging/README.md) | `DESTDIR` installation and future Debian/RPM integration. |
 
 The installed command manuals are maintained as

@@ -109,6 +109,16 @@ class QemuCleanupTests(unittest.TestCase):
         self.assertEqual(self.vm.returncode, 1)
         self.assertFalse(self.key.parent.exists())
 
+    def test_default_cpu_exposes_features_required_by_matrix(self):
+        for acceleration, expected in (("tcg", "max"), ("kvm", "host"), ("hvf", "host")):
+            with self.subTest(acceleration=acceleration), \
+                    patch.object(BACKEND, "_acceleration", return_value=acceleration):
+                self.vm.returncode = None
+                with self.assertRaisesRegex(RuntimeError, "collection failed"):
+                    BACKEND.run_qemu(self.args, self.payload, self.output)
+                command = BACKEND.subprocess.Popen.call_args.args[0]
+                self.assertEqual(command[command.index("-cpu") + 1], expected)
+
     def test_explicit_cpu_model_is_passed_as_one_argument(self):
         self.args.cpu = "max"
         with self.assertRaisesRegex(RuntimeError, "collection failed"):

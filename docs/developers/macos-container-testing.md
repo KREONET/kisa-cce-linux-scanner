@@ -30,7 +30,9 @@ Apple `container` consumes and produces OCI-compatible images. Use arm64 Linux i
 
 ## Test matrix
 
-Exercise all eight maintained base-image tags:
+Exercise the matrix reviewed on 2026-09-08. The [automated test guide](test-automation.md)
+defines lifecycle scope and the checked-in release snapshot. Use
+`make test-apple TEST_ARGS="--matrix supported --prepare"` to execute it:
 
 | Platform | OCI base image |
 |---|---|
@@ -42,6 +44,8 @@ Exercise all eight maintained base-image tags:
 | Rocky Linux 8.10 | `rockylinux/rockylinux:8.10` |
 | Rocky Linux 9.8 | `rockylinux/rockylinux:9.8` |
 | Rocky Linux 10.2 | `rockylinux/rockylinux:10.2` |
+| Fedora 43 | `registry.fedoraproject.org/fedora:43` |
+| Fedora 44 | `registry.fedoraproject.org/fedora:44` |
 
 Prepare a test image for each tag with the distribution's Bash, GNU findutils,
 compatible base utilities, `make`, ShellCheck, `mandoc`, and `jq`. Do not replace
@@ -57,7 +61,11 @@ repository_root="$(git rev-parse --show-toplevel)"
 TEST_IMAGE="kisa-cce-test:ubuntu-26.04"
 ```
 
-Repeat the validation and smoke steps for every row in the matrix.
+Repeat validation for every row in the matrix. The manual scanner smoke below
+assumes a production-supported platform. For Fedora, use the automated smoke:
+it verifies default rejection, then performs an exploratory
+`--allow-unsupported` scan with warning and report checks. Fedora userspace
+coverage does not expand production platform support.
 
 ### Ubuntu 26.04 command-capability check
 
