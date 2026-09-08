@@ -73,7 +73,7 @@ The separate patcher provides [kisa-cce-patch(8)](https://github.com/KREONET/kis
 | Runtime evidence contract | `docs/operators/evidence-bundle.md` and `lib/kisa-cce-runtime/_evidence.sh`. |
 | Report localization contract | `docs/operators/localization.md`, `lib/kisa-cce-core/_i18n.sh`, and `share/kisa-cce-linux-scanner/locale`. |
 | Scan cache and invalidation contract | `docs/design/performance.md` and `lib/kisa-cce-core/_scan-epoch.sh`. |
-| Project license | `LICENSE` and `LICENSES/`. |
+| Project license | `LICENSING.md`, `LICENSE-LGPL`, `LICENSE-BSD`, and `LICENSES/`. |
 | Scanner version | `data/VERSION`. |
 
 The rendered KISA criterion pages provide the assessment reference, while the local catalog controls which results the scanner emits: [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).

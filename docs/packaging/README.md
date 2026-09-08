@@ -92,7 +92,7 @@ Do not publish Debian or RPM package metadata until all of the following values 
 
 The current tree provides the filesystem and build interface, but it does not yet claim a policy-complete `.deb` or `.rpm` package.
 
-The project license expression is `LGPL-3.0-or-later OR BSD-3-Clause`. Debian metadata must reproduce the applicable copyright and alternative-license information. RPM metadata should use `License: LGPL-3.0-or-later OR BSD-3-Clause` and install `LICENSE`, `NOTICE`, and all files under `LICENSES/` through `%license` without adding them to the upstream runtime install target.
+The project license expression is `LGPL-3.0-or-later OR BSD-3-Clause`. Debian metadata must reproduce the applicable copyright and alternative-license information. RPM metadata should use `License: LGPL-3.0-or-later OR BSD-3-Clause` and install `LICENSING.md`, `LICENSE-LGPL`, `LICENSE-BSD`, `NOTICE`, and all files under `LICENSES/` through `%license` without adding them to the upstream runtime install target.
 
 ## References
 

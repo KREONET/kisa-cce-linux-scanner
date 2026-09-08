@@ -9,10 +9,10 @@ SPDX-License-Identifier: LGPL-3.0-or-later OR BSD-3-Clause
 
 Copyright (c) 2026 Euiseo Cha <escha@zeroday0619.dev>
 
-The complete LGPLv3 terms are in LICENSES/LGPL-3.0-or-later.txt. LGPLv3
+The complete LGPLv3 terms are in LICENSE-LGPL. LGPLv3
 incorporates GPLv3; the corresponding GPLv3 terms are in
-LICENSES/GPL-3.0-or-later.txt.
+LICENSES/gnu/GPL-3.0-or-later.txt.
 
-The complete BSD 3-Clause terms are in LICENSES/BSD-3-Clause.txt.
+The complete BSD 3-Clause terms are in LICENSE-BSD.
 
 Third-party source material and criterion references are identified in NOTICE.

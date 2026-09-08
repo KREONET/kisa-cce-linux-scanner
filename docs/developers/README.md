@@ -198,7 +198,7 @@ Contributions must be available under the repository's dual-license expression:
 LGPL-3.0-or-later OR BSD-3-Clause
 ```
 
-Contributors must have the right to submit their work under both alternatives. KISA guide material and other third-party content retain their original terms. See [Development: Contribution licensing](development.md#contribution-licensing), [`LICENSE`](../../LICENSE), [`NOTICE`](../../NOTICE), and [`LICENSES/`](../../LICENSES/).
+Contributors must have the right to submit their work under both alternatives. KISA guide material and other third-party content retain their original terms. See [Development: Contribution licensing](development.md#contribution-licensing), [`LICENSING.md`](../../LICENSING.md), [`NOTICE`](../../NOTICE), and [`LICENSES/`](../../LICENSES/).
 
 Do not add a `Signed-off-by` trailer on behalf of another person. A contributor who must certify a sign-off adds it personally under the applicable project policy. Preserve any required AI-assistance disclosure separately; it does not substitute for human review or sign-off.
 

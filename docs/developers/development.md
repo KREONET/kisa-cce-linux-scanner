@@ -7,7 +7,10 @@ bin/                    Public launcher.
 data/                   Version and ordered criterion catalog.
 docs/                   Operator, design, security, development, and packaging documentation.
 lib/                    Private main file, shared helpers, resolvers, and check modules.
-LICENSES/               LGPLv3, incorporated GPLv3, and BSD 3-Clause license texts.
+LICENSE-LGPL            GNU Lesser General Public License version 3 text.
+LICENSE-BSD             BSD 3-Clause license text.
+LICENSING.md            Alternative-license grant and attribution guidance.
+LICENSES/gnu/           GPLv3 terms incorporated by LGPLv3.
 man/                    Installed section 8 command manual source.
 tests/                  Generated-fixture regression suite.
 Makefile                Validation and installation interface.

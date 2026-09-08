@@ -160,11 +160,11 @@ The local suite verifies detection and classification for every platform row, fa
 
 Unless otherwise noted, the original source code and documentation in this
 repository are dual-licensed under
-[`LGPL-3.0-or-later OR BSD-3-Clause`](LICENSE). Recipients may choose either
+[`LGPL-3.0-or-later OR BSD-3-Clause`](LICENSING.md). Recipients may choose either
 license. The complete license texts are available in
-[LGPL-3.0-or-later.txt](LICENSES/LGPL-3.0-or-later.txt),
-[GPL-3.0-or-later.txt](LICENSES/GPL-3.0-or-later.txt), and
-[BSD-3-Clause.txt](LICENSES/BSD-3-Clause.txt).
+[LICENSE-LGPL](LICENSE-LGPL),
+[GPL-3.0-or-later.txt](LICENSES/gnu/GPL-3.0-or-later.txt), and
+[LICENSE-BSD](LICENSE-BSD).
 
 Materials derived from or referring to the KISA CCE GUIDE, including criterion
 identifiers, Korean titles, and source links, remain subject to their original
