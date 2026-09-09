@@ -627,6 +627,8 @@ service_activation_state() {
                     systemd_cached_unit_facts "$unit_name" || command_status=$?
                     properties="$SYSTEMD_CACHE_FACTS"
                     [ "$command_status" -ne 0 ] || command_status="$SYSTEMD_CACHE_COMMAND_STATUS"
+                elif declare -F systemd_show_one_unit >/dev/null 2>&1; then
+                    properties="$(systemd_show_one_unit "$systemctl_path" "$unit_name" 2>/dev/null)" || command_status=$?
                 else
                     properties="$($systemctl_path show "$unit_name" \
                         -p LoadState -p ActiveState -p UnitFileState --no-pager 2>/dev/null)" || command_status=$?

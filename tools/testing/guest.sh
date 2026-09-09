@@ -89,7 +89,7 @@ test_group="$(getent group 1000 | cut -d: -f1)"
 test_home="$(mktemp -d /tmp/kisa-cce-test-home.XXXXXXXX)" || exit 2
 chown 1000:1000 "$test_home" || exit 2
 trap 'rm -rf -- "$test_home"' EXIT
-user_command=(runuser -u "$test_user" -g "$test_group" -- env -i PATH="$PATH" HOME="$test_home" LC_ALL=C)
+user_command=(runuser -u "$test_user" -g "$test_group" -- env -i "PATH=$PATH" "HOME=$test_home" "LC_ALL=C")
 
 if [ "$suite" = all ] || [ "$suite" = check ]; then
     phase check-user "${user_command[@]}" /bin/bash -eu -o pipefail -c 'cd "$1"; make check' _ "$repository" || :

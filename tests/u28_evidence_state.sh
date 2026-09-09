@@ -58,4 +58,18 @@ case "$SCANNER_U28_PROBE_EVIDENCE" in
     *) fail "successful probe evidence was overwritten" ;;
 esac
 
+# Bash exposes its invocation name through $0, as native multicall tools do.
+output_file="$(mktemp "${TMPDIR:-/tmp}/kisa-cce-u28-dispatch.XXXXXXXX")" || exit 2
+trap 'rm -f -- "$output_file"' EXIT
+trusted_command() { printf '%s\n' "$BASH"; }
+for command_name in iptables ip6tables; do
+    scanner_u28_capture_command "$output_file" "$command_name" -c 'printf "%s\n" "$0"' ||
+        fail "multicall dispatch failed for $command_name"
+    [ "$(cat "$output_file")" = "$command_name" ] ||
+        fail "resolved command lost the $command_name invocation name"
+done
+status=0
+scanner_u28_capture_command "$output_file" iptables -c 'exit 4' || status=$?
+[ "$status" -eq 2 ] || fail "native command failure was not retained: $status"
+
 printf 'PASS: U-28 firewall evidence states\n'

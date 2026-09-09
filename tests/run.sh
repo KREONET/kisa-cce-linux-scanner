@@ -3058,6 +3058,41 @@ test_conservative_account_regressions() (
     check_u_02
     assert_equal MANUAL "$RESULT_STATUS" "PAM bracket jump control"
 
+    {
+        printf '%s\n' 'password requisite pam_pwquality.so retry=3'
+        printf '%s\n' 'password required pam_pwhistory.so use_authtok'
+        printf '%s\n' 'password [success=1 default=ignore] pam_unix.so obscure use_authtok try_first_pass yescrypt'
+        printf '%s\n' 'password requisite pam_deny.so'
+        printf '%s\n' 'password required pam_permit.so'
+    } > "$scratch/debian-password"
+    cp "$scratch/debian-password" "$root/etc/pam.d/common-password"
+    check_u_02
+    assert_equal GOOD "$RESULT_STATUS" "standard Debian password jump skips only deny"
+    for replacement in 'success=2' 'success=done' 'default=ok' 'default=reset'; do
+        case "$replacement" in
+            success=*) sed "s/success=1/$replacement/" "$scratch/debian-password" ;;
+            *) sed "s/default=ignore/$replacement/" "$scratch/debian-password" ;;
+        esac > "$root/etc/pam.d/common-password"
+        check_u_02
+        assert_equal MANUAL "$RESULT_STATUS" "nonstandard Debian password control $replacement"
+    done
+    sed 's/ use_authtok//g' "$scratch/debian-password" > "$root/etc/pam.d/common-password"
+    check_u_02
+    assert_equal MANUAL "$RESULT_STATUS" "Debian password stack must reuse validated token"
+    sed 's/requisite pam_deny/optional pam_deny/' "$scratch/debian-password" > "$root/etc/pam.d/common-password"
+    check_u_02
+    assert_equal MANUAL "$RESULT_STATUS" "nonmandatory Debian password failure fallback"
+    {
+        printf '%s\n' 'password sufficient pam_permit.so'
+        cat "$scratch/debian-password"
+    } > "$root/etc/pam.d/common-password"
+    check_u_02
+    assert_equal MANUAL "$RESULT_STATUS" "early successful Debian password bypass"
+    awk '{printf "%s\t%s\n", (NR == 3 ? "/etc/pam.d/child" : "/etc/pam.d/common-password"), $0}' \
+        "$scratch/debian-password" > "$scratch/split-password"
+    scanner_u02_stack_has_ambiguous_bracket_control "$scratch/split-password" ||
+        fail "Debian password jump crossing source boundaries was accepted"
+
     printf '%s\n' '<policy target="DROP"><ingress-zone name="ANY"/><egress-zone name="HOST"/></policy>' > "$root/etc/firewalld/policies/restrict.xml"
     runtime_enabled() { return 1; }
     check_u_28
@@ -6462,6 +6497,74 @@ run_test "manual page contract" test_manpage_contract
 run_test "policy and evidence contracts" test_policy_and_evidence_contracts
 run_test "supported platform matrix" test_platform_support_matrix
 run_test "PAM facility and platform capabilities" test_pam_facility_scoping_and_platform_capabilities
+test_sshd_template_instances() (
+    local fixture="$TEST_TEMP/sshd-manager"
+    local status=0 variant=""
+    mkdir -p "$fixture"
+    # shellcheck source=../lib/kisa-cce-resolvers/_resolvers.sh disable=SC1091
+    . "$PROJECT_DIR/lib/kisa-cce-resolvers/_resolvers.sh"
+    SCAN_EPOCH_ACTIVE=0
+    runtime_systemd_manager_state() { return 0; }
+    trusted_command() { printf '%s\n' "$fixture/systemctl"; }
+    cat > "$fixture/systemctl" <<'EOF'
+#!/bin/sh
+variant=$(cat "${0%/*}/variant")
+if [ "$1" = list-unit-files ]; then
+    [ "$variant" != template-list-error ] || exit 1
+    [ "$variant" != template-installed ] || printf '%s\n' 'telnet@.service disabled enabled'
+    exit 0
+fi
+if [ "$1" = list-units ]; then
+    case "$variant" in
+        template-absent|template-list-error|template-installed) exit 0 ;;
+        template-instance) printf '%s\n' 'telnet@live.service loaded active running Telnet'; exit 0 ;;
+    esac
+    [ "$variant" != list-error ] || exit 1
+    [ "$variant" != empty ] || exit 0
+    printf '%s\n' 'ssh@first.service loaded active running SSH' 'sshd@second.service loaded active running SSH'
+    exit 0
+fi
+case "$2" in
+    ssh@.service|sshd@.service|telnet@.service) exit 1 ;;
+    sshd@second.service)
+        [ "$variant" != show-error ] || exit 1
+        if [ "$variant" = inactive-custom ]; then
+            printf '%s\n' 'LoadState=loaded' 'ActiveState=inactive' 'ExecStart={ argv[]=/usr/sbin/sshd -f /etc/ssh/other.conf ; }'
+            exit 0
+        fi
+        if [ "$variant" = custom ]; then
+            printf '%s\n' 'LoadState=loaded' 'ActiveState=active' 'ExecStart={ argv[]=/usr/sbin/sshd -f /etc/ssh/other.conf ; }'
+            exit 0
+        fi
+        ;;
+esac
+printf '%s\n' 'LoadState=loaded' 'ActiveState=active' 'ExecStart={ argv[]=/usr/sbin/sshd -D ; }'
+EOF
+    chmod 0700 "$fixture/systemctl"
+    for variant in empty normal custom inactive-custom list-error show-error; do
+        printf '%s\n' "$variant" > "$fixture/variant"
+        status=0
+        sshd_manager_has_custom_invocation || status=$?
+        case "$variant" in
+            empty|normal|inactive-custom) assert_equal 1 "$status" "ordinary SSH instances $variant" ;;
+            custom) assert_equal 0 "$status" "second SSH instance custom invocation" ;;
+            *) assert_equal 2 "$status" "SSH collection error $variant" ;;
+        esac
+    done
+    for variant in template-absent template-installed template-instance template-list-error; do
+        printf '%s\n' "$variant" > "$fixture/variant"
+        status=0
+        systemd_show_one_unit "$fixture/systemctl" telnet@.service > "$fixture/facts" 2>/dev/null || status=$?
+        if [ "$variant" = template-absent ]; then
+            assert_equal 0 "$status" "absent template has complete evidence"
+            assert_file_contains "$fixture/facts" 'LoadState=not-found' "absent template facts"
+        else
+            assert_equal 2 "$status" "unresolved template remains an error $variant"
+        fi
+    done
+)
+
+run_test "SSH template instance invocation" test_sshd_template_instances
 run_test "time and sysctl platform adapters" test_time_and_sysctl_platform_adapters
 run_test "core report counts and permissions" test_core_report_counts_and_permissions
 run_test "result normalization differential" test_result_normalization_differential

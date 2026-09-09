@@ -1290,20 +1290,32 @@ sshd_manager_has_custom_invocation() {
     local manager_status=0
     local unit=""
     local properties=""
-    local load_state=""
+    local load_state="" active_state=""
     local command_status=0
+    local instance_lines="" instance="" remaining=""
+    local units=(ssh.service sshd.service)
 
     if declare -F runtime_systemd_manager_state >/dev/null 2>&1; then
         runtime_systemd_manager_state || manager_status=$?
         [ "$manager_status" -ne 1 ] || return 3
     fi
     systemctl_path="$(trusted_command systemctl)" || return 2
-    for unit in ssh.service sshd.service ssh@.service sshd@.service; do
+    # Bare template names cannot be queried with systemctl show; inspect their loaded instances.
+    instance_lines="$("$systemctl_path" list-units --all --plain --no-legend --full \
+        'ssh@*.service' 'sshd@*.service' 2>/dev/null)" || return 2
+    # shellcheck disable=SC2034
+    while read -r instance remaining; do
+        [ -n "$instance" ] || continue
+        case "$instance" in ssh@?*.service|sshd@?*.service) ;; *) return 2 ;; esac
+        systemd_unit_name_is_valid "$instance" || return 2
+        units+=("$instance")
+    done <<< "$instance_lines"
+    for unit in "${units[@]}"; do
         if [ "${SCAN_EPOCH_ACTIVE:-0}" -eq 1 ]; then
             systemd_epoch_properties_into "$unit" properties || return 2
             command_status="$SYSTEMD_PROPERTIES_COMMAND_STATUS"
         else
-            properties="$($systemctl_path show "$unit" -p LoadState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
+            properties="$($systemctl_path show "$unit" -p LoadState -p ActiveState -p ExecStart --no-pager 2>/dev/null)" || command_status=$?
         fi
         if declare -F systemd_fact_value_into >/dev/null 2>&1; then
             systemd_fact_value_into "$properties" LoadState load_state || load_state=""
@@ -1315,6 +1327,16 @@ sshd_manager_has_custom_invocation() {
         fi
         command_status=0
         [ "$load_state" != "not-found" ] || continue
+        case "$unit" in
+            ssh@*.service|sshd@*.service)
+                systemd_fact_value_into "$properties" ActiveState active_state || return 2
+                case "$active_state" in
+                    inactive|failed) continue ;;
+                    active|activating|reloading|deactivating) ;;
+                    *) return 2 ;;
+                esac
+                ;;
+        esac
         if printf '%s\n' "$properties" | grep -Eq '(^|[[:space:]])-[fo]([^[:space:]]*|$)|\$[{A-Za-z_]'; then
             return 0
         fi
@@ -2418,7 +2440,28 @@ systemd_cache_install_facts() {
 systemd_show_one_unit() {
     local systemctl_path="$1"
     local unit="$2"
+    local output="" definitions="" instances="" instance_pattern=""
+    local status=0
 
+    case "$unit" in
+        *@.service|*@.socket)
+            output="$("$systemctl_path" show "$unit" \
+                -p Id -p Names -p LoadState -p ActiveState -p SubState -p UnitFileState \
+                -p FragmentPath -p DropInPaths -p Triggers -p TriggeredBy \
+                -p MainPID -p ExecStart -p Environment -p EnvironmentFiles \
+                -p LoadCredential -p LoadCredentialEncrypted -p SetCredential \
+                -p SetCredentialEncrypted -p ImportCredential --no-pager)" || status=$?
+            if [ "$status" -eq 0 ]; then printf '%s\n' "$output"; return 0; fi
+            # Newer systemd rejects bare templates; absence requires both definitions and instances to be absent.
+            definitions="$("$systemctl_path" list-unit-files --no-legend --no-pager)" || return 2
+            definitions="$(printf '%s\n' "$definitions" | awk -v target="$unit" '$1 == target {print}')"
+            instance_pattern="${unit/@./@*.}"
+            instances="$("$systemctl_path" list-units --all --plain --no-legend --full "$instance_pattern")" || return 2
+            [ -z "$definitions" ] && [ -z "$instances" ] || return 2
+            printf 'Id=%s\nLoadState=not-found\nActiveState=inactive\nUnitFileState=not-found\n' "$unit"
+            return 0
+            ;;
+    esac
     "$systemctl_path" show "$unit" \
         -p Id -p Names -p LoadState -p ActiveState -p SubState -p UnitFileState \
         -p FragmentPath -p DropInPaths -p Triggers -p TriggeredBy \

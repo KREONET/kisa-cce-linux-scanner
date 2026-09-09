@@ -1378,10 +1378,38 @@ scanner_pam_stack_has_bracket_control() {
     ' "$lines_file"
 }
 
+scanner_u02_has_standard_debian_password_stack() {
+    local lines_file="$1"
+
+    platform_is_debian_family || return 1
+    # The Unix success jump skips only pam_deny after both mandatory policy modules.
+    # A single source preserves jump boundaries instead of inferring them across substacks.
+    awk '
+        {
+            separator=index($0, "\t")
+            if (!separator) {invalid=1; next}
+            source=substr($0, 1, separator-1)
+            if (NR == 1) first_source=source
+            if (source != first_source) invalid=1
+            line=substr($0, separator+1)
+            sub(/^[[:space:]]+/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            if (NR == 1 && line !~ /^password[[:space:]]+requisite[[:space:]]+pam_pwquality[.]so([[:space:]]|$)/) invalid=1
+            if (NR == 2 && line !~ /^password[[:space:]]+required[[:space:]]+pam_pwhistory[.]so([[:space:]]|$)/) invalid=1
+            if (NR == 3 && line !~ /^password[[:space:]]+\[success=1[[:space:]]+default=ignore\][[:space:]]+pam_unix[.]so([[:space:]]|$)/) invalid=1
+            if ((NR == 2 || NR == 3) && line !~ /[[:space:]]use_authtok([[:space:]]|$)/) invalid=1
+            if (NR == 4 && line !~ /^password[[:space:]]+requisite[[:space:]]+pam_deny[.]so$/) invalid=1
+            if (NR == 5 && line !~ /^password[[:space:]]+required[[:space:]]+pam_permit[.]so$/) invalid=1
+        }
+        END {exit(NR == 5 && !invalid ? 0 : 1)}
+    ' "$lines_file"
+}
+
 scanner_u02_stack_has_ambiguous_bracket_control() {
     local lines_file="$1"
     local allow_rhel_localuser=0
 
+    scanner_u02_has_standard_debian_password_stack "$lines_file" && return 1
     platform_is_rhel_family && allow_rhel_localuser=1
     awk -v allow_rhel_localuser="$allow_rhel_localuser" '
         {
@@ -4748,7 +4776,8 @@ scanner_u28_capture_command() {
         scanner_u28_command_exists_at_standard_path "$command_name" && return 2
         return 1
     fi
-    "$command_path" "$@" > "$output_file" 2>/dev/null || return 2
+    # Resolved alternatives can be multicall binaries that dispatch on argv[0].
+    (exec -a "$command_name" "$command_path" "$@") > "$output_file" 2>/dev/null || return 2
 }
 
 # A firewall unit counts as persistent only when its enabling link resolves to
