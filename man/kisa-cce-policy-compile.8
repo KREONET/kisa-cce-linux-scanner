@@ -8,38 +8,36 @@ kisa-cce-policy-compile \- compile policy YAML into scanner policy TSV
 .BI \-\-output-dir " PATH"
 .SH DESCRIPTION
 .B kisa-cce-policy-compile
-converts an author-friendly, policy-specific YAML subset into the strict TSV
-directory consumed by
+converts a restricted policy YAML file into the strict TSV directory read by
 .BR kisa-cce-scan (8).
 The scanner itself does not parse YAML.
 .PP
-The compiler uses no YAML library and does not implement general YAML.  It
-accepts only schema version 1, block lists with fixed mappings, full-line
-comments, plain scalars, and quoted scalars with a restricted escape set.
+The compiler implements a YAML subset without a YAML library. It accepts
+only schema version 1, block lists with fixed mappings, full-line comments,
+plain scalars, and quoted scalars with a restricted escape set.
 Anchors, aliases, tags, merge keys, flow collections, block scalars, multiple
 documents, tabs, carriage returns, and inline comments in plain scalars are
 rejected.  ASCII and Unicode C1 control characters and malformed UTF-8 are
 also rejected.
 .PP
-After conversion, the compiler reloads the generated directory through the
-scanner's canonical policy validator.  Invalid criterion codes, decisions,
-review IDs, dates, providers, source identities, duplicates, or expired-field
-syntax therefore fail before publication.
+Before publishing output, the compiler reloads the generated directory with
+the scanner's canonical policy validator. This rejects invalid criterion
+codes, decisions, review IDs, dates, providers, source identities, duplicate
+entries, and invalid expiration-field syntax.
 .SH OPTIONS
 .TP
 .BI \-\-input " FILE"
 Read the policy YAML from
 .IR FILE .
-The path may be relative to the current directory.  The input must be a
-readable regular file owned by root or the effective user, with no group or
-other write permission.  Symbolic links and untrusted parent paths are
-rejected.
+The path may be relative to the current directory. The file must be readable,
+regular, owned by root or the effective user, and not writable by group or
+other users. Symbolic links and untrusted parent paths are rejected.
 .TP
 .BI \-\-output-dir " PATH"
 Create a new compiled policy directory at
 .IR PATH .
-The target must not already exist.  The parent must be a trusted physical
-directory.  Existing paths are never overwritten.
+The target must not exist, and its parent must be a trusted physical
+directory. The compiler never overwrites an existing path.
 .TP
 .BR \-h ", " \-\-help
 Print command help and exit.
@@ -64,9 +62,9 @@ attestations:
 is required and may be the explicit empty list
 .BR [] .
 Attestation review IDs must come from a current policy-class audit result.
-Current audits use review-basis schema 2, which binds the resolution class in
-addition to the complete redacted result basis. Review schema 1 IDs do not
-match current results.
+Current audits use review-basis schema 2, which includes the resolution class
+and the complete redacted result basis. Review schema 1 IDs do not match
+current results.
 The optional
 .B time_sources
 list uses provider, host, address, ticket, approver, and expires fields.
@@ -76,17 +74,17 @@ Supported provider values are
 .BR ntpsec ,
 and
 .BR systemd-timesyncd .
-The ntpd-rs value approves a selected installation; it does not change the
-Ubuntu 26.04 default from Chrony.
-Omitting it leaves the typed fact set absent.  Writing
+The ntpd-rs value limits the source approval to a selected ntpd-rs
+installation. Chrony remains the Ubuntu 26.04 default.
+Omitting the time_sources list leaves the typed fact set absent. Writing
 .B "time_sources: []"
-creates an explicit empty approved-source set and is therefore a policy
-decision rather than a neutral placeholder.
+explicitly approves an empty source set. Use it only when that is the
+intended policy decision.
 .PP
-Mapping field order is unrestricted.  Every required field must occur exactly
-once.  List markers use two spaces of indentation, and continuation fields use
-four.  Full-line comments and blank lines are accepted.  Plain values that are
-ambiguous under the restricted grammar must be single- or double-quoted.
+Mapping fields may appear in any order. Every required field must occur
+exactly once. Indent list markers with two spaces and continuation fields with
+four. Full-line comments and blank lines are accepted. Use single or double
+quotes for values that would be ambiguous as plain scalars in this grammar.
 Within double quotes, only an escaped double quote or backslash is accepted.
 Within single quotes, one quote is represented by two consecutive quotes.
 .SH OUTPUT
@@ -98,7 +96,8 @@ was supplied,
 .IR facts/time-sources.tsv .
 Directories use mode 0700 and files use mode 0600.
 .PP
-Every terminal line uses the dmesg-style scanner prefix.  Success prints:
+Every terminal line uses the dmesg-style scanner prefix. On success, the
+compiler prints:
 .PP
 .EX
 [    12.345678] kisa-cce-policy-compile: policy_directory=/absolute/path
@@ -107,26 +106,28 @@ Every terminal line uses the dmesg-style scanner prefix.  Success prints:
 .SH EXIT STATUS
 .TP
 .B 0
-The generated policy directory passed structural and canonical validation.
+The generated directory passed structural checks and the scanner's canonical
+policy validation.
 .TP
 .B 2
 Invocation, path validation, YAML parsing, policy validation, or publication
 failed.  No completed output directory is reported.
 .SH SECURITY
-The wrapper clears the caller environment before loading Bash code.  YAML is
-parsed as data and is never sourced or evaluated.  Input and output directories
-are pinned by file descriptors, and publication uses a no-replace rename in the
-target parent.
+The wrapper clears the caller environment before loading Bash code. The
+compiler parses YAML as data; it never sources or evaluates it. File
+descriptors pin the input and output directories. Publication uses a
+no-replace rename in the target parent.
 .PP
-Compilation does not authorize a policy decision.  Review IDs, tickets,
-approvers, and expiration dates remain administrative security inputs.
+Compilation validates the policy format; it does not authorize the decisions.
+Administrators remain responsible for the review IDs, tickets, approvers, and
+expiration dates.
 .SH FILES
 .TP
 .I /etc/kisa-cce-scanner/policy.d/
 Default installed policy directory consumed by complete and automation scans.
 .TP
 .I /usr/share/doc/kisa-cce-linux-scanner/examples/policy.yml
-Possible package documentation location for the source example.  The upstream
+A package may install the source example here. The upstream
 .B make install
 target does not install repository documentation or examples.
 .SH SEE ALSO

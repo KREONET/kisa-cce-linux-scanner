@@ -2,9 +2,20 @@
 
 ## Scope
 
-The scanner implements one result slot for each of the 67 Unix-server criteria in the rendered KISA CCE 2026 guide. The rendered pages explicitly distinguish Red Hat, Debian, Ubuntu, CentOS, or RHEL versions in nine criteria. The other 58 criteria state a generic Linux or product procedure. The table separates guide requirements from distribution adapters and scanner policy extensions, including any implemented threshold that is more specific than the rendered text.
+The scanner produces one result for each of the 67 Unix-server criteria in the
+rendered KISA CCE 2026 guide. Nine criteria distinguish Red Hat, Debian, Ubuntu,
+CentOS, or RHEL versions. The other 58 describe a generic Linux or product
+procedure.
 
-This document records the guide-to-code boundary. `Guide` below means a requirement visible on the rendered criterion page. `Extension` means scanner logic needed to collect equivalent evidence on a supported distribution; it is not a claim made by the guide. Ubuntu derivatives route through their declared Ubuntu base and Enterprise Linux derivatives route through their declared RHEL-compatible base. The final column records the implemented result boundary for each criterion; this document does not assert one global fail-closed rule across every parser and evidence source.
+The table distinguishes guide requirements from distribution adapters and
+scanner policy extensions, including thresholds more specific than the rendered
+text. `Guide` identifies a requirement on the rendered criterion page.
+`Extension` identifies scanner logic for collecting equivalent evidence on a
+supported distribution; these additions are not guide requirements. Ubuntu
+derivatives use their declared Ubuntu base, and Enterprise Linux derivatives use
+their declared RHEL-compatible base. The final column states when each criterion
+can produce an automatic verdict. Parser and evidence-source behavior varies by
+criterion; there is no single fail-closed rule covering them all.
 
 ## Criterion coverage matrix
 
@@ -33,14 +44,14 @@ This document records the guide-to-code boundary. `Guide` below means a requirem
 | [U-21 /etc/(r)syslog.conf 파일 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-21/) | **Generic Linux:** allowed owner root, bin, or sys and mode 0640 or stricter. | **Guide:** check the main syslog or rsyslog configuration path and metadata. **Extension:** resolve the standard `/etc/rsyslog.d/*.conf` graph within the scan root. | **Guide:** same main-path owner and mode threshold. **Extension:** apply the same confined split-file graph resolution. | Violations are `VULNERABLE`; unsafe metadata or traversal is `ERROR`; nested or nonstandard includes are `MANUAL`; masks do not establish a successful metadata check. |
 | [U-22 /etc/services 파일 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-22/) | **Generic Unix/Linux judgment:** owner root, bin, or sys and mode 0644 or stricter. | **Guide:** inspect `/etc/services`. **Extension:** safe rooted metadata lookup. | **Guide:** identical path and threshold. **Extension:** identical lookup. | Wrong metadata is `VULNERABLE`; an absent file is `NOT_APPLICABLE`; an unsafe or unreadable existing path is `ERROR`; a resolved conforming file is `GOOD`. |
 | [U-23 SUID, SGID, Sticky bit 설정 파일 점검](https://kreonet.github.io/kisa-cce-guide-web/unix/u-23/) | **Generic Linux:** remove unnecessary root-owned SUID and SGID permissions. | **Guide:** inventory root-owned privileged files. **Extension:** scan every resolved local filesystem root with `xdev`. | **Guide:** same threshold. **Extension:** identical filesystem scan. | With a complete live mount inventory, an empty finding set is technical `GOOD`; each finding is policy-class `MANUAL` pending package provenance and business approval; incomplete offline mount evidence is runtime-class `MANUAL`; traversal failure is `ERROR`. |
-| [U-24 사용자, 시스템 환경변수 파일 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-24/) | **Generic Linux:** owner root or the account and no write by other users. | **Guide:** inspect listed home environment files. **Extension:** include bash, zsh, csh, ksh, X session, fish, PAM environment, and `environment.d` inputs. | **Guide:** same threshold. **Extension:** apply the same expanded home-file inventory. | Wrong ownership or group/other write is `VULNERABLE`; invalid account data, unsafe paths, or incomplete traversal are `ERROR`; all discovered files conforming is `GOOD`. |
+| [U-24 사용자, 시스템 환경변수 파일 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-24/) | **Generic Linux:** owner root or the account and no write by other users. | **Guide:** inspect listed home environment files. **Extension:** include bash, zsh, csh, ksh, X session, fish, PAM environment, and `environment.d` inputs. | **Guide:** same threshold. **Extension:** apply the same expanded home-file inventory. | Wrong ownership or group/other write is `VULNERABLE`; invalid account data, unsafe paths, or incomplete traversal are `ERROR`; the result is `GOOD` when every discovered file conforms. |
 | [U-25 world writable 파일 점검](https://kreonet.github.io/kisa-cce-guide-web/unix/u-25/) | **Generic Linux:** no world-writable file, or each file has a known approved reason. | **Guide:** inventory world-writable regular files. **Extension:** scan every resolved local filesystem root without crossing mounts. | **Guide:** same threshold. **Extension:** identical filesystem scan. | A complete zero-match live scan is `GOOD`; findings are `MANUAL` because approval is external; incomplete mount inventory or traversal is `ERROR`; offline zero-match is `MANUAL`. |
 | [U-26 /dev에 존재하지 않는 device 파일 점검](https://kreonet.github.io/kisa-cce-guide-web/unix/u-26/) | **Generic Linux:** remove ordinary files masquerading as device files, excluding the guide's volatile `mqueue` and `shm` locations. | **Guide:** search `/dev` for regular files and exclude `/dev/mqueue` and `/dev/shm`. **Extension:** perform a no-follow, single-filesystem scan with the same explicit exclusions for offline roots. | **Guide:** identical path, exclusions, and rule. **Extension:** identical scan. | Any other regular file is `VULNERABLE`; missing `/dev`, an unsafe path, or incomplete traversal is `ERROR`; zero findings is `GOOD`. |
 | [U-27 $HOME/.rhosts, hosts.equiv 사용 금지](https://kreonet.github.io/kisa-cce-guide-web/unix/u-27/) | **Generic Unix/Linux judgment:** disable r-services or restrict trust files to owner, mode 0600, and no `+`. | **Guide:** assess `/etc/hosts.equiv` and each `.rhosts`. **Extension:** inspect named systemd units and template definitions, SysV, inetd `exec/login/shell` aliases, xinetd, and TCP listeners; instantiated template units are not enumerated. | **Guide:** same threshold. **Extension:** apply the same service and trust-file checks. | Proven inactivity can be `GOOD`; an unidentified TCP listener, unreadable legacy activation source, or another incomplete activation graph is `MANUAL`; active service with an observed unsafe trust entry is `VULNERABLE`; invalid account data or unreadable trust evidence is `ERROR`. An inline-comment `+` token can be treated as an active trust entry and therefore requires report review. |
 | [U-28 접속 IP 및 포트 제한](https://kreonet.github.io/kisa-cce-guide-web/unix/u-28/) | **Generic Linux:** TCP Wrapper, iptables, firewalld, or UFW restrictions. | **Guide:** restrict approved hosts and ports. **Extension:** collect candidate restrictions from live or persistent UFW, nftables, iptables, TCP Wrapper, and related input paths. | **Guide:** same requirement. **Extension:** collect firewalld zones and policies plus native nftables and iptables evidence. | A detected default-deny path with a source-specific port or service allowance is `MANUAL` pending the approved allowlist; no candidate is `VULNERABLE`. Backend handling is not uniform: UFW expects both raw address-family sections, a single nftables `table ip` can qualify, a confirmed provider can mask another provider's status-1 outcome, and firewalld policy-list failure can remain `MANUAL`; unsafe paths and other active-provider collection failures are `ERROR`. Runtime and persistent firewalld results are compared by classification, not exact rule identity. |
 | [U-29 hosts.lpd 파일 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-29/) | **Generic Linux:** file absent, or root owned and mode 0600 or stricter. | **Guide:** inspect `/etc/hosts.lpd`. **Extension:** safe rooted metadata lookup. | **Guide:** identical path and threshold. **Extension:** identical lookup. | True absence or conforming metadata is `GOOD`; wrong metadata is `VULNERABLE`; dangling links, unsafe paths, or unreadable metadata are `ERROR`. |
 | [U-30 UMASK 설정 관리](https://kreonet.github.io/kisa-cce-guide-web/unix/u-30/) | **Generic Linux:** effective system and user startup UMASK values must be 022 or more restrictive; active vsFTP and ProFTP paths use the same threshold. | **Guide:** inspect `/etc/profile`, `/etc/login.defs`, user startup files, vsFTP `local_umask`, and ProFTP `Umask`. **Extension:** resolve root-confined shell source graphs, Debian bash and zsh paths, csh/tcsh, ksh `ENV`, fish inputs, native PAM session stacks, `/etc/default/login`, `/etc/vsftpd.conf`, and `/etc/proftpd/proftpd.conf`. | **Guide:** same threshold. **Extension:** apply native RHEL bash, zsh, csh/tcsh, ksh `ENV`, fish, `postlogin`, and related PAM paths, plus `/etc/vsftpd/vsftpd.conf` and `/etc/proftpd.conf`. | A confirmed effective weak path is `VULNERABLE`; ordered safe declarations are `GOOD`; unresolved shell sources, mixed native PAM stack coverage, or an uncertain active FTP invocation are technical-class `MANUAL`; unsafe policy paths are `ERROR`. |
-| [U-31 홈디렉토리 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-31/) | **Generic Linux:** each applicable configured home belongs to its account and other users cannot write. | **Guide:** inspect account home metadata. **Extension:** scope the check to root and login-capable accounts with UID at least the effective `UID_MIN` and below 65534; exclude system and non-login accounts. | **Guide:** apply the same account and home comparison. **Extension:** use the same effective `UID_MIN` and login-shell scope. | Any scoped owner mismatch or other-write bit is `VULNERABLE`; invalid account data, UID policy, or metadata/path failure is `ERROR`; all existing scoped homes conforming is `GOOD`. |
+| [U-31 홈디렉토리 소유자 및 권한 설정](https://kreonet.github.io/kisa-cce-guide-web/unix/u-31/) | **Generic Linux:** each applicable configured home belongs to its account and other users cannot write. | **Guide:** inspect account home metadata. **Extension:** scope the check to root and login-capable accounts with UID at least the effective `UID_MIN` and below 65534; exclude system and non-login accounts. | **Guide:** apply the same account and home comparison. **Extension:** use the same effective `UID_MIN` and login-shell scope. | Any scoped owner mismatch or other-write bit is `VULNERABLE`; invalid account data, UID policy, or metadata/path failure is `ERROR`; the result is `GOOD` when every existing home in scope conforms. |
 | [U-32 홈 디렉토리로 지정한 디렉토리의 존재 관리](https://kreonet.github.io/kisa-cce-guide-web/unix/u-32/) | **Generic Linux:** every applicable account's configured home exists. | **Guide:** compare account homes with the filesystem. **Extension:** scope the check to root and login-capable accounts with UID at least the effective `UID_MIN` and below 65534; exclude system and non-login accounts. | **Guide:** apply the same comparison. **Extension:** use the same effective `UID_MIN` and login-shell scope. | A missing scoped home is `VULNERABLE`; invalid account data, UID policy, unreadable evidence, or unsafe paths are `ERROR`; a complete scoped match is `GOOD`. |
 | [U-33 숨겨진 파일 및 디렉토리 검색 및 제거](https://kreonet.github.io/kisa-cce-guide-web/unix/u-33/) | **Generic Unix/Linux judgment:** remove unnecessary or suspicious hidden paths. | **Guide:** search and review hidden paths. **Extension:** scan each resolved local filesystem root without following links. | **Guide:** same review. **Extension:** identical scan. | Findings are policy-class `MANUAL` because necessity and integrity need review; incomplete offline mount evidence is runtime-class `MANUAL`; traversal failure is `ERROR`; only a complete live zero-match scan is `GOOD`. |
 | [U-34 Finger 서비스 비활성화](https://kreonet.github.io/kisa-cce-guide-web/unix/u-34/) | **Generic Linux:** disable Finger in inetd or xinetd. | **Guide:** Finger inactive. **Extension:** inspect systemd units and sockets, inetd/xinetd files, and port 79 listeners. | **Guide:** same threshold. **Extension:** inspect the corresponding RHEL unit and listener aliases. | Any activation path is `VULNERABLE`; unresolved or custom activation is `MANUAL`; fully resolved inactivity is `GOOD`. |
@@ -80,7 +91,10 @@ This document records the guide-to-code boundary. `Guide` below means a requirem
 
 ## Versioned native behavior
 
-The product identity and upstream configuration base are separate. Approved Ubuntu derivatives use the corresponding Ubuntu base behavior, and approved Enterprise Linux derivatives use the corresponding RHEL major behavior.
+The scanner tracks product identity separately from its upstream configuration
+base. Approved Ubuntu derivatives use their Ubuntu base's behavior. Approved
+Enterprise Linux derivatives use the behavior of the corresponding RHEL major
+release.
 
 | Native behavior | Version routing |
 |---|---|
@@ -91,16 +105,23 @@ The product identity and upstream configuration base are separate. Approved Ubun
 | Time synchronization | Enterprise Linux 8 and later route the KISA procedure to Chrony. Debian-family providers are selected from observed service state and validated with provider-specific evidence. Ubuntu 26.04 expects Chrony but also supports a selected ntpd-rs installation as an operational extension. |
 | Service variants | Version-specific units such as RHEL 8 `named-pkcs11` and `named-sdb`, socket activation, and Ubuntu 26.04 sudo-rs provider selection are included in applicability resolution. |
 
-Ubuntu 26.04 uses Chrony as its default time daemon. Canonical describes
-ntpd-rs archive testing as an Ubuntu 26.10 goal and default adoption as an
-Ubuntu 27.04 goal, so optional 26.04 ntpd-rs support must not be described as a
-distribution default. See the
+Ubuntu 26.04 uses Chrony by default; the scanner's ntpd-rs support is optional.
+Canonical's stated goals are ntpd-rs archive testing in Ubuntu 26.10 and default
+adoption in Ubuntu 27.04. See the
 [Ubuntu Chrony release note](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/#chrony),
 [Canonical ntpd-rs plan](https://discourse.ubuntu.com/t/ntpd-rs-its-about-time/79154),
 and [ntpd-rs upstream](https://github.com/pendulum-project/ntpd-rs).
 
 ## Validation boundary
 
-The generated-fixture suite verifies every accepted `/etc/os-release` identity, all 67 result slots, the explicit KISA family branches above, and high-risk native parser and service variants. These tests establish deterministic scanner behavior; booted-host acceptance has not been performed.
+The generated-fixture suite checks every accepted `/etc/os-release` identity,
+all 67 result slots, the KISA family-specific procedures above, and high-risk
+native parser and service variants. This verifies rendered-guide branch
+coverage and deterministic scanner behavior. Booted-host acceptance has not been
+performed.
 
-Before a release can claim booted-host product acceptance, run the full scanner on every row in the dated [platform support matrix](platform-support.md), review every `GOOD` result against the target's effective native state, and retain the reports and package versions. The current claim is rendered-guide branch coverage plus deterministic fixture coverage; booted-host acceptance has not been performed.
+Before claiming booted-host product acceptance for a release, run the full
+scanner on every row in the dated
+[platform support matrix](platform-support.md). Compare every `GOOD` result
+with the target's effective native state and retain the reports and package
+versions.

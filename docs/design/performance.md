@@ -1,21 +1,21 @@
 # Scan performance architecture
 
-The scanner uses subsystem-aware snapshots rather than a suffix tree, full-text
-index, or generic parser. Configuration precedence and native syntax remain part
-of each resolver's contract.
+The scanner snapshots each subsystem according to its configuration precedence
+and native syntax. Each resolver retains its own parsing rules; the scanner
+uses no suffix tree, full-text index, or generic parser.
 
 ## Scan epoch
 
-`lib/kisa-cce-core/_scan-epoch.sh` defines one immutable scan epoch. The main process starts an
-epoch after the protected scratch directory and platform context are available.
-The epoch key includes the resolver schema, scanner version, platform profile,
-policy digest, policy evaluation date, and evidence-bundle digest.
+`lib/kisa-cce-core/_scan-epoch.sh` defines an immutable scan epoch. The main
+process starts it after creating the protected scratch directory and determining
+the platform context. The epoch key includes the resolver schema, scanner
+version, platform profile, policy digest, policy evaluation date, and
+evidence-bundle digest.
 
-Snapshots memoize successful, absent, ambiguous, and error states. A transient
-read error therefore remains an error for the epoch and cannot become `GOOD`
-through a later cache lookup. A new epoch resets configuration and runtime
-snapshots. Runtime systemd, listener, and sysctl sources are always dirty at an
-epoch boundary.
+Snapshots cache successful, absent, ambiguous, and error states. A transient
+read error remains an error throughout the epoch; a later cache lookup cannot
+turn it into `GOOD`. Starting an epoch resets configuration and runtime
+snapshots and always marks runtime systemd, listener, and sysctl sources dirty.
 
 The in-memory reverse dependency graph records:
 
@@ -23,23 +23,23 @@ The in-memory reverse dependency graph records:
 source -> resolver -> U-NN or final criterion result
 ```
 
-A dirty source first invalidates its resolvers. Criterion propagation occurs
-only after the resolver commits a changed normalized output. Identical output
-clears resolver dirtiness without marking the criterion.
+A dirty source invalidates its resolvers. A resolver marks dependent criteria
+dirty only when it commits a changed normalized output. If the output is
+unchanged, it clears its own dirty state without marking the criteria.
 
-The current one-shot CLI does not retain dependency edges or normalized result
-bodies for a second evaluation because it exposes no in-process rescan entry
-point. The DAG and propagation engine are enabled by an in-process re-evaluator;
-their behavior is covered by `tests/scan_epoch.sh` without adding dormant CPU
-or memory cost to normal scans.
+The CLI runs once and has no in-process rescan entry point, so it does not retain
+dependency edges or normalized result bodies for another evaluation. An
+in-process re-evaluator enables the DAG and propagation engine.
+`tests/scan_epoch.sh` covers this behavior; normal scans do not incur the CPU or
+memory cost of keeping the graph.
 
 ## Subsystem snapshots
 
 ### Layered files and sysctl
 
-Layered directories are enumerated together. An associative set keeps the first
-path for each basename according to directory priority, followed by one lexical
-sort. This removes the previous `cut | grep` process pair for every candidate.
+The resolver enumerates layered directories together, uses an associative set
+to keep the highest-priority path for each basename, and sorts the selection
+lexically once. This replaces the previous `cut | grep` pair for each candidate.
 
 The sysctl resolver parses each selected file once per epoch. Exact directives
 use an associative lookup map. Ordered glob directives and exclusions use a
@@ -49,16 +49,17 @@ and runtime kernel values remain separate namespaces and evidence sources.
 
 ### PAM
 
-Each PAM source file is parsed once into a NUL-framed typed IR. The IR preserves
-module records and distinct `include`, `substack`, and Debian `@include` edges.
-Effective expansion is memoized by `(service, facility)`. Tri-color DFS detects
-cycles, and cached subtree height preserves the existing depth limit.
+The PAM resolver parses each source file once into a NUL-framed typed IR. It
+keeps module records and distinguishes `include`, `substack`, and Debian
+`@include` edges. It caches effective expansion by `(service, facility)`, detects
+cycles with tri-color DFS, and uses cached subtree heights to enforce the
+existing depth limit.
 
-PAM directory priority, Debian `common-*`, RHEL authselect inputs,
-`/etc/pam.conf`, absolute rooted includes, and the `other` fallback retain their
-existing error and fallback boundaries. Direct library calls outside an active
-epoch remain uncached so fixture and diagnostic mutations are immediately
-visible.
+Caching leaves the error and fallback rules unchanged for PAM directory
+priority, Debian `common-*`, RHEL authselect inputs, `/etc/pam.conf`, absolute
+rooted includes, and the `other` fallback. Direct library calls outside an
+active epoch bypass the cache so they immediately observe changes made by
+fixtures or diagnostic code.
 
 ### systemd and listeners
 
@@ -84,12 +85,12 @@ authoritative for offline bundle scans and never execute host runtime commands.
 
 ### Shell startup parsing and evidence paths
 
-U-30 recognizes direct dot and `source` directives with Bash built-ins before
-expanding the shell startup graph. It preserves the prior conditional,
-unresolved-source, cycle, and depth-limit boundaries without starting one
-`awk` process per input line. Each expanded file still has a separate
-single-pass UMASK control-flow parser because shell startup syntax is not
-interchangeable with PAM, sysctl, or another drop-in format.
+U-30 uses Bash built-ins to recognize direct dot and `source` directives before
+expanding the shell startup graph. Conditional directives, unresolved sources,
+cycles, and depth limits retain their previous handling without an `awk` process
+for every input line. A separate single-pass UMASK control-flow parser handles
+each expanded file because shell startup syntax differs from PAM, sysctl, and
+other drop-in formats.
 
 Filesystem evidence paths are normalized with Bash built-ins after rooted path
 resolution. Newline, carriage-return, and tab bytes retain the previous `?`
@@ -98,10 +99,10 @@ each path.
 
 ## Cache boundaries
 
-The current CLI has no daemon, watcher, persistent cache, or rescan option.
-Snapshots exist only inside one process and its protected scratch directory.
-The dependency graph provides the invalidation boundary for a future in-process
-rescan interface without defining that interface now.
+The CLI has no daemon, watcher, persistent cache, or rescan option. Snapshots
+last only for one process and use its protected scratch directory. The dependency
+graph supports invalidation for a possible in-process rescan interface; that
+interface has not been defined.
 
 A future persistent cache cannot accept metadata-only hits. Its source identity
 must include a content digest, mode, UID, GID, device, inode, size, mtime, ctime,
@@ -112,8 +113,8 @@ trusted change journal or immutable snapshot identifier proves equivalence.
 
 ## Deterministic tests
 
-The cache tests assert parser and collector invocation counts instead of relying
-on wall-clock thresholds:
+The cache tests check parser and collector invocation counts without wall-clock
+thresholds:
 
 - `tests/performance_cache.sh`: layered selection and sysctl snapshots;
 - `tests/pam_cache.sh`: PAM IR, DFS, fallback, and status caching;
@@ -165,10 +166,9 @@ first three scenarios and 5.4% with an evidence bundle. On this small fixture,
 cold wall median improved 1.0% and runtime-evidence median improved 0.6%; the
 unchanged and configuration-change medians regressed 1.4% and 0.3%. Wall p95
 improved in all four scenarios by 0.6–3.1%. RSS increased by about 1.4–1.6 MiB.
-The measurements establish the external-process reduction and modest tail
-latency improvement, but not a consistent median wall-time improvement. Larger
-real PAM and systemd graphs need target-host measurement before stronger
-end-to-end latency claims.
+These results show fewer external processes and a modest p95 improvement. They
+do not show a consistent median wall-time improvement. End-to-end latency on
+larger PAM and systemd graphs still requires measurement on target hosts.
 
 The complete median and p95 data is stored in
 [`benchmarks/2026-09-03-aarch64.tsv`](benchmarks/2026-09-03-aarch64.tsv).
@@ -192,9 +192,9 @@ and clone events and is therefore a process-creation proxy, not an `execve`
 count. RSS has 10 interleaved samples and measures the scanner process rather
 than an aggregate child-process high-water mark. The image did not contain GNU
 `time` or `strace`, and network access was unavailable, so those tools were not
-installed for this run. Runtime call-count regressions separately establish
-that the process-map and listener indexes remove 39 `pgrep` and 67 listener
-filter `awk` invocations from the measured fixture.
+installed for this run. Separate runtime call-count tests show that
+the process-map and listener indexes remove 39 `pgrep` and 67 listener-filter
+`awk` invocations from the measured fixture.
 
 The complete values are stored in
 [`benchmarks/2026-09-04-ubuntu-26.04-live.tsv`](benchmarks/2026-09-04-ubuntu-26.04-live.tsv).

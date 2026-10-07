@@ -2,7 +2,7 @@
 
 ## Supported targets
 
-The scanner accepts these directly identified base distributions from the target root's `/etc/os-release`:
+The scanner reads `/etc/os-release` in the target root and accepts these base distributions:
 
 | Platform | Accepted `ID` | Accepted `VERSION_ID` |
 |---|---|---|
@@ -10,9 +10,9 @@ The scanner accepts these directly identified base distributions from the target
 | Ubuntu LTS | `ubuntu` | `22.04`, `24.04`, `26.04` |
 | Red Hat Enterprise Linux | `rhel` | `8.10`, `9.8`, `10.2` |
 
-The explicit derivative allowlist covers current AlmaLinux, Rocky Linux, Oracle Linux, CentOS Stream, Linux Mint, Pop!_OS, Zorin OS, elementary OS, and KDE neon User Edition releases. See [Platform support](../reference/platform-support.md) for exact product versions, required Ubuntu base codenames, lifecycle sources, and subscription-only exclusions.
+An explicit allowlist also accepts current releases of AlmaLinux, Rocky Linux, Oracle Linux, CentOS Stream, Linux Mint, Pop!_OS, Zorin OS, elementary OS, and KDE neon User Edition. [Platform support](../reference/platform-support.md) lists the exact versions, required Ubuntu base codenames, lifecycle sources, and subscription-only exclusions.
 
-Other platforms are rejected unless `--allow-unsupported` is supplied. That option only bypasses platform rejection; it does not make the collected result authoritative for another distribution. Arbitrary `ID_LIKE` values never authorize an unlisted product.
+Other platforms require `--allow-unsupported`. This option bypasses platform rejection without establishing that the results are valid for another distribution. An `ID_LIKE` value cannot authorize a product outside the allowlist.
 
 ## Running from the source tree
 
@@ -35,22 +35,20 @@ sudo install -d -m 0700 /var/log/kisa-cce-scanner
 sudo ./bin/kisa-cce-scan --output-dir /var/log/kisa-cce-scanner
 ```
 
-The output directory must be an absolute path with no symbolic-link component. It must belong to the invoking user, grant owner read/write/search access, and grant no group or other permissions. Existing ancestor directories must not be replaceable through an untrusted group- or other-writable path; trusted sticky directories such as `/tmp` and `/var/tmp` remain valid. The scanner creates a missing directory with mode `0700`, opens and pins that directory through a file descriptor, and creates reports with mode `0600` through the pinned directory. It refuses to print report paths if the lexical directory binding changes before finalization.
+The output path must be absolute and contain no symbolic-link component. The directory must belong to the invoking user, grant that user read, write, and search access, and grant no permissions to anyone else. Its ancestors must not be replaceable through an untrusted group- or other-writable path. Trusted sticky directories such as `/tmp` and `/var/tmp` are allowed. The scanner creates a missing directory with mode `0700`, pins the directory with an open file descriptor, and uses that descriptor to create reports with mode `0600`. It prints no report paths if the path stops referring to the pinned directory before finalization.
 
 ## Running an installed scanner
 
-The installed command is:
+Run the installed scanner with:
 
 ```bash
 sudo kisa-cce-scan
 ```
 
-The installed configuration and metadata remediation command is:
+Configuration and metadata remediation is provided by the separately installed
+[KISA CCE Linux Patcher](https://github.com/KREONET/kisa-cce-linux-patcher).
 
-```bash
-```
-
-Read the installed command manual with:
+Read the scanner manual with:
 
 ```bash
 man 8 kisa-cce-scan
@@ -77,9 +75,9 @@ The installation layout and package staging interface are documented in [Packagi
 | `-h`, `--help` | Prints command help. |
 | `--version` | Prints the version read from `data/VERSION` or the installed data directory. |
 
-Options that require values accept both `--option VALUE` and `--option=VALUE`. Empty values are rejected. Positional arguments are rejected. `--checks` and `--explain-sysctl` cannot be combined.
+Options with values accept both `--option VALUE` and `--option=VALUE`. Empty values and positional arguments are rejected. `--checks` cannot be combined with `--explain-sysctl`.
 
-Selected results are always emitted in `data/criteria.tsv` order, not in the order supplied to `--checks`.
+Results follow the order in `data/criteria.tsv`, regardless of the order supplied to `--checks`.
 
 U-13 recognizes yescrypt on Debian-family targets and Enterprise Linux 10 or
 newer. U-31 and U-32 inspect root plus login-capable accounts whose UID is at
@@ -87,17 +85,17 @@ least the effective `UID_MIN` and below 65534. System accounts below that
 threshold and accounts using a recognized non-login shell are excluded from
 those two home-directory checks.
 
-One invocation uses one immutable scan epoch. Repeated checks share parse-once
-configuration snapshots and one runtime listener snapshot. A new invocation
-collects runtime state again; no cache persists across process runs.
+Each invocation uses one immutable scan epoch. Checks share configuration
+snapshots parsed once and a single runtime listener snapshot. Each new
+invocation collects runtime state again; caches do not persist across runs.
 
-Live scans prefer trusted `systemctl`, `ss`, and `pgrep` results. When the current PID namespace conclusively has a non-systemd PID 1 or the native listener and process tools are absent, the scanner uses an epoch-scoped procfs fallback. This supports containers and other reduced Linux userspaces without treating tool absence as service absence. Incomplete procfs evidence remains `MANUAL` or `ERROR`.
+Live scans prefer results from trusted `systemctl`, `ss`, and `pgrep` commands. The scanner falls back to procfs for the current scan epoch when PID 1 in the current PID namespace is conclusively not systemd or native listener and process tools are absent. This allows scans in containers and other reduced Linux userspaces while keeping missing tools distinct from absent services. Incomplete procfs evidence produces `MANUAL` or `ERROR`.
 
 Every terminal line uses `[    12.345678] kisa-cce-scan: payload`, based on the scanner host's Linux uptime with six fractional digits. A safe process-time or zero fallback is used when `/proc/uptime` is unavailable. This framing applies to help, version, errors, warnings, verbose progress, sysctl explanations, and report paths. Automation keys such as `markdown_report`, `jsonl_report`, and the sysctl `key=value` fields remain unchanged inside the payload. Report paths remain on standard output, so automation can keep progress diagnostics separate by redirecting standard error.
 
-Debug events use `DEBUG: schema=1 event=NAME key=value` payloads. The mode is a diagnostic superset of `--verbose`: it reports scan and criterion lifecycle, scan-epoch state, resolver and collection state, cache decisions, and report validation. It does not enable shell execution tracing, retain temporary files, print result summaries or evidence, or change result states, reports, or exit status. Dynamic field values use percent encoding for bytes outside the documented safe character set and are bounded in length. Native-command output and assessed configuration content are not debug fields.
+Debug events use `DEBUG: schema=1 event=NAME key=value` payloads. Debug mode includes all `--verbose` output and adds scan and criterion lifecycle events, scan-epoch state, resolver and collection state, cache decisions, and report validation. It does not enable shell execution tracing, retain temporary files, print result summaries or evidence, or change result states, reports, or exit status. Dynamic values have a length limit and percent-encode bytes outside the documented safe character set. Debug fields exclude native-command output and assessed configuration content.
 
-Debug output is assessment data. It can expose the selected root, platform, criterion activity, subsystem availability, and error state even though raw evidence is excluded. Protect a redirected debug stream with an owner-only umask:
+Debug output can expose the selected root, platform, criterion activity, subsystem availability, and error state even though it excludes raw evidence. Handle it as assessment data. Use an owner-only umask when redirecting it:
 
 ```bash
 umask 077
@@ -123,7 +121,7 @@ CLI help, progress, warning, and error output is always English. Reports are Kor
 
 Even with `--no-runtime`, scanning `/` requires root. Use an offline root for non-root analysis.
 
-`--root /` still selects the live root and does not create an offline scan boundary.
+`--root /` selects a live scan, with the same privilege and runtime rules as omitting `--root`.
 
 ### Offline example
 
@@ -134,7 +132,7 @@ Even with `--no-runtime`, scanning `/` requires root. Use an offline root for no
   --checks U-01,U-16,U-65
 ```
 
-Offline analysis can evaluate persistent files and metadata. It does not require UID 0, but the invoking user still needs read and directory-search access to the selected image. By itself it cannot prove current services, listeners, manager-normalized configuration, loaded sysctl values, or time synchronization. A matching evidence bundle supplies the supported captured runtime facts, including normalized schema version 2 time-source state, without enabling live commands on the analysis host. Unsupported or incomplete runtime distinctions remain `MANUAL`, `NOT_APPLICABLE`, or `ERROR`.
+Offline analysis evaluates persistent files and metadata. It does not require UID 0, but the invoking user needs read and directory-search access to the image. Files alone cannot establish current services, listeners, manager-normalized configuration, loaded sysctl values, or time synchronization. A matching evidence bundle supplies supported runtime facts captured from the host, including normalized schema version 2 time-source state. It does not enable live runtime commands on the analysis host. Unsupported or incomplete runtime distinctions remain `MANUAL`, `NOT_APPLICABLE`, or `ERROR`.
 
 ### Complete-mode workflow
 
@@ -161,7 +159,7 @@ managed directory. In complete mode an unattested policy review is an error; in
 automation mode it is a fail-closed vulnerability that cannot authorize a
 patch.
 
-Policies may be authored with the restricted YAML schema and compiled into a new immutable policy generation:
+To author policies in YAML, use the restricted schema and compile it into a new immutable policy directory:
 
 ```bash
 sudo install -m 0600 ./policy.yml /etc/kisa-cce-scanner/policy.yml
@@ -174,7 +172,7 @@ sudo kisa-cce-scan \
   --policy-dir /etc/kisa-cce-scanner/policy-20260904
 ```
 
-The compiler never replaces an existing directory. It emits the directory path and canonical policy digest only after the generated TSV passes the normal policy loader. See [Policy format](../reference/policy-format.md) for the accepted YAML subset.
+The compiler never replaces an existing directory. It prints the directory path and canonical policy digest only after the normal policy loader accepts the generated TSV. [Policy format](../reference/policy-format.md) describes the accepted YAML subset.
 
 Automation mode uses the same platform and evidence preconditions as complete
 mode and always evaluates all 67 criteria. It stages reports inside the
@@ -185,9 +183,9 @@ protected scan workspace and publishes them only when every final status is
 A policy-class `MANUAL` with a matching attestation uses the attested decision.
 When the attestation is absent, automation records `VULNERABLE` with
 `decision_basis=fail_closed_policy`, `remediation_eligible=false`, and an empty
-`remediation_rule_id`. This denotes a missing required approval, not permission
-to mutate the host. An expired, mismatched, or malformed attestation remains an
-error. A technical, runtime, or external `MANUAL` also becomes `ERROR` with an
+`remediation_rule_id`. This records a missing required approval and does not
+authorize a host change. An expired, mismatched, or malformed attestation remains
+an error. A technical, runtime, or external `MANUAL` also becomes `ERROR` with an
 evidence-incomplete decision basis, because policy cannot replace missing
 collection or interpretation.
 
@@ -229,7 +227,7 @@ enable, stop, or migrate a time daemon.
 
 ## Reports
 
-Every audit or complete scan produces two files and prints their absolute paths. A successful automation scan does the same after its publication gate succeeds:
+Audit and complete scans produce two report files and print their absolute paths. Automation scans do so only after passing all publication checks:
 
 ```text
 [    12.345678] kisa-cce-scan: markdown_report=/var/log/kisa-cce-scanner/kisa-cce-host-YYYYMMDDTHHMMSSZ.RANDOM.md
@@ -244,12 +242,12 @@ Automation reports are written below the protected scratch directory first, then
 
 ### Markdown report
 
-The Markdown report is organized for incident and remediation review:
+The Markdown report has four parts for incident and remediation review:
 
-1. The report header presents scanner, platform, scan-mode, policy, and evidence-bundle provenance in one metadata table.
-2. The overview presents all result counts near the top of the report.
-3. The priority index links to results in `ERROR`, `VULNERABLE`, then `MANUAL` order. `GOOD` and `NOT_APPLICABLE` results remain in the detailed results but do not lengthen the review queue.
-4. Each `## U-NN` result starts with a final-status callout and its summary, followed by one compact metadata row, the guide reference, and optional evidence.
+1. A metadata table records the scanner, platform, scan mode, policy, and evidence-bundle provenance.
+2. An overview near the top lists every result count.
+3. A priority index links to `ERROR`, `VULNERABLE`, and `MANUAL` results in that order. `GOOD` and `NOT_APPLICABLE` appear in the detailed results only.
+4. Each `## U-NN` section begins with the final status and summary, followed by a compact metadata row, guide reference, and optional evidence.
 
 Evidence is collapsed by default in renderers that support the standard HTML `details` and `summary` elements. The content remains present in the Markdown source and in renderers without interactive disclosure support. Assessed evidence is normalized, redacted, bounded to 8192 bytes, HTML-escaped, and placed in a `pre` and `code` container. Host-provided headings, links, images, tables, and HTML therefore remain inert text. JSONL retains the unprefixed normalized evidence value and additionally removes an incomplete UTF-8 suffix created by byte-boundary truncation. An empty value remains present as the JSONL `evidence` string and omits the Markdown disclosure block.
 
@@ -263,7 +261,7 @@ The JSONL report contains one JSON object per selected criterion followed by one
 
 The final line has `type` set to `summary` and contains all status counts plus `policy_resolved`. Consumers must parse the file as JSON Lines, not as one JSON array.
 
-The Markdown readability layout does not change the JSONL field names, order, types, result semantics, or evidence normalization contract. Automation must continue to consume JSONL rather than parse the presentation-oriented Markdown index or tables.
+The Markdown layout has no effect on JSONL field names, order, types, result semantics, or evidence normalization. Automation must read JSONL; the Markdown index and tables are intended for human review.
 
 `resolution_class` is `technical`, `policy`, `runtime`, or `external` and
 identifies what must resolve an indeterminate result. `remediation_eligible` is
@@ -279,10 +277,10 @@ ID. Consumers must validate all three fields rather than treating every
 | `runtime` | Current service, listener, mount, session, or other live state. |
 | `external` | Identity provider, vendor advisory, lifecycle, or another authority outside the scanned host. |
 
-Manual review IDs use canonical review schema 2, represented as
-`review_schema:2` in the hashed input. The schema binds `resolution_class` and
-the complete redacted basis. It is not an additional JSONL field; review schema
-1 attestations must be regenerated from a current audit.
+Manual review IDs use canonical review schema 2. The hashed input includes
+`review_schema:2`, `resolution_class`, and the complete redacted review basis.
+The schema marker is not a JSONL field. Regenerate review schema 1
+attestations from a current audit.
 
 The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or timestamp header stored in the Markdown report. Retain the Markdown and JSONL files together when those provenance fields are required.
 
@@ -296,7 +294,7 @@ The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or t
 | `NOT_APPLICABLE` | The service or feature is absent and absence was established. | Confirm that non-applicability matches the system role. |
 | `ERROR` | Required evidence could not be collected or parsed reliably. | Correct collection access or parser compatibility, then rerun. |
 
-`GOOD` describes the implemented check and collected evidence. It is not a certification of the entire host.
+`GOOD` applies only to the implemented check and collected evidence. It does not certify the entire host.
 
 ## Exit status
 
@@ -304,7 +302,7 @@ The JSONL stream does not repeat the scanner, platform, root, runtime-mode, or t
 |---:|---|
 | `0` | The invocation completed without a process-level failure, and a normal scan recorded no `VULNERABLE` or `ERROR` result. Sysctl explanation mode also returns `0` when its diagnostic completes successfully. |
 | `1` | A normal scan completed without a process-level failure and recorded at least one `VULNERABLE` result but no `ERROR` result. |
-| `2` | Invocation, platform detection, sysctl diagnosis, collection, report creation or integrity, at least one criterion produced an error, or automation publication was blocked by an unresolved result. |
+| `2` | Invocation, platform detection, sysctl diagnosis, collection, report creation, or integrity checks failed; at least one criterion produced an error; or an unresolved result blocked automation publication. |
 
 `ERROR` takes precedence over `VULNERABLE`. `MANUAL` and `NOT_APPLICABLE` do not change the exit status by themselves.
 
@@ -318,9 +316,9 @@ Use the diagnostic mode to inspect one key:
 sudo kisa-cce-scan --explain-sysctl net.ipv4.ip_forward
 ```
 
-The prefixed output retains one `key=value` payload per line. It distinguishes the filesystem model, the active loader model where available, the runtime value, and drift between them. It also reports an observed `sysctl.extra` credential override and the nonstandard `/etc/sysctl.conf.d` directory.
+Each prefixed output line contains one `key=value` payload. The output distinguishes the filesystem model, active loader model when available, runtime value, and any drift between them. It also reports an observed `sysctl.extra` credential override and the nonstandard `/etc/sysctl.conf.d` directory.
 
-The standard drop-in path is `/etc/sysctl.d/*.conf`. Configuration ordering and masking follow `sysctl.d(5)` semantics, not a recursive grep. See the [systemd sysctl.d specification](https://www.freedesktop.org/software/systemd/man/latest/sysctl.d.html) and [RHEL 10 kernel parameter documentation](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/managing_monitoring_and_updating_the_kernel/configuring-kernel-parameters-at-runtime).
+The standard drop-in path is `/etc/sysctl.d/*.conf`. Resolution follows the ordering and masking rules in `sysctl.d(5)`; recursively searching for a key does not reproduce those rules. See the [systemd sysctl.d specification](https://www.freedesktop.org/software/systemd/man/latest/sysctl.d.html) and [RHEL 10 kernel parameter documentation](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/managing_monitoring_and_updating_the_kernel/configuring-kernel-parameters-at-runtime).
 
 This mode does not change kernel parameters and does not create CCE report files.
 

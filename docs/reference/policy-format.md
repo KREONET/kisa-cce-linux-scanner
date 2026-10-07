@@ -2,20 +2,21 @@
 
 ## Purpose
 
-Policy attestations record decisions that require an authorized organizational
-review. Typed policy facts record approved values that a criterion can compare
-with collected technical evidence. Neither form replaces the technical,
-runtime, or external evidence collected by a criterion check.
+Policy attestations record decisions made by authorized organizational
+reviewers. Typed policy facts supply approved values for comparison with
+collected technical evidence. Checks still require their own technical,
+runtime, or external evidence.
 
 An attestation applies only to a policy-class `MANUAL` result whose criterion
 code and `review_id` match the current review basis and whose expiration date
 has not passed. A typed fact applies only when its type-specific identity
 matches the current observation and its expiration date has not passed.
 
-The loader is implemented as a Bash 4.3 or newer source module in `lib/kisa-cce-policy/_policy.sh`. It parses policy files as data and never evaluates their contents as shell code.
+The loader, `lib/kisa-cce-policy/_policy.sh`, requires Bash 4.3 or newer. It reads
+policy files as data and never evaluates their contents as shell code.
 
-This document describes scanner policy schema version 1. The distinct
-schema-version-2 desired state used by
+The scanner uses policy schema version 1. The separate desired-state schema
+version 2 used by
 `kisa-cce-patch --automatic --desired-state FILE` is documented in
 [Autopatcher coverage](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/reference/autopatcher-coverage.md). The two formats are not
 interchangeable.
@@ -24,10 +25,12 @@ interchangeable.
 
 `policy_load_dir PATH` reads two namespaces:
 
-- Direct children of `PATH` whose names end in `.tsv` contain final decision attestations. Bash expands these names in `LC_ALL=C` lexical order. Other direct children at this level are not attestation inputs.
-- The optional `PATH/facts/time-sources.tsv` file contains approved time-source facts. When `facts` exists, it may contain only this file. Unknown, hidden, or nested entries are rejected so that a misspelled or unsupported fact file is not silently ignored.
+- Files directly under `PATH` with names ending in `.tsv` contain final decision attestations. Bash expands these names in `LC_ALL=C` lexical order. Other entries at this level are not read as attestations.
+- The optional `PATH/facts/time-sources.tsv` file contains approved time sources. If `facts` exists, it may contain only this file. The loader rejects unknown, hidden, or nested entries so that misspelled or unsupported fact files cannot be silently ignored.
 
-A directory with no matching attestation files and no `facts/time-sources.tsv` file is valid. An existing `facts` directory without the time-source file is also valid and means that no typed time-source fact set was supplied.
+A directory with no attestation files and no `facts/time-sources.tsv` is valid.
+An empty `facts` directory is also valid. Both cases mean that no typed
+time-source facts were supplied.
 
 ## Shipped default directory
 
@@ -37,15 +40,26 @@ The source tree provides `etc/kisa-cce-scanner/policy.d/00-default.tsv`. `make i
 /etc/kisa-cce-scanner/policy.d/00-default.tsv
 ```
 
-Complete and automation modes select this installed directory when `--policy-dir` is omitted and the directory exists. An explicit `--policy-dir` always takes precedence. Source-tree execution does not implicitly trust the repository copy because a root scanner commonly reads a checkout owned by a non-root developer. If the installed directory is absent, the mode rejects the invocation as missing policy input.
+Complete and automation modes use the installed directory when `--policy-dir`
+is omitted. An explicit `--policy-dir` takes precedence. Runs from a source
+checkout do not automatically use the repository copy: the scanner may run as
+root while the checkout belongs to a non-root developer. If no directory is
+specified and the installed directory is absent, the scanner rejects the
+invocation because policy input is missing.
 
-`00-default.tsv` contains only the attestation header, so it approves no criterion result. The default does not create `facts/time-sources.tsv`: a header-only typed-fact file would be an explicit empty allowlist and would therefore change U-65 rather than act as a neutral template. The shipped file provides a safe policy structure but does not manufacture organization-specific decisions or turn unresolved evidence into `GOOD`.
+`00-default.tsv` contains only the attestation header and approves no criterion
+result. Installation leaves `facts/time-sources.tsv` absent. A header-only
+time-source file would create an explicit empty allowlist and change the U-65
+assessment. Administrators must supply organizational decisions; the default
+file cannot resolve incomplete evidence to `GOOD`.
 
 The installed directory uses mode `0700`, and the file uses mode `0600`. Distribution packages should preserve administrator changes by treating this path as a configuration file, using the native conffile or no-replace mechanism.
 
 ## YAML authoring and compilation
 
-`kisa-cce-policy-compile` converts a policy-specific YAML subset into a new TSV policy directory. YAML is an authoring format only; `kisa-cce-scan` continues to read the canonical TSV schemas described below.
+Use `kisa-cce-policy-compile` to convert the supported YAML subset into a new
+TSV policy directory. Policies can be written in YAML, but `kisa-cce-scan`
+reads only the TSV schemas described below.
 
 ```bash
 sudo install -m 0600 ./policy.yml /etc/kisa-cce-scanner/policy.yml
@@ -54,9 +68,13 @@ sudo kisa-cce-policy-compile \
   --output-dir /etc/kisa-cce-scanner/policy-20260904
 ```
 
-The output directory must not exist. The compiler stages files under the same trusted parent, validates the generated directory with `policy_load_dir`, and publishes it using a no-replace rename. It creates `50-compiled.tsv` and creates `facts/time-sources.tsv` only when `time_sources` appears in the YAML document. Generated directories use mode `0700`; generated files use mode `0600`.
+The output directory must not exist. The compiler stages files under the
+target's trusted parent directory, validates them with `policy_load_dir`, and
+renames the staging directory into place without replacing an existing path.
+It writes `50-compiled.tsv` and adds `facts/time-sources.tsv` only if the YAML
+contains `time_sources`. Directories use mode `0700`; files use mode `0600`.
 
-The complete authoring shape is:
+Example with attestations and approved time sources:
 
 ```yaml
 schema_version: 1
@@ -93,7 +111,7 @@ The parser accepts blank lines, full-line comments, block lists, plain scalars, 
 
 It rejects ASCII and Unicode C1 control characters, malformed UTF-8, tabs, carriage returns, anchors, aliases, tags, merge keys, flow collections, block scalars, multiple documents, unknown keys, duplicate keys, invalid indentation, and inline comments in plain scalars. The input is never sourced or evaluated. The existing policy loader performs the final criterion, review ID, date, provider, address, duplicate, and digest validation.
 
-The maintained neutral template is [`examples/policy.yml`](../../examples/policy.yml).
+[`examples/policy.yml`](../../examples/policy.yml) provides a template with no approvals.
 
 The policy directory, the optional `facts` directory, and every consumed file must meet all of these requirements:
 
@@ -107,7 +125,7 @@ The loader rejects a matching symbolic link instead of following it. When loaded
 
 ## Review basis schema
 
-New review IDs use `review_schema:2`. The canonical hash input binds the
+New review IDs use `review_schema:2`. The hash input includes the
 scanner version, detected platform and base platform, evidence-bundle identity,
 criterion metadata, applicability, `resolution_class`, complete normalized
 summary, and complete redacted evidence. Adding `resolution_class` prevents an
@@ -156,7 +174,9 @@ U-07	GOOD	sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
 
 Files do not override one another. A criterion code may occur only once across the complete directory. A duplicate code, malformed file, untrusted path, or unreadable metadata makes `policy_load_dir` return status 2.
 
-Loading is atomic from the caller's perspective. The exported arrays are cleared before validation and remain empty if validation fails. A successful load populates these associative arrays, keyed by criterion code:
+The loader clears its exported arrays before validation. They remain empty
+if any input fails validation. On success, the loader populates these
+associative arrays, keyed by criterion code:
 
 ```text
 POLICY_DECISION
@@ -170,7 +190,8 @@ POLICY_EXPIRES
 
 ## Lookup contract
 
-Call `policy_lookup CODE REVIEW_ID` with the review identifier calculated by the current criterion implementation. The function has these outcomes:
+Call `policy_lookup CODE REVIEW_ID` with the review ID calculated by the
+current criterion implementation:
 
 | Status | Meaning | Standard output |
 |---|---|---|
@@ -190,12 +211,16 @@ POLICY_MATCH_APPROVER
 POLICY_MATCH_EXPIRES
 ```
 
-The match variables are cleared at the start of every lookup. Callers must use them only after a status 0 result. Call `policy_lookup` directly when consuming these variables because command substitution executes the function in a subshell and cannot preserve variable assignments in the caller. `POLICY_MATCH_DECISION` provides the decision without command substitution; standard output remains available for stream-oriented callers.
+Each lookup clears the match variables. Read them only after a status 0 result.
+Call `policy_lookup` directly if these values are needed in the calling shell:
+command substitution runs the function in a subshell and loses its variable
+assignments. Read the decision from `POLICY_MATCH_DECISION` or use standard
+output when only the printed value is needed.
 
 A matching `review_id` proves that the attestation was issued for the review basis supplied by the caller; it does not authenticate the file. File provenance, distribution, and integrity controls remain deployment responsibilities.
 
 In complete mode, a missing policy-class attestation is an error. In automation
-mode, an absent attestation closes that result to `VULNERABLE` with
+mode, a missing attestation makes that result `VULNERABLE` with
 `decision_basis=fail_closed_policy`; the result remains
 `remediation_eligible=false`. Invalid, expired, or mismatched attestations are
 errors in both modes.
@@ -238,9 +263,9 @@ ntpd-rs	rust-time.example.net	192.0.2.40	TIME-2026-002	time-owners	2026-12-31
 systemd-timesyncd	time2.example.net	-	TIME-2026-003	security-governance	2026-12-31
 ```
 
-The ntpd-rs provider name binds an approval to a selected ntpd-rs installation;
-it does not make ntpd-rs the Ubuntu 26.04 default. The scanner separately
-requires `/etc/ntpd-rs/ntp.toml`, `ntpd-rs.service` persistence, and normalized
+The ntpd-rs provider name limits the source approval to a selected ntpd-rs
+installation. It does not change Ubuntu 26.04's default time daemon. The scanner also requires
+`/etc/ntpd-rs/ntp.toml`, `ntpd-rs.service` persistence, and normalized
 `ntp-ctl status` evidence. See the
 [Resolute package](https://packages.ubuntu.com/resolute/ntpd-rs) and
 [ntpd-rs upstream](https://github.com/pendulum-project/ntpd-rs).
@@ -286,8 +311,14 @@ After a successful load, `POLICY_TIME_SOURCE_FACTS_PRESENT` distinguishes an exp
 
 ### Digest and failure behavior
 
-Typed facts participate in `POLICY_SET_DIGEST`. The digest input includes a schema marker for an existing `time-sources.tsv` file and canonical records sorted by provider, normalized host, and normalized address. Reordering valid rows therefore does not change the digest. An explicit header-only file and an absent file produce different digests.
+`POLICY_SET_DIGEST` includes typed facts. If `time-sources.tsv` exists, the
+digest input contains its schema marker and canonical records sorted by
+provider, normalized host, and normalized address. Reordering valid rows does
+not change the digest. A header-only file and an absent file produce different
+digests.
 
 When no typed fact file exists, the digest input for final attestations is unchanged from the original attestation-only format. Expired facts remain part of the digest because the digest identifies the loaded policy content; expiration is enforced during lookup.
 
-Loading remains atomic. A malformed, duplicate, unsupported, or unsafe typed fact clears both attestation and typed-fact globals and leaves `POLICY_SET_DIGEST` empty.
+A malformed, duplicate, unsupported, or unsafe typed fact invalidates the
+entire load. Both attestation and typed-fact globals are cleared, and
+`POLICY_SET_DIGEST` remains empty.

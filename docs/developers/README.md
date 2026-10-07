@@ -1,6 +1,6 @@
 # Contributor guide
 
-This page is the entry point for contributors to the KISA CCE Linux Scanner. It summarizes the development workflow and links to the documents that define behavior. Keep detailed subsystem rules in their existing authoritative documents instead of duplicating them here.
+Use this guide to prepare, test, and submit changes to the KISA CCE Linux Scanner. The documents below define subsystem behavior. Maintain detailed rules in those documents rather than duplicating them here.
 
 ## Sources of truth
 
@@ -19,7 +19,7 @@ This page is the entry point for contributors to the KISA CCE Linux Scanner. It 
 | Operator-visible CLI behavior | [Usage](../operators/usage.md) and `kisa-cce-scan(8)` |
 | Patch rules and transaction safety | [Autopatcher](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/design/autopatcher.md) and `kisa-cce-patch(8)` |
 
-When implementation and prose disagree, inspect the relevant code and tests, then update both in one change. Do not weaken a conservative result solely to make a fixture pass.
+When code and documentation disagree, inspect the relevant implementation and tests, then correct both in the same change. Do not weaken a conservative result solely to make a fixture pass.
 
 ## Choose the change path
 
@@ -34,7 +34,7 @@ When implementation and prose disagree, inspect the relevant code and tests, the
 | Policy YAML compiler | `lib/kisa-cce-policy/_policy-yaml.sh` or `lib/kisa-cce-cli/_policy-compile-main.sh` | Policy format, parser rejection fixtures, installed-layout test, and compiler man page |
 | Packaging | `Makefile` and `docs/packaging/README.md` | Staged install, upgrade, removal, and command smoke tests |
 
-Begin with the narrowest focused test that can reproduce the behavior. Expand to shared consumers before changing a resolver or collection primitive.
+Start with the smallest test that reproduces the behavior. Test shared consumers before changing a resolver or collection primitive.
 
 ## Repository setup and prerequisites
 
@@ -48,9 +48,9 @@ Use a Linux environment with:
 - `mandoc` when changing a manual page;
 - Apple `container` or QEMU for the distribution matrix.
 
-The public launcher executes `/bin/bash`. The stock macOS Bash 3.2 runtime is not a valid target environment; use a Linux container or virtual machine for the required test suite.
+The public launcher executes `/bin/bash`. The required test suite needs a Linux container or virtual machine; the Bash 3.2 supplied with macOS is not a supported runtime.
 
-The project has no generated source and no third-party production dependency. It uses Bash, base-system utilities, and a dependency-free PO parser instead of a separate language runtime or gettext installation. Do not add a production dependency without prior review. Native subsystem tools may be used through the existing trusted-command boundary, and unavailable optional tools must retain conservative result handling.
+The project has no generated source or third-party production dependency. It uses Bash, base-system utilities, and a PO parser that requires no separate runtime or gettext installation. Do not add a production dependency without prior review. Native subsystem tools may run through the existing trusted-command boundary. Results must remain conservative when optional tools are unavailable.
 
 Start from a protected checkout and inspect its state before making changes:
 
@@ -71,13 +71,13 @@ Preserve unrelated changes. Do not reformat or move files outside the requested 
 6. Review the final diff for result-state drift, evidence disclosure, path escapes, and unrelated edits.
 7. Update operator documentation and the section 8 manual when CLI behavior changes.
 
-Do not create a new KISA result for an implementation diagnostic. A selected catalog row must still produce exactly one `GOOD`, `VULNERABLE`, `MANUAL`, `NOT_APPLICABLE`, or `ERROR` result.
+Each selected catalog row must produce exactly one `GOOD`, `VULNERABLE`, `MANUAL`, `NOT_APPLICABLE`, or `ERROR` result. Do not add KISA results for implementation diagnostics.
 
-Every result also declares a `technical`, `policy`, `runtime`, or `external`
-resolution class. Remediation eligibility is valid only for a technical
-`VULNERABLE` result with a registered versioned rule ID. An unattested
-policy-class result may close to `VULNERABLE` in scanner automation mode, but it
-must remain remediation-ineligible.
+Every result declares a `technical`, `policy`, `runtime`, or `external`
+resolution class. Only a technical `VULNERABLE` result with a registered,
+versioned rule ID can be eligible for remediation. In scanner automation mode,
+an unattested policy-class result may become `VULNERABLE`, but it must remain
+ineligible for remediation.
 
 ## Check ownership
 
@@ -87,7 +87,7 @@ must remain remediation-ineligible.
 | U-34 through U-63 | `lib/kisa-cce-checks/_service.sh` | Network services and service configuration |
 | U-64 through U-67 | `lib/kisa-cce-checks/_system.sh` | Patch, time, logging, and system controls |
 
-Shared precedence and reusable collection logic belongs in `lib/kisa-cce-resolvers/_resolvers.sh`. Rooted filesystem, result, report, and trusted-command primitives belong in `lib/kisa-cce-core/_core.sh`. Scan-epoch and reverse-dependency state belongs in `lib/kisa-cce-core/_scan-epoch.sh`. Keep criterion policy in the owning check module.
+Keep shared precedence and reusable collection logic in `lib/kisa-cce-resolvers/_resolvers.sh`; rooted filesystem, result, report, and trusted-command primitives in `lib/kisa-cce-core/_core.sh`; and scan-epoch and reverse-dependency state in `lib/kisa-cce-core/_scan-epoch.sh`. Criterion policy belongs in the check module that owns it.
 
 ## Rooted paths and recursive records
 
@@ -104,9 +104,9 @@ See [Development: Filesystem access](development.md#filesystem-access), [Archite
 
 ## Resolver semantics
 
-Do not replace subsystem behavior with a generic `*.d` merge or last-match search. Preserve each format's native rules, including directory priority, equal-basename replacement, lexical order, masks, includes, recursion boundaries, first- or last-obtained directives, aliases, templates, drop-ins, and manager-normalized state.
+Follow each subsystem's native configuration rules: directory priority, equal-basename replacement, lexical order, masks, includes, recursion boundaries, first- or last-obtained directives, aliases, templates, drop-ins, and manager-normalized state. A generic `*.d` merge or last-match search must not replace those rules.
 
-Resolvers must distinguish an established value, an established absence, ambiguity, and collection or interpretation failure. A scan epoch memoizes all of those states. A cache must not convert unreadable, incomplete, or malformed evidence into `GOOD`, and runtime state must be recollected for a new invocation.
+Resolvers must distinguish a confirmed value, confirmed absence, ambiguity, and collection or interpretation failure. A scan epoch caches each of these states. Cached evidence that is unreadable, incomplete, or malformed must never produce `GOOD`. Collect runtime state again for each invocation.
 
 See [Architecture: Configuration resolution](../design/architecture.md#configuration-resolution) and [Performance](../design/performance.md).
 
@@ -120,9 +120,9 @@ Debug records use this stable envelope:
 DEBUG: schema=1 event=NAME key=value
 ```
 
-Event and key names match `[a-z][a-z0-9_]*`. Field keys are unique within an event, while `schema`, `event`, and `truncated` are reserved for the envelope. Values are percent-encoded outside `[A-Za-z0-9._~:/@+-]`; rendered fields and complete events are bounded. Emit normalized states such as subsystem, cache action, status, count, or exit status.
+Event and key names match `[a-z][a-z0-9_]*`. Each field key is unique within its event; `schema`, `event`, and `truncated` are reserved for the envelope. Bytes outside `[A-Za-z0-9._~:/@+-]` are percent-encoded, and size limits apply to rendered fields and complete events. Emit normalized states such as subsystem, cache action, status, count, or exit status.
 
-Never pass configuration lines, command arguments, raw stdout or stderr, result summaries, evidence, policy content, review IDs, evidence-bundle digests, credentials, tokens, hashes, keys, or report paths to a debug event. Debug output remains sensitive assessment data despite these exclusions. Every new event requires tests for its schema, state transition, stderr-only dmesg framing, disabled behavior, and noninterference with reports and exit status.
+Never pass configuration lines, command arguments, raw stdout or stderr, result summaries, evidence, policy content, review IDs, evidence-bundle digests, credentials, tokens, hashes, keys, or report paths to a debug event. Even with these exclusions, debug output is sensitive assessment data. For every new event, test its schema and state transition, verify dmesg framing on standard error only, and check that disabling debug suppresses the event. Also verify that debug mode leaves reports and exit status unchanged.
 
 See [Development: Debug event contract](development.md#debug-event-contract) and [Security model: Debug diagnostics](../design/security-model.md#debug-diagnostics).
 
@@ -165,16 +165,17 @@ Run containerized userspace validation on the matrix reviewed on 2026-09-08:
 | Rocky Linux | 8.10, 9.8, 10.2 |
 | Fedora | 43, 44 |
 
-Use the distribution-provided Bash and ShellCheck versions. Run permission-sensitive fixture tests as a non-root user, then perform the installed-layout and scanner smoke checks with the privileges they require. For each matrix target, verify `make check`, `make lint`, staged installation, one 67-result scan, Markdown and JSONL cardinality, report modes, and JSONL parsing when `jq` is available.
+Use the distribution's Bash and ShellCheck versions. Run fixtures that test permissions as a non-root user. Then run the installed-layout and scanner smoke checks with the required privileges. On each matrix target, verify `make check`, `make lint`, staged installation, one 67-result scan, Markdown and JSONL result counts, report modes, and JSONL parsing when `jq` is available.
 
-Use `--matrix supported --prepare` to select these releases. Fedora smoke verifies
-default platform rejection before an exploratory `--allow-unsupported` scan;
-its inclusion does not expand production platform support. See the
+Select these releases with `--matrix supported --prepare`. Fedora smoke checks
+first verify that the scanner rejects the platform by default, then run an
+exploratory `--allow-unsupported` scan. These tests do not expand production
+platform support. See the
 [automated test guide](test-automation.md) for lifecycle scope and snapshot updates.
 
 Containerized userspace coverage does not replace acceptance testing on a booted host with systemd, active listeners, real mount topology, and native validators. Record only tests that were actually run.
 
-Use [automated Linux guest tests](test-automation.md) for Apple `container` or QEMU. The manual Apple procedure remains in [macOS container testing](macos-container-testing.md).
+Use [automated Linux guest tests](test-automation.md) for Apple `container` or QEMU. For manual Apple runs, follow [macOS container testing](macos-container-testing.md).
 
 ## Preparing a review
 
@@ -188,7 +189,7 @@ Provide enough evidence for another maintainer to reproduce the result:
 - distinguish generated fixtures, containerized userspace tests, and booted-host acceptance;
 - identify remaining limitations without presenting untested behavior as complete.
 
-Review the complete working-tree diff before staging. Keep unrelated changes unstaged, and use one logical Conventional Commit when a maintainer requests a commit. Every AI-assisted change still requires human review and validation.
+Review the complete working-tree diff before staging, and leave unrelated changes unstaged. When a maintainer requests a commit, use one Conventional Commit for the logical change. Every AI-assisted change requires human review and validation.
 
 ## Licensing and authorship
 
@@ -200,7 +201,7 @@ LGPL-3.0-or-later OR BSD-3-Clause
 
 Contributors must have the right to submit their work under both alternatives. KISA guide material and other third-party content retain their original terms. See [Development: Contribution licensing](development.md#contribution-licensing), [`LICENSING.md`](../../LICENSING.md), [`NOTICE`](../../NOTICE), and [`LICENSES/`](../../LICENSES/).
 
-Do not add a `Signed-off-by` trailer on behalf of another person. A contributor who must certify a sign-off adds it personally under the applicable project policy. Preserve any required AI-assistance disclosure separately; it does not substitute for human review or sign-off.
+Do not add a `Signed-off-by` trailer on behalf of another person. Contributors must add their own sign-off when project policy requires it. Keep any required AI-assistance disclosure separate; it does not replace human review or sign-off.
 
 ## Review checklist
 

@@ -16,16 +16,15 @@ tests/                  Generated-fixture regression suite.
 Makefile                Validation and installation interface.
 ```
 
-The project has no generated source code and no production build dependency. Packaging copies the launcher, private shell files, runtime data, and section 8 manual into a staged filesystem. Repository Markdown is not installed by `make install`.
+The project has no generated source code or production build dependency. Packaging stages the launcher, private shell files, runtime data, and section 8 manual. `make install` does not install repository Markdown.
 
 ## Contribution licensing
 
-Unless explicitly stated otherwise before submission, contributions intended
-for inclusion in this project must be provided under
-`LGPL-3.0-or-later OR BSD-3-Clause`. Contributors must have the right to submit
-the work under both licenses. KISA CCE GUIDE material and other third-party
-content remain subject to their original terms and are not relicensed by this
-policy.
+Contributions intended for this project must use
+`LGPL-3.0-or-later OR BSD-3-Clause` unless explicitly stated otherwise before
+submission. Contributors must have the right to submit the work under both
+licenses. KISA CCE GUIDE material and other third-party content retain their
+original terms; this policy does not relicense them.
 
 ## Local validation
 
@@ -41,49 +40,49 @@ Run ShellCheck separately:
 make lint
 ```
 
-`make check` runs the named regression groups in `tests/run.sh` and focused tests for evidence schemas, typed policy facts, report rendering, redaction, non-systemd procfs runtime collection, system-check failure precedence, numeric UID handling, sysctl, PAM, systemd, listeners, and dependency propagation. The suite creates all fixtures under a protected temporary directory and removes them at exit.
+`make check` runs the regression groups named in `tests/run.sh` and focused tests for evidence schemas, typed policy facts, report rendering, redaction, non-systemd procfs runtime collection, system-check failure precedence, numeric UID handling, sysctl, PAM, systemd, listeners, and dependency propagation. All fixtures use a protected temporary directory that the suite removes at exit.
 
 ### Ubuntu 26.04 coreutils compatibility
 
 Ubuntu 26.04 uses rust-coreutils 0.8.0 as its default core-utility provider,
 while `cp`, `mv`, and `rm` remain GNU implementations. The Resolute GNU package
-is based on coreutils 9.7. These are deliberate mixed-provider release
-semantics, not a reason to branch scanner behavior on a command's implementation
-name or `--version` text. See the official
+is based on coreutils 9.7. The release intentionally uses both providers.
+Do not branch scanner behavior on an implementation name or `--version` text.
+See the official
 [rust-coreutils update](https://discourse.ubuntu.com/t/an-update-on-rust-coreutils/80773),
 [Ubuntu 26.04 release notes](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/),
 and [Resolute GNU coreutils package](https://packages.ubuntu.com/resolute/gnu-coreutils).
 
-`tests/uutils_compatibility.sh` runs only on Ubuntu 26.04 and executes the exact
-capabilities required by the scanner: GNU-style `stat` fields, `readlink -f`,
+`tests/uutils_compatibility.sh` runs only on Ubuntu 26.04 and tests the command
+capabilities the scanner uses: GNU-style `stat` fields, `readlink -f`,
 NUL-delimited `sort -z`, the `date -r -u` timestamp form, `sha256sum --`, and
 `install` directory and file modes. Other platforms report a skip. Extend this
-test whenever production code adopts another option form. Do not replace it
-with provider-name or version matching; compatible implementations are accepted
-and incompatible behavior fails at the exercised capability boundary.
+test whenever production code adopts another option form. Keep these behavior
+checks rather than replacing them with provider-name or version matching.
+Compatible implementations pass; incompatible behavior fails the relevant test.
 
 `tests/ntpd_rs.sh` independently verifies the optional ntpd-rs U-65 adapter:
 strict `/etc/ntpd-rs/ntp.toml` source parsing, native configuration validation,
 multi-source `ntp-ctl status` normalization, `ntpd-rs.service` persistence,
 and provider-bound policy matching. The fixtures cover `nts-pool`, bracketed
 IPv6, unknown-key rejection, and every observed peer. Keep Chrony as the
-expected Ubuntu 26.04 provider in fixtures; ntpd-rs
-is a selected operational extension. The Canonical timeline is documented in
+expected Ubuntu 26.04 provider in fixtures; ntpd-rs is an optional extension.
+Canonical documents the timeline in
 the [ntpd-rs transition plan](https://discourse.ubuntu.com/t/ntpd-rs-its-about-time/79154).
 
-Performance measurements are separate from correctness gates because they need Linux `strace`, GNU `time`, and a baseline source tree. See [Scan performance architecture](../design/performance.md).
+Performance measurements require Linux `strace`, GNU `time`, and a baseline source tree, so they run separately from correctness checks. See [Scan performance architecture](../design/performance.md).
 
 ## Implementing or changing a criterion
 
 ### Catalog contract
 
-`data/criteria.tsv` is ordered and must contain exactly one row for every U-01 through U-67 result. Runtime validation enforces this exact ordered range in addition to the four-column header, tab separators, and non-empty metadata fields:
+`data/criteria.tsv` must contain exactly one row for each criterion from U-01 through U-67, in that order. Runtime validation checks the range and order, four-column header, tab separators, and non-empty metadata fields:
 
 ```text
 code	category	severity	title
 ```
 
-Do not add an implementation-only diagnostic as a new KISA result. Expose supporting diagnostics through a separate command mode, as `--explain-sysctl` does.
+Expose implementation diagnostics through a separate command mode, as `--explain-sysctl` does. Do not add them as KISA results.
 
 ### Function contract
 
@@ -102,19 +101,19 @@ set_result STATUS "summary" "evidence" applicable \
   RESOLUTION_CLASS REMEDIATION_ELIGIBLE REMEDIATION_RULE_ID
 ```
 
-Use `true` or `false` for `applicable`. Omission defaults to `true`. Resolution
-class defaults to `technical`; remediation eligibility defaults to `false` and
-the rule ID defaults to empty.
+Use `true` or `false` for `applicable`; its default is `true`. Resolution class
+defaults to `technical`, remediation eligibility to `false`, and the rule ID
+to empty.
 
 Resolution class is `technical`, `policy`, `runtime`, or `external`. Use
-`policy` only when complete technical evidence exists and organization intent
-is the remaining input. Use `runtime` when current host state is missing,
+`policy` only when technical evidence is complete and the remaining input is
+the organization's intent. Use `runtime` when current host state is missing,
 `external` for identity, vendor, or other authoritative data outside the host,
 and `technical` for parser or configuration uncertainty.
 
-Eligibility can be true only for `VULNERABLE` with a nonempty lowercase
-versioned rule ID, such as `metadata.u37.v1`. Every other result must use false
-and an empty rule ID. Invalid combinations are converted to `ERROR`.
+Eligibility can be true only for `VULNERABLE` with a nonempty, lowercase,
+versioned rule ID such as `metadata.u37.v1`. All other results must use false
+and an empty rule ID. Invalid combinations become `ERROR`.
 
 ### Choosing a result
 
@@ -125,10 +124,10 @@ and an empty rule ID. Invalid combinations are converted to `ERROR`.
 - Use `ERROR` when required evidence cannot be read, trusted, or parsed reliably.
 
 In complete and automation modes, technical, runtime, and external manual
-results become `ERROR`; attestations can resolve only policy-class manual
-results. Automation converts an absent policy attestation to non-actionable
-`VULNERABLE` with `decision_basis=fail_closed_policy`. Do not mark that result
-remediation-eligible.
+results become `ERROR`. Attestations can resolve only policy-class manual
+results. When a policy attestation is absent, automation produces a
+non-actionable `VULNERABLE` result with `decision_basis=fail_closed_policy`.
+Do not mark that result as eligible for remediation.
 
 Missing input is not automatically `GOOD` or `NOT_APPLICABLE`.
 
@@ -153,7 +152,7 @@ Missing input is not automatically `GOOD` or `NOT_APPLICABLE`.
 
 ### Configuration formats
 
-Do not apply a generic last-match grep to a layered subsystem. Document and test all applicable behavior, including:
+For layered configuration, document and test the subsystem's rules rather than relying on a generic last-match grep. Cover all applicable behavior, including:
 
 - directory precedence and equal-basename replacement;
 - lexical order;
@@ -168,21 +167,21 @@ Return `MANUAL` or `ERROR` when the implemented model cannot prove the native re
 
 ### Evidence content
 
-Evidence must be concise, reviewable, and free of raw secrets. Prefer counts, modes, ownership, selected directive values, source paths with line numbers, and explicit collection-state fields.
+Keep evidence concise and sufficient for review, with no raw secrets. Prefer counts, modes, ownership, selected directive values, source paths with line numbers, and explicit collection-state fields.
 
-Do not emit password hashes, private keys, TSIG material, tokens, SNMP credentials, complete access-control files, or full command output. The shared redactor is defense in depth, not authorization to collect excessive data.
+Do not emit password hashes, private keys, TSIG material, tokens, SNMP credentials, complete access-control files, or full command output. The shared redactor provides an additional safeguard; it does not justify collecting excessive data.
 
 ### Debug event contract
 
 Use `debug_emit` for internal diagnostics. Do not use `set -x`, `BASH_XTRACEFD`, direct writes to file descriptor 2, or ad hoc debug files. The function accepts one event name followed by unique key and value pairs. Event and key identifiers must match `[a-z][a-z0-9_]*`; `schema`, `event`, and `truncated` are reserved envelope keys. Keep the schema stable and use enum-like values for state.
 
-Pass only bounded operational metadata. Allowed examples include a criterion code, subsystem name, cache action, normalized collection status, count, and exit status. Do not pass command arguments, raw stdout or stderr, configuration lines, result summaries, evidence, policy data, review IDs, bundle digests, credentials, or report paths. Treat logical paths as sensitive and include one only when it is necessary to identify a failed source. The encoder percent-escapes bytes outside `[A-Za-z0-9._~:/@+-]`, limits each rendered `key=value` field to 256 bytes, and limits each event to 2048 bytes. These limits are a final boundary, not permission to submit arbitrary data.
+Pass only bounded operational metadata, such as a criterion code, subsystem name, cache action, normalized collection status, count, or exit status. Do not pass command arguments, raw stdout or stderr, configuration lines, result summaries, evidence, policy data, review IDs, bundle digests, credentials, or report paths. Treat logical paths as sensitive and include one only when needed to identify a failed source. The encoder percent-escapes bytes outside `[A-Za-z0-9._~:/@+-]`, limits each rendered `key=value` field to 256 bytes, and limits each event to 2048 bytes. These size limits do not make arbitrary data safe to submit.
 
-Every new debug event requires a regression that verifies its exact schema and state transition. Also verify that debug-disabled execution emits no debug events, debug output stays on standard error with dmesg framing, hostile values cannot create fields or terminal lines, and debug mode does not alter reports or exit status.
+Every new debug event requires a regression test for its exact schema and state transition. Verify that disabling debug suppresses all events, output stays on standard error with dmesg framing, hostile values cannot create fields or terminal lines, and reports and exit status remain unchanged.
 
 ## Adding a resolver
 
-Place reusable precedence and path logic in `lib/kisa-cce-resolvers/_resolvers.sh`. Keep criterion-specific policy in the relevant check module. A resolver should return distinct statuses for:
+Put reusable precedence and path logic in `lib/kisa-cce-resolvers/_resolvers.sh` and criterion-specific policy in the relevant check module. A resolver should return distinct statuses for:
 
 1. value established;
 2. value absent;
@@ -218,7 +217,7 @@ Changes to collection or reporting should preserve these invariants:
 
 ## Packaging smoke test
 
-The regression suite exercises `make install`, but a manual staging check is useful when changing `Makefile`:
+The regression suite tests `make install`. When changing `Makefile`, also consider a manual staging check:
 
 ```bash
 stage_directory="$(mktemp -d)"
@@ -228,7 +227,7 @@ make install DESTDIR="$stage_directory" prefix=/usr
 
 Do not embed `DESTDIR` into installed files. The staged launcher must resolve private modules and data relative to its staged prefix.
 
-See [Packaging](../packaging/README.md) for the filesystem contract and pending metadata.
+See [Packaging](../packaging/README.md) for install paths and the package metadata still required.
 
 ## Documentation maintenance
 
@@ -256,4 +255,4 @@ Before a release candidate:
 5. Run complete acceptance scans on every listed product and release.
 6. Review reports for false `GOOD` results, missing evidence, and secret exposure.
 
-The repository does not yet include final Debian/RPM metadata or completed target-platform acceptance evidence.
+Final Debian/RPM metadata and completed target-platform acceptance results are not yet included in the repository.

@@ -2,14 +2,15 @@
 
 ## Context
 
-A live scan runs as root and reads security-sensitive system state. An apply or
-rollback operation also runs as root and changes security-relevant file
-metadata. The tools therefore treat the execution environment, executable
-lookup, offline path traversal, output permissions, evidence content,
-transaction integrity, lifecycle state, and target identity as security
-boundaries.
+Live scans run as root and read security-sensitive system state. The separate
+patcher also runs as root when applying or rolling back changes to
+security-relevant file metadata.
+The tools must protect the execution environment, executable lookup, offline path
+traversal, output permissions, evidence content, transaction integrity, lifecycle
+state, and target identity.
 
-This document describes controls implemented by the current code. It is not a claim that the scanner itself has completed an independent security audit.
+This document describes the controls in the current code. It does not establish
+that the scanner has completed an independent security audit.
 
 ## Protected assets
 
@@ -38,7 +39,10 @@ This document describes controls implemented by the current code. It is not a cl
 
 ### Startup environment
 
-The public `#!/bin/sh` launcher locates only known relative module layouts. It starts the private Bash main file through `/usr/bin/env -i`, supplies a fixed `/usr/sbin:/usr/bin:/sbin:/bin` path, and passes only CLI arguments. The Bash process unsets imported functions for commands used by the scanner and sets `umask 077`.
+The public `#!/bin/sh` launcher searches only known relative module layouts. It
+starts the private Bash main file with `/usr/bin/env -i`, a fixed
+`/usr/sbin:/usr/bin:/sbin:/bin` path, and only the CLI arguments. The Bash process
+unsets imported functions for commands the scanner uses and sets `umask 077`.
 
 Regression tests set hostile `BASH_ENV` and `ENV` values and verify that the private main file does not load them.
 
@@ -51,17 +55,36 @@ Runtime collection does not use arbitrary caller `PATH` entries. `trusted_comman
 - root ownership of every parent directory;
 - no group or other write permission on the parent chain.
 
-Unavailable or untrusted native tools produce conservative collection states instead of invoking another executable with the same name.
+If a native tool is unavailable or fails these checks, collection records that
+limitation. It does not invoke another executable with the same name.
 
-On a live Linux root, the fallback runtime collector reads only the current process namespace under `/proc`. It retains bounded PID, command-name, executable-path, socket-address, port, and inode facts; process command lines are neither read nor stored. TCP facts require the kernel LISTEN state, and UDP facts require an unconnected bound socket. Missing or malformed socket tables and persistent process-metadata failures make negative results indeterminate instead of proving service absence.
+On a live Linux root, the fallback runtime collector reads only the current
+process namespace under `/proc`. It stores bounded PID, command-name, executable-path,
+socket-address, port, and inode facts without reading or storing process command
+lines. TCP facts require the kernel LISTEN state; UDP facts require an
+unconnected bound socket. Missing or malformed socket tables and persistent
+process-metadata failures leave negative results indeterminate. They cannot
+prove that a service is absent.
 
-Static-only live-root scans retain one narrower host query: `trusted_findmnt_command` resolves only `findmnt` through the same ownership, mode, and parent-chain checks. Mount topology defines the scope of `find -xdev` filesystem evidence and does not enable service, listener, kernel-value, or native-validator collection. Offline roots never use this host command.
+Static-only live-root scans can query mount topology through
+`trusted_findmnt_command`, which accepts only `findmnt` and applies the same
+ownership, mode, and parent-chain checks. The query defines the scope of
+`find -xdev` filesystem evidence. It does not enable service, listener,
+kernel-value, or native-validator collection. Offline scans never run this host
+command.
 
-The sysctl loader adapter is a narrower special case. It accepts the distribution paths `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` only after validating root ownership, write mode, and the complete parent chain.
+The sysctl loader adapter accepts only the distribution paths
+`/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl`. It validates
+root ownership, write mode, and the complete parent chain before using either
+path.
 
 ### Offline-root confinement
 
-Logical paths must be absolute and reject newline, carriage-return, tab, and explicit `.` or `..` components. Canonical parent paths must remain below the selected root. Symlink traversal is bounded, absolute symlink targets are interpreted inside the offline root, and escapes or unresolved links fail collection.
+Logical paths must be absolute and contain no newline, carriage-return, tab, or
+explicit `.` or `..` component. Canonical parent paths must stay below the
+selected root. The scanner limits symlink traversal and interprets absolute
+symlink targets inside the offline root. An escaping or unresolved link causes
+collection to fail.
 
 Drop-in directory symlinks are also confined. A `/dev/null` link is accepted only where the corresponding subsystem uses it as an explicit mask.
 
@@ -79,26 +102,48 @@ scan-epoch policy digest.
 
 In automation mode, an absent policy-class attestation becomes
 `VULNERABLE` with `decision_basis=fail_closed_policy`. It remains
-`remediation_eligible=false` and carries no rule ID. This state closes the
-machine-readable result set without turning missing approval into authority to
-change the host. Incomplete technical, runtime, or external evidence becomes
-`ERROR` and blocks report publication.
+`remediation_eligible=false` and carries no rule ID. This produces a final
+machine-readable result without authorizing a host change when approval is
+missing. Incomplete technical, runtime, or external evidence becomes `ERROR`
+and blocks report publication.
 
-The optional policy compiler accepts only a documented YAML subset and never sources or evaluates input. Its launcher clears the caller environment. The compiler pins the input and output parent by file descriptor, rejects untrusted paths and existing output targets, writes an owner-only staging directory, reloads generated TSV through the canonical policy validator, and publishes with a no-replace rename. General YAML anchors, aliases, tags, merges, flow collections, and block scalars are outside this trust boundary and are rejected.
+The optional policy compiler parses only the documented YAML subset. It never
+sources or evaluates input, and its launcher clears the caller environment. The
+compiler pins the input and output parent by file descriptor, rejects untrusted
+paths and existing output targets, and writes to an owner-only staging
+directory. It then reloads the generated TSV through the canonical policy
+validator and publishes it with a no-replace rename. YAML anchors, aliases,
+tags, merges, flow collections, and block scalars are rejected.
 
-Evidence bundles are fixed-inventory directories rather than extracted archives. Validation requires owner-only permissions, regular single-link files, exact schemas, SHA-256 checksums, and matching offline-root `machine-id` and `os-release`. Schema version 2 normalizes time synchronization before storage, and criteria consume only validated fields. Complete mode rejects bundles older than its configured maximum age.
+Evidence bundles are directories with a fixed file inventory; the scanner does
+not extract them from archives. Validation requires owner-only permissions,
+regular single-link files, exact schemas, SHA-256 checksums, and `machine-id`
+and `os-release` values that match the offline root. Schema version 2 normalizes
+time synchronization before storage. Criteria read only validated fields, and
+complete mode rejects bundles older than its configured maximum age.
 
 Bundle checksums detect changes after capture but do not authenticate the capture host or transfer channel. Protect bundle provenance with trusted transport or a detached-signature process appropriate to the deployment.
 
 ### Read-only assessment
 
-The scanner does not apply fixes, reload daemons, alter firewall rules, export NFS filesystems, refresh package indexes, or modify assessed configuration. Normal scans write only reports and temporary workspace files in the selected output location. If `--output-dir` is deliberately placed below an offline root, those report files are consequently written inside that root. The public launcher clears caller environment variables, so sysctl explanation mode creates its temporary workspace below `/tmp` and removes it at exit.
+The scanner does not apply fixes, reload daemons, alter firewall rules, export
+NFS filesystems, refresh package indexes, or modify assessed configuration.
+Normal scans write only reports and temporary workspace files in the selected
+output location. Choosing an `--output-dir` below an offline root writes the reports
+inside that root. Because the public launcher clears caller environment
+variables, sysctl explanation mode creates its temporary workspace below `/tmp`
+and removes it at exit.
 
 ### Report protection
 
 For a normal scan, the output path must be absolute and contain no symbolic-link component. The output directory must belong to the invoking UID, provide owner read/write/search access, and expose no group or other permissions. Existing ancestors may not be group- or other-writable unless they are trusted sticky directories; `/tmp` and `/var/tmp` are handled as the standard shared temporary roots. New directories and scratch directories use mode `0700`; reports use mode `0600` and randomized names.
 
-After validation, the scanner opens the output directory and creates its scratch directory and reports through `/proc/self/fd`. It records the directory device and inode, compares the pinned descriptor with the lexical path at finalization, and withholds report paths if that binding changed. Sysctl explanation mode validates only the absolute-path syntax and does not use the directory.
+After validating the output directory, the scanner opens it and creates the
+scratch directory and reports through `/proc/self/fd`. It records the directory's
+device and inode. At finalization, it compares the pinned descriptor with the
+lexical path and withholds report paths if they no longer refer to the same
+directory. Sysctl explanation mode checks only the absolute-path syntax and
+does not use the directory.
 
 Runtime finalization rejects empty reports, wrong ownership, wrong modes, and mismatched result counts.
 
@@ -114,13 +159,17 @@ Verbose mode writes only platform context, check identifiers, statuses, titles, 
 
 Debug event names and field names are fixed implementation identifiers. Dynamic values are percent-encoded outside a small safe byte set, each rendered `key=value` field is limited to 256 bytes, and one event is limited to 2048 bytes. Events do not contain result summaries, evidence, configuration lines, command arguments, native-command output, policy contents, review identifiers, evidence-bundle digests, or report paths. The debug API is not a general-purpose logging function, and callers must pass only the minimum enumerated state needed to diagnose collection and cache behavior.
 
-The remaining event metadata is still sensitive assessment data. It identifies the selected root and platform, criteria being evaluated, subsystem availability, cache behavior, and failure state. Standard error is not opened or protected by the scanner. An operator who redirects it must create the destination under an owner-only `umask`, protect it like the reports, and review it before transfer.
+Event metadata remains sensitive assessment data: it identifies the selected
+root and platform, evaluated criteria, subsystem availability, cache behavior,
+and failure state. The scanner does not open or protect standard error. An
+operator who redirects it must create the destination under an owner-only
+`umask`, protect it like the reports, and review it before transfer.
 
 Bash 4.3 has no built-in interface for applying `FD_CLOEXEC` to the saved diagnostic descriptor. Child processes therefore inherit that descriptor, although its number is not passed through arguments or environment and scanner call sites write to it only through `debug_emit`. Debug mode relies on the same root-owned native-command trust boundary as normal live collection; it is not an isolation mechanism for a compromised native utility.
 
 ## Failure policy
 
-Security-relevant uncertainty is explicit:
+The scanner reports uncertainty through these statuses:
 
 - `MANUAL` means collection produced useful evidence but intent, policy, an exception, or unavailable context requires a reviewer.
 - `ERROR` means required evidence was not collected or interpreted reliably.
@@ -131,7 +180,10 @@ Security-relevant uncertainty is explicit:
 
 ### Installation integrity is assumed
 
-The launcher and main file verify readability and expected relative layout, but they do not verify package signatures, file hashes, ownership, or write permissions for their own modules and `criteria.tsv` before sourcing or reading them. The package manager and filesystem permissions must protect the installation tree.
+The launcher and main file check readability and relative layout before loading
+modules and `criteria.tsv`. They do not check their package signatures, hashes,
+ownership, or write permissions. The package manager and filesystem permissions
+must protect the installation tree.
 
 Do not run the source checkout as root unless the checkout and every parent directory are trusted and protected from untrusted modification.
 
@@ -147,7 +199,9 @@ Live U-15 collection evaluates GNU `find -nouser` and `-nogroup` with the host's
 
 ### Native parser output remains an input
 
-Trusted commands can still fail, change output across versions, or parse hostile local configuration. The scanner limits command selection and output use, but distribution updates require regression and target-host testing.
+Trusted commands can fail, change output between versions, or parse hostile
+local configuration. Restrictions on command selection and output use do not
+remove the need for regression and target-host tests after distribution updates.
 
 ### Platform identity is declarative
 

@@ -1,15 +1,15 @@
 # Localization
 
-The scanner supports Korean (`ko`) and English (`en`) report output. The
-launcher derives the language from `LANG`, normalizes it, and passes the result
-to the runtime as `KISA_CCE_LANGUAGE`. The scanner does not change the locale
-used for parsing command output; internal command processing continues to use
-the C locale.
+Reports are available in Korean (`ko`) and English (`en`). The launcher reads
+`LANG` and passes the normalized language identifier to the runtime as
+`KISA_CCE_LANGUAGE`. Command output is always parsed in the C locale,
+regardless of the report language.
 
 ## Selecting a language
 
-Set `LANG` for the scanner process. An English locale selects English reports.
-Korean is the default for Korean, unset, `C`, `POSIX`, and other locale values.
+Set `LANG` for the scanner process to select the report language. An English
+locale selects English. Korean is the default when `LANG` is unset or specifies
+Korean, `C`, `POSIX`, or any other locale.
 
 ```bash
 LANG=ko_KR.UTF-8 kisa-cce-scan
@@ -19,8 +19,8 @@ LANG=en_US.UTF-8 kisa-cce-scan
 Console help, progress, warning, and error messages are always English. `LANG`
 selects only localized report titles, criterion titles, summaries, and labels.
 
-The named locale does not need to be generated on the host. The launcher uses
-only the `LANG` prefix and passes a normalized `ko` or `en` identifier.
+The host does not need to have the named locale generated. The launcher reads
+only the `LANG` prefix and passes `ko` or `en` to the runtime.
 
 ## Catalogs
 
@@ -33,22 +33,21 @@ Korean criterion title, summary, and user-interface label is an exact `msgid`.
 The Korean catalog maps each source string to itself, while the English catalog
 supplies its English translation.
 
-The scanner parses a deliberately restricted PO subset directly in Bash. Each
-entry consists of one single-line `msgid`, one immediately following
-single-line `msgstr`, and an optional blank separator:
+The scanner parses a restricted PO subset directly in Bash. Each entry has
+one single-line `msgid` followed immediately by one single-line `msgstr`. A
+blank line may separate entries:
 
 ```po
 msgid "검사 모드"
 msgstr "Scan mode"
 ```
 
-Lookup is exact. Leading or trailing whitespace, punctuation, and letter case
-are significant. Duplicate or empty strings make a catalog invalid. The parser
-also rejects contexts, plurals, fuzzy entries, multiline strings, unknown
-directives, and escapes other than `\"` and `\\`. English output fails closed
-when a requested criterion title, summary, or UI label is absent; it does not
-mix a Korean fallback into an English report. No gettext runtime or `msgfmt`
-build dependency is required.
+Lookups must match exactly, including leading and trailing whitespace,
+punctuation, and letter case. The parser rejects duplicate or empty strings,
+contexts, plurals, fuzzy entries, multiline strings, unknown directives, and
+escapes other than `\"` and `\\`. If a requested criterion title, summary, or UI
+label is missing, English output fails rather than falling back to Korean.
+Neither a gettext runtime nor a `msgfmt` build dependency is required.
 
 ## Translator workflow
 
@@ -61,6 +60,6 @@ build dependency is required.
 4. Keep both catalogs UTF-8 encoded with LF line endings.
 5. Run the project syntax, lint, and test targets before submitting changes.
 
-Machine-readable evidence fields, enum values such as `GOOD` and `MANUAL`,
-paths, command names, and configuration keys are not translated. This keeps
-JSONL output stable for downstream automation.
+Leave machine-readable evidence fields, enum values such as `GOOD` and
+`MANUAL`, paths, command names, and configuration keys untranslated so that
+automation can continue to consume the same JSONL values.

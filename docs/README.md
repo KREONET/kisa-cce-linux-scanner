@@ -1,6 +1,8 @@
 # Project documentation
 
-This directory documents the behavior implemented by the current source tree. The scanner evaluates the 67 Unix-server criteria in the KISA CCE 2026 profile on the Debian, Ubuntu, and Enterprise Linux releases in the dated platform support matrix.
+These guides describe the scanner's current implementation. It evaluates the
+67 Unix-server criteria in the KISA CCE 2026 profile on the Debian, Ubuntu, and
+Enterprise Linux releases listed in the dated platform support matrix.
 
 ## Directory layout
 
@@ -18,7 +20,7 @@ docs/
 | Document | Contents |
 |---|---|
 | [Usage](operators/usage.md) | Privileges, scan modes, command options, reports, statuses, and exit codes. |
-| [Evidence bundle](operators/evidence-bundle.md) | Runtime collector, bundle contents, validation, and offline binding. |
+| [Evidence bundle](operators/evidence-bundle.md) | Runtime collection, bundle contents, validation, and matching bundles to offline images. |
 | [Localization](operators/localization.md) | Report language selection, PO catalog layout, and translation workflow. |
 
 ## Reference
@@ -26,18 +28,18 @@ docs/
 | Document | Contents |
 |---|---|
 | [Platform support](reference/platform-support.md) | Accepted releases, derivative mapping, lifecycle sources, and exclusions. |
-| [KISA platform semantics](reference/kisa-platform-semantics.md) | Rendered-guide family branches, versioned native behavior, and validation limits. |
+| [KISA platform semantics](reference/kisa-platform-semantics.md) | Distribution-specific guide procedures, native behavior by version, and validation limits. |
 | [Policy format](reference/policy-format.md) | Typed fact and attestation schemas, trust requirements, expiry, and lookup behavior. |
-| [Autopatcher coverage](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/reference/autopatcher-coverage.md) | Fixed=9, conditional=58, gated=0 contract, desired-state v2, domains, and orchestration boundary. |
+| [Autopatcher coverage](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/reference/autopatcher-coverage.md) | Fixed=9, conditional=58, gated=0 coverage, desired-state v2, domains, and orchestration limits. |
 
 ## Design
 
 | Document | Contents |
 |---|---|
-| [Architecture](design/architecture.md) | Components, execution flow, configuration resolution, and result production. |
+| [Architecture](design/architecture.md) | Components, execution flow, configuration resolution, and report generation. |
 | [Security model](design/security-model.md) | Trust boundaries, defensive controls, residual risks, and safe deployment. |
 | [Performance](design/performance.md) | Scan epochs, parse-once snapshots, dependency DAG, and benchmark method. |
-| [Autopatcher](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/design/autopatcher.md) | Fixed-rule flow, all-67 automatic orchestration, transaction safety, and rollback. |
+| [Autopatcher](https://github.com/KREONET/kisa-cce-linux-patcher/blob/main/docs/design/autopatcher.md) | Fixed-rule execution, automatic orchestration across all 67 criteria, transaction safety, and rollback. |
 
 ## Contributors and packaging
 
@@ -49,7 +51,7 @@ docs/
 | [macOS container testing](developers/macos-container-testing.md) | Apple `container` setup, reviewed distribution matrix, debug smoke checks, and scoped cleanup. |
 | [Packaging](packaging/README.md) | `DESTDIR` installation and future Debian/RPM integration. |
 
-The installed command manuals are maintained as
+The source files for the installed command manuals are
 [kisa-cce-scan(8)](../man/kisa-cce-scan.8),
 [kisa-cce-collect(8)](../man/kisa-cce-collect.8),
 and [kisa-cce-policy-compile(8)](../man/kisa-cce-policy-compile.8).
@@ -76,8 +78,13 @@ The separate patcher provides [kisa-cce-patch(8)](https://github.com/KREONET/kis
 | Project license | `LICENSING.md`, `LICENSE-LGPL`, `LICENSE-BSD`, and `LICENSES/`. |
 | Scanner version | `data/VERSION`. |
 
-The rendered KISA criterion pages provide the assessment reference, while the local catalog controls which results the scanner emits: [KISA CCE 2026 Unix criteria](https://kreonet.github.io/kisa-cce-guide-web/unix/).
+The [KISA CCE 2026 Unix criterion pages](https://kreonet.github.io/kisa-cce-guide-web/unix/)
+define the assessment reference. The local criterion catalog determines which
+results the scanner emits.
 
 ## Validation scope
 
-The fixture suite verifies platform classification, parsing, path confinement, report integrity, catalog cardinality, and staged installation without changing the host. It does not replace acceptance testing on every listed product and release.
+The fixture suite checks platform classification, parsing, path confinement,
+report integrity, the number of catalog entries, and staged installation without
+changing the host. Acceptance testing on every listed product and release is
+still required.

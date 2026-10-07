@@ -7,15 +7,15 @@ kisa-cce-collect \- collect live runtime evidence for an offline KISA CCE scan
 .BI \-\-output-dir " PATH"
 .SH DESCRIPTION
 .B kisa-cce-collect
-captures a bounded snapshot of live Linux identity, systemd units, listeners,
-mounts, firewall state, and time synchronization state.
-The resulting owner-only directory can be supplied to
+captures a bounded snapshot of the live Linux host identity, systemd units,
+listeners, mounts, firewall state, and time synchronization state.
+Directory permissions restrict access to the owner. Supply the directory to
 .BR kisa-cce-scan (8)
 with
 .BR \-\-evidence-bundle .
 .PP
-The collector must run as root on the live system immediately before creating
-the corresponding offline filesystem snapshot.
+Run the collector as root on the live system immediately before taking the
+corresponding offline filesystem snapshot.
 It does not create an archive, probe remote services, refresh package metadata,
 or collect authentication secrets.
 .SH OPTIONS
@@ -31,9 +31,9 @@ Print command help and exit.
 .B \-\-version
 Print the evidence schema version and exit.
 .SH OUTPUT
-Every terminal line uses a dmesg-style prefix with six fractional uptime
-digits. This applies to help, version, errors, warnings, and the successful
-bundle path. A safe process-time or zero fallback is used when
+Every terminal line begins with a dmesg-style uptime prefix with six
+fractional digits, including help, version, errors, warnings, and the completed
+bundle path. The collector falls back to safe process time or zero when
 .I /proc/uptime
 is unavailable. On success, the collector prints:
 .PP
@@ -41,26 +41,26 @@ is unavailable. On success, the collector prints:
 [    12.345678] kisa-cce-collect: evidence_bundle=/absolute/path
 .EE
 .PP
-The directory contains a strict manifest, SHA-256 checksums, host identity,
-normalized service, listener, and time-synchronization tables, raw mount
-information, and firewall state. The current collector writes evidence schema
+The directory contains a manifest with a strict schema, SHA-256 checksums,
+host identity, normalized service, listener, and time-synchronization tables,
+raw mount information, and firewall state. The collector writes evidence schema
 version 2.
 All files use mode 0600 and all directories use mode 0700.
 .PP
-The normalized time table accepts systemd-timesyncd, Chrony, ntpd-rs, and
-NTPsec providers. For an installed ntpd-rs provider, the collector parses
+The normalized time table supports systemd-timesyncd, Chrony, ntpd-rs, and
+NTPsec. When ntpd-rs is installed, the collector parses
 .B "ntp-ctl status"
-and records the source identity and stratum without retaining the raw command
-output. Repeated resolved addresses for one pool identity are collapsed; more
-than one distinct identity makes schema-version-2 collection partial. Service
-activation remains a separate
+and records the source identity and stratum, then discards the raw command
+output. Resolved addresses for the same pool share one record. More than one
+distinct source identity makes schema version 2 collection partial. Service
+activation is recorded separately as an
 .I ntpd-rs.service
 fact.
 .SH EXIT STATUS
 .TP
 .B 0
-The bundle was finalized successfully.
-Optional runtime sources can still be marked partial or unavailable in the
+The collector finalized the bundle.
+Optional runtime sources may still be marked partial or unavailable in the
 manifest.
 .TP
 .B 2
@@ -73,9 +73,9 @@ The process received SIGINT.
 The process received SIGTERM.
 .SH SECURITY
 The bundle contains sensitive infrastructure metadata.
-Store and transfer it as security assessment data.
-SHA-256 checksums detect modification after capture but do not authenticate the
-collector or transport by themselves.
+Protect it as security assessment data during storage and transfer.
+SHA-256 checksums detect changes after capture. They do not, by themselves,
+authenticate the collector or transport.
 .SH SEE ALSO
 .BR kisa-cce-scan (8),
 .BR systemctl (1),

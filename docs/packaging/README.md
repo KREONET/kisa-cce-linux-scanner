@@ -1,6 +1,6 @@
 # Packaging integration
 
-The source tree exposes one relocatable install interface for Debian-family and RPM-family packages. Package builds should call `make install` with `DESTDIR` instead of copying individual files.
+Debian-family and RPM-family packages use the same relocatable install interface. Package builds should stage files with `make install` and `DESTDIR` rather than copying them individually.
 
 ## Installed layout
 
@@ -23,9 +23,9 @@ The source tree exposes one relocatable install interface for Debian-family and 
 | `/usr/share/man/man8/kisa-cce-policy-compile.8` | Policy compiler manual | `0644` |
 | `/etc/kisa-cce-scanner/policy.d/00-default.tsv` | Header-only criterion attestation configuration | `0600` |
 
-The policy directory uses mode `0700`. `make install` does not replace the policy file when it already exists or is a symbolic link. Debian packages should declare the file as a conffile through their normal packaging workflow. RPM packages should install it with the appropriate no-replace configuration attribute. The shipped file contains no approval decision; package installation must not synthesize site policy. Typed fact files are not installed because even a header-only fact set can carry a non-neutral closed-set meaning.
+The policy directory has mode `0700`. `make install` preserves an existing policy file or symbolic link. Debian packages should declare the file as a conffile through their normal packaging workflow. RPM packages should use the appropriate no-replace configuration attribute. The supplied file contains no approval decision, and installation must not generate site policy. Typed fact files are not installed: even a header-only fact set can express a closed set and therefore affect policy decisions.
 
-The project deliberately uses the requested cross-distribution path `/usr/lib/kisa-cce-linux-scanner`. Debian permits this location, although its policy recommends `/usr/share` when a directory is entirely architecture-independent. An RPM spec must not substitute `%{_libdir}`, because that macro can select `/usr/lib64`; use the exact noarch private path instead. The launcher also supports `/usr/libexec/kisa-cce-linux-scanner` as an RPM packaging override:
+The default private library path is `/usr/lib/kisa-cce-linux-scanner` on all distributions. Debian permits this location, though its policy recommends `/usr/share` for entirely architecture-independent directories. An RPM spec must use this exact noarch path rather than `%{_libdir}`, which can select `/usr/lib64`. RPM packages can also use the launcher's supported `/usr/libexec/kisa-cce-linux-scanner` override:
 
 ```bash
 package_root="$(mktemp -d)" || exit 1
@@ -35,16 +35,16 @@ make install \
   pkglibdir=/usr/libexec/kisa-cce-linux-scanner
 ```
 
-The executable derives the matching data and library directories from its own installed prefix. This keeps staged package tests, `/usr` installations, and `/usr/local` installations relocatable when the command, private library, and data retain the documented relative layout. Independently relocating `bindir`, `pkglibdir`, or `datadir` to unrelated prefixes is not supported without changing the launcher.
+The executable locates data and libraries relative to its installed prefix. Staged package tests and installations under `/usr` or `/usr/local` can therefore relocate together, provided the command, private library, and data keep the documented relative layout. Moving `bindir`, `pkglibdir`, or `datadir` to unrelated prefixes requires a launcher change.
 
-Each public command uses a direct `#!/bin/sh` shebang and immediately executes
-its private Bash main file through `/usr/bin/env -i`. Private sourced files are
-non-executable and do not carry shebangs. This preserves the clean-environment
-boundary while remaining compatible with RPM shebang policy.
+Each public command starts with `#!/bin/sh` and immediately executes its
+private Bash main file through `/usr/bin/env -i`. This starts Bash with a clean
+environment and complies with RPM shebang policy. Private sourced files have
+no shebangs and are not executable.
 
 ## Debian-family package entry point
 
-A future `debian/rules` file can use the standard debhelper build sequence and delegate installation to this interface:
+A future `debian/rules` file can use the standard debhelper build sequence and call the install target as follows:
 
 ```makefile
 #!/usr/bin/make -f
@@ -58,11 +58,11 @@ override_dh_auto_install:
 		prefix=/usr
 ```
 
-Declare the package as architecture-independent because it contains shell and data files only. Derive runtime dependencies from the commands used by the final release, and keep service-specific inspection tools optional when the scanner already reports unavailable evidence conservatively.
+Declare the package architecture-independent; it contains only shell and data files. Base runtime dependencies on the commands used by the final release. Keep service-specific inspection tools optional where the scanner handles unavailable evidence conservatively.
 
 ## RPM-family package entry point
 
-A future spec file can install through RPM's standard path macros:
+A future RPM spec file can use the standard path macros for installation:
 
 ```spec
 BuildArch: noarch
@@ -77,22 +77,22 @@ BuildArch: noarch
     sysconfdir=%{_sysconfdir}
 ```
 
-List the installed files explicitly under `%files`. Use RPM path macros where they preserve the intended noarch layout; keep `%{_prefix}/lib/kisa-cce-linux-scanner` explicit so the package does not move between `/usr/lib` and `/usr/lib64` across architectures.
+List installed files explicitly under `%files`. Use RPM path macros where they preserve the noarch layout. Keep `%{_prefix}/lib/kisa-cce-linux-scanner` explicit so the library path stays the same across architectures instead of switching between `/usr/lib` and `/usr/lib64`.
 
-Repository Markdown under `docs/` is not part of `make install`. Debian or RPM metadata may select individual source documents as package documentation later. The section 8 command manuals are part of the upstream install target and package tools may compress them during package construction.
+`make install` excludes Markdown under `docs/`. Future Debian or RPM metadata may include selected source documents as package documentation. The upstream install target includes the section 8 command manuals, which packaging tools may compress.
 
 ## Metadata still required
 
-Do not publish Debian or RPM package metadata until all of the following values are reviewed:
+Before publishing Debian or RPM package metadata, review all of the following:
 
 - Package maintainer, vendor, source URL, and release ownership.
 - Exact mandatory and optional runtime dependency sets for each supported platform group.
 - Package upgrade, removal, and report-retention policy.
 - Real-package installation and execution results on every listed product and release.
 
-The current tree provides the filesystem and build interface, but it does not yet claim a policy-complete `.deb` or `.rpm` package.
+The repository provides install paths and a build interface. It does not yet provide a `.deb` or `.rpm` package with all required packaging policies defined.
 
-The project license expression is `LGPL-3.0-or-later OR BSD-3-Clause`. Debian metadata must reproduce the applicable copyright and alternative-license information. RPM metadata should use `License: LGPL-3.0-or-later OR BSD-3-Clause` and install `LICENSING.md`, `LICENSE-LGPL`, `LICENSE-BSD`, `NOTICE`, and all files under `LICENSES/` through `%license` without adding them to the upstream runtime install target.
+The project license expression is `LGPL-3.0-or-later OR BSD-3-Clause`. Debian metadata must reproduce the applicable copyright and alternative-license information. RPM metadata should use `License: LGPL-3.0-or-later OR BSD-3-Clause` and install `LICENSING.md`, `LICENSE-LGPL`, `LICENSE-BSD`, `NOTICE`, and all files under `LICENSES/` through `%license`. Keep these files outside the upstream runtime install target.
 
 ## References
 
@@ -104,4 +104,4 @@ The project license expression is `LGPL-3.0-or-later OR BSD-3-Clause`. Debian me
 
 ## Upgrade from the combined package
 
-Fresh scanner and patcher installations own separate library and data trees. `make install` does not remove obsolete files from a previous combined installation. Distribution upgrade metadata must transfer ownership of `kisa-cce-patch` and its manual to the patcher package and remove the obsolete scanner-owned `kisa-cce-patcher` library and `_patch-main.sh` after installing their replacements. Preserve all transaction directories and retain a trusted matching legacy package while a rollback window is open. Test this migration independently of a fresh staged install.
+Fresh scanner and patcher installations own separate library and data trees. `make install` leaves obsolete files from a previous combined installation in place. Distribution upgrade metadata must transfer ownership of `kisa-cce-patch` and its manual to the patcher package. After installing replacements, remove the obsolete scanner-owned `kisa-cce-patcher` library and `_patch-main.sh`. Preserve all transaction directories and keep a trusted matching legacy package throughout the rollback window. Test this migration separately from a fresh staged install.

@@ -13,21 +13,22 @@ runtime state for the 67 KISA CCE 2026 Unix-server criteria.
 It supports the explicitly listed Debian, Ubuntu, Enterprise Linux, and
 derivative releases described below.
 .PP
-The installed support list describes accepted platform identities and
-implemented configuration families.  It is not vendor certification or proof
-that every listed release has completed booted-host acceptance testing.
+The installed support list identifies accepted platforms and implemented
+configuration families. It provides neither vendor certification nor proof
+that every listed release has passed acceptance testing on a booted host.
 .PP
-The scanner does not remediate configuration, reload services, refresh package
-metadata, or run an explicit network-fetch operation.
+The scanner does not change configuration, reload services, refresh package
+metadata, or explicitly fetch data over the network.
 A live U-15 scan uses host NSS and may therefore consult an external identity
 backend.
 A normal scan writes protected Markdown and JSONL reports.
 .PP
-One invocation uses one immutable scan epoch.  Configuration parser results,
-systemd facts, and listener facts are reused only inside that process.  A new
-invocation collects runtime state again; no cache persists across runs.
+Each invocation uses one immutable scan epoch. Configuration parser results,
+systemd facts, and listener facts are reused only within that process. Each
+new invocation collects runtime state again; caches do not persist across runs.
 .SH SUPPORTED PLATFORMS
-The lifecycle snapshot dated 2026-09-03 accepts Debian 12 and 13; Ubuntu
+The support list, based on the 2026-09-03 lifecycle snapshot, accepts Debian
+12 and 13; Ubuntu
 22.04, 24.04, and 26.04 LTS; and the current base-stream RHEL releases 8.10,
 9.8, and 10.2.
 .PP
@@ -42,11 +43,11 @@ Approved Ubuntu derivatives must identify the expected Ubuntu base through
 .B UBUNTU_CODENAME
 and list both Ubuntu and Debian in
 .BR ID_LIKE .
-An arbitrary
+The
 .B ID_LIKE
-value never authorizes an unlisted product.
+value cannot authorize a product outside the allowlist.
 .PP
-The accepted Ubuntu derivative base mappings are: Linux Mint 21.x, Pop!_OS
+The accepted Ubuntu bases are assigned as follows: Linux Mint 21.x, Pop!_OS
 22.04, Zorin OS 17, and elementary OS 7.x use
 .BR jammy ;
 Linux Mint 22.x, Pop!_OS 24.04, Zorin OS 18, elementary OS 8, and KDE neon User
@@ -74,8 +75,8 @@ live
 native
 .BR "ntp-ctl validate -c" ,
 and provider-bound approved facts for every observed network source.
-This is an operational
-extension and does not make ntpd-rs the Ubuntu 26.04 default.
+Support for ntpd-rs is an operational extension; Chrony remains the Ubuntu
+26.04 default.
 .SH OPTIONS
 .TP
 .BI \-\-root " PATH"
@@ -95,8 +96,9 @@ search access, and grant no permissions to group or other users.
 Existing ancestors must not be replaceable through an untrusted group- or
 other-writable path; trusted sticky temporary directories remain valid.
 A missing directory is created with mode 0700.
-The scanner pins the validated directory by file descriptor and refuses to
-print report paths if the lexical binding changes before finalization.
+The scanner pins the validated directory with an open file descriptor. It
+prints no report paths if the path stops referring to that directory before
+finalization.
 In sysctl explanation mode only the absolute-path syntax is validated, and the
 scanner does not create or write the directory.
 .TP
@@ -106,11 +108,11 @@ Codes are case-insensitive, whitespace is removed, and duplicates are ignored.
 Results retain catalog order rather than argument order.
 .TP
 .BI \-\-mode " audit|complete|automation"
-Select the result contract.
+Select how indeterminate results and report publication are handled.
 Audit mode preserves indeterminate results as
 .BR MANUAL .
-Complete mode requires all 67 criteria, a policy directory, live runtime
-collection or a matching evidence bundle, and emits no
+Complete mode runs all 67 criteria and requires a policy directory plus
+live runtime collection or a matching evidence bundle. It emits no
 .B MANUAL
 result.
 Automation mode applies the same input and attestation requirements, stages
@@ -124,12 +126,12 @@ or
 Load strict TSV attestations and supported typed facts from the absolute
 directory
 .IR PATH .
-This option overrides the default policy directory.  Complete and automation
+This option overrides the default policy directory. Complete and automation
 modes use
 .I /etc/kisa-cce-scanner/policy.d
-when it exists.  Source-tree execution does not implicitly trust the repository
-policy skeleton.  Either mode rejects the invocation when no explicit or
-installed default policy directory exists.
+when it exists. Running from the source tree does not automatically trust the
+repository policy skeleton. Either mode rejects the invocation when no
+explicit or installed default policy directory exists.
 .TP
 .BI \-\-evidence-bundle " PATH"
 Use the validated owner-only runtime evidence directory at
@@ -177,27 +179,27 @@ Print command help and exit.
 .B \-\-version
 Print the scanner version and exit.
 .SH TERMINAL OUTPUT
-Every line written by the command uses a dmesg-style prefix with six
-fractional uptime digits:
+Every terminal line begins with a dmesg-style uptime prefix with six
+fractional digits:
 .PP
 .EX
 [    12.345678] kisa-cce-scan: payload
 .EE
 .PP
-This contract applies to help, version, errors, warnings, verbose and debug
+The prefix appears on help, version, errors, warnings, verbose and debug
 progress, sysctl explanations, and report paths. Automation keys and values
 remain in the payload. Report paths use standard output; warnings, verbose
-progress, and debug events use standard error. The scanner uses a safe
-process-time or zero fallback when
+progress, and debug events use standard error. The scanner falls back to safe
+process time or zero when
 .I /proc/uptime
 is unavailable.
 .PP
 Debug records use
 .B "DEBUG: schema=1 event=NAME key=value"
-payloads. Dynamic field values are percent-encoded outside a restricted safe
-byte set and bounded in length. Debug output is sensitive assessment data even
-though it excludes raw evidence. Before redirecting standard error, set an
-owner-only umask and protect the resulting file like a report. The
+payloads. Dynamic values have a length limit and percent-encode bytes outside
+a restricted safe byte set. Debug output remains sensitive assessment data
+even though it excludes raw evidence. Set an owner-only umask before
+redirecting standard error and protect the resulting file like a report. The
 .B kisa-cce-collect
 command does not implement
 .BR \-\-debug .
@@ -221,8 +223,8 @@ results.
 Each policy-class
 .B MANUAL
 result receives a SHA-256 review ID generated with review-basis schema 2.
-A matching, unexpired policy attestation converts it to the approved final
-decision; a missing, stale, or mismatched attestation becomes
+A matching, unexpired policy attestation supplies the approved final
+decision. A missing, stale, or mismatched attestation makes the result
 .BR ERROR .
 .PP
 A technical, runtime, or external
@@ -246,11 +248,11 @@ scan.
 .PP
 Reports are staged in the owner-only workspace. A policy-class
 .B MANUAL
-uses a matching attestation. If that attestation is absent, the result closes to
+uses a matching attestation. Without an attestation, the result becomes
 .B VULNERABLE
 with
 .BR decision_basis=fail_closed_policy ,
-remains remediation-ineligible, and carries no remediation rule ID.
+is ineligible for remediation, and has no remediation rule ID.
 An invalid attestation or incomplete technical, runtime, or external result
 becomes
 .BR ERROR .
@@ -263,9 +265,9 @@ and
 final statuses.  The two report renames are rollback-protected but cannot form
 one filesystem transaction across both files.
 .PP
-Both status fields use the published three-state set.  A policy-resolved result
-retains its decision basis, review ID, attestation metadata, and original manual
-summary as evidence.
+Both status fields in a published report use those three states. A result
+resolved by policy retains its decision basis, review ID, attestation metadata,
+and original manual summary as evidence.
 .SS Live scan
 Scanning
 .B /
@@ -295,9 +297,9 @@ Affected criteria may return
 or
 .BR ERROR .
 .SS Sysctl explanation
-The prefixed diagnostic payloads distinguish the filesystem configuration
-model, active loader model where available, runtime value, and detected drift.
-It follows standard
+The prefixed diagnostic output distinguishes the filesystem configuration
+model, active loader model when available, runtime value, and detected drift.
+Resolution follows standard
 .I sysctl.d
 directory precedence, equal-basename replacement, lexical ordering, masks,
 glob assignments, and exclusions.
@@ -349,28 +351,28 @@ and
 .B jsonl_report=
 paths only after final integrity checks succeed.
 A signal can arrive while or after these two path lines are printed.
-Any printed path names a report that passed final integrity checks, while an
-earlier interruption may leave incomplete files whose paths were not printed.
+A printed path identifies a report that passed final integrity checks. An
+earlier interruption may leave incomplete files without printing their paths.
 .PP
 The JSONL file does not repeat the scanner, platform, root, runtime-mode, or
 timestamp header from the Markdown report.
 Retain both files when those provenance fields are required.
 .PP
-The Markdown report places its metadata and status overview first. A linked
-index orders
+The Markdown report starts with metadata and status counts. A linked index
+lists
 .BR ERROR ,
 .BR VULNERABLE ,
 and
 .B MANUAL
-results before the detailed criterion sections. Each criterion uses a compact
-status callout and metadata row.
+results in that order before the detailed criterion sections. Each criterion
+begins with a compact status callout and metadata row.
 .PP
-Evidence separators are expanded, tab and carriage-return bytes are rendered as
-visible escapes, remaining unsafe control bytes are removed or replaced, and
-UTF-8 is normalized when
+The scanner expands evidence separators, renders tab and carriage-return
+bytes as visible escapes, and removes or replaces remaining unsafe control
+bytes. It normalizes UTF-8 when
 .B iconv
-is available, and targeted credential redaction is applied before an 8192-byte
-limit.
+is available and applies targeted credential redaction before limiting
+evidence to 8192 bytes.
 Markdown titles and summaries are escaped. Evidence is HTML-escaped and placed
 inside a collapsed
 .B details
@@ -409,11 +411,11 @@ A
 .B GOOD
 result is not a certification of the entire host.
 .PP
-The review ID canonical input uses
+The canonical input used to compute the review ID includes
 .BR review_schema:2 .
-The schema marker is not a JSONL field. Review schema 2 adds the resolution
-class to the full redacted review basis, so review schema 1 attestations must be
-regenerated from a current audit.
+This marker is not a JSONL field. Review schema 2 includes the resolution
+class and the full redacted review basis. Regenerate review schema 1
+attestations from a current audit.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -435,8 +437,8 @@ result.
 .TP
 .B 2
 Invocation, platform detection, sysctl diagnosis, collection, report writing,
-report integrity, at least one criterion error, or an unresolved automation
-result prevented publication.
+or report integrity checks failed; at least one criterion produced an error;
+or an unresolved result blocked automation publication.
 .TP
 .B 130
 The process received SIGINT.
@@ -459,9 +461,8 @@ code.
 Live native commands are restricted to fixed system paths and are subject to
 ownership and write-permission checks.
 .PP
-Reports can contain sensitive host configuration.
-Targeted redaction is defense in depth and does not replace review before
-storage or transfer.
+Reports can contain sensitive host configuration despite targeted redaction.
+Review them before storage or transfer.
 .PP
 Debug output can expose the selected root, platform, criterion activity,
 subsystem availability, cache behavior, and failure state. Review it before
@@ -487,7 +488,8 @@ The following paths describe a package installed with
 Installed public command.
 .TP
 .I /usr/lib/kisa-cce-linux-scanner/
-Default private Bash implementation root.  Functional subdirectories use the
+Default directory for the private Bash implementation. Functional
+subdirectories use the
 .B kisa-cce-
 prefix, and private module filenames begin with an underscore.
 .TP
@@ -508,8 +510,8 @@ Default live-root report directory.
 .TP
 .I /etc/kisa-cce-scanner/policy.d/
 Installed default directory for reviewed criterion attestations and typed
-facts.  The shipped header-only attestation file contains no criterion
-approval.  No typed fact file is installed by default.
+facts. The shipped attestation file contains only a header and approves no
+criteria. No typed fact file is installed by default.
 .SH EXAMPLES
 Run a live audit of all 67 criteria:
 .PP

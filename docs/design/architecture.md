@@ -2,12 +2,15 @@
 
 ## Purpose
 
-The scanner converts host configuration and runtime observations into one
-conservative result for each selected KISA CCE 2026 Unix criterion. The scanner
-is read-only. The independently packaged [patcher](https://github.com/KREONET/kisa-cce-linux-patcher) consumes fresh
-scanner results and implements a small, explicitly typed remediation boundary.
+The scanner reads host configuration and runtime state and produces one result
+for each selected KISA CCE 2026 Unix criterion. It does not change the assessed
+configuration. The separately packaged
+[patcher](https://github.com/KREONET/kisa-cce-linux-patcher) uses fresh scanner
+results to apply a limited set of typed remediation rules.
 
-The implementation separates collection from policy interpretation wherever the effective state depends on multiple configuration files, a service manager, or runtime state. An incomplete collection path must not become a `GOOD` result.
+When effective state depends on several configuration files, a service manager,
+or runtime state, the scanner collects that evidence separately from policy
+interpretation. Incomplete collection must never produce `GOOD`.
 
 ## Component map
 
@@ -77,7 +80,10 @@ With `prefix=/usr`, the default installed layout is:
 /usr/share/man/man8/kisa-cce-policy-compile.8
 ```
 
-The main file derives the data directory from its own private-library location. It does not accept a caller-controlled module path. The same relative-prefix rule allows a command inside a `DESTDIR` staging tree to execute before the package is built, provided the command, private library, and data retain one of the supported relative layouts.
+The main file locates the data directory relative to its private library and
+accepts no caller-supplied module path. Commands can also run from a `DESTDIR`
+staging tree before packaging, provided the command, private library, and data
+use one of the supported relative layouts.
 
 ## Execution flow
 
@@ -91,7 +97,14 @@ The main file derives the data directory from its own private-library location. 
 8. Catalog rows are read in order. Each `U-NN` row dispatches to `check_u_nn` and produces exactly one result when selected.
 9. The scanner appends a summary, verifies report ownership, permissions, record counts, and the pinned output-directory binding, prints both report paths, and returns the aggregate exit status. Automation mode resolves policy-class manual results through attestation or fail-closed vulnerability, rejects incomplete technical, runtime, or external evidence as `ERROR`, validates all 67 results, and moves both staged files through the pinned directory before printing their paths.
 
-When `--debug` is active, the main flow and subsystem resolvers emit schema-versioned events through the central debug API. The option also enables normal verbose progress. Debug records go only to the standard-error descriptor captured when `--debug` is accepted during option parsing; result reports and the standard-output report-path protocol are unchanged. The API percent-encodes dynamic field values and applies per-field and per-event limits before using the normal dmesg-framed console writer. It intentionally exposes normalized operational states rather than shell execution, assessed content, result evidence, or native-command output.
+`--debug` enables verbose progress and schema-versioned events from the main
+flow and subsystem resolvers. The central debug API writes events only to the
+standard-error descriptor saved when option parsing accepts `--debug`. It leaves
+reports and the standard-output report-path protocol unchanged. The API
+percent-encodes dynamic values and limits field and event sizes before passing
+them to the normal dmesg-framed console writer. Events describe normalized
+operational states. They exclude shell execution, assessed content, result
+evidence, and native-command output.
 
 In complete and automation modes, only a policy-class `MANUAL` can use an
 attestation. `record_result` computes its SHA-256 review ID from review schema 2
@@ -100,16 +113,30 @@ scanner and platform identity, bundle identity and digest, criterion metadata,
 applicability, resolution class, summary, and evidence. A matching unexpired
 attestation can resolve only that exact basis. Incomplete technical, runtime,
 or external evidence becomes `ERROR` and cannot be overridden. Automation
-closes an absent policy attestation to non-actionable `VULNERABLE`; complete
-mode treats the same absence as `ERROR`.
+mode reports a missing policy attestation as `VULNERABLE` without permitting
+remediation; complete mode reports it as `ERROR`.
 
-An offline evidence bundle is validated and bound to the root by exact `machine-id` and `os-release` matches. Central service, activation, listener, mount, and normalized time-source helpers consume validated bundle state without enabling host command execution against the analysis machine. The validator accepts legacy schema version 1 bundles, while the current collector writes schema version 2 with strict time-synchronization records.
+An offline evidence bundle must pass validation and match the root's
+`machine-id` and `os-release` exactly. Service, activation, listener, mount, and
+normalized time-source helpers read the validated bundle without running host
+runtime commands on the analysis machine. The validator accepts legacy schema version 1
+bundles. The current collector writes schema version 2, which requires strict
+time-synchronization records.
 
 ## Platform profiles
 
-Platform authorization uses an explicit product and version allowlist. `ID_LIKE` is recorded but never authorizes an arbitrary derivative. Approved Ubuntu derivatives must also expose the expected `UBUNTU_CODENAME`; CentOS must identify itself as CentOS Stream. The exact lifecycle snapshot is documented in [Platform support](../reference/platform-support.md). The rendered-guide family branches and versioned native adapters are recorded in [KISA platform semantics](../reference/kisa-platform-semantics.md).
+The scanner accepts only explicitly listed products and versions. It records
+`ID_LIKE` but does not use it to authorize other derivatives. Approved Ubuntu
+derivatives must also report the expected `UBUNTU_CODENAME`; CentOS must identify
+itself as CentOS Stream. [Platform support](../reference/platform-support.md)
+records the lifecycle snapshot.
+[KISA platform semantics](../reference/kisa-platform-semantics.md) documents the
+rendered guide's family-specific procedures and the versioned native adapters.
 
-The detector assigns `PLATFORM_FAMILY`, `PLATFORM_BASE_ID`, and `PLATFORM_BASE_VERSION` independently from the product's own `ID` and `VERSION_ID`. Checks branch on the configuration family or a versioned capability instead of treating every non-Ubuntu target as RHEL.
+The detector assigns `PLATFORM_FAMILY`, `PLATFORM_BASE_ID`, and
+`PLATFORM_BASE_VERSION` separately from the product's `ID` and `VERSION_ID`.
+Checks select behavior by configuration family or versioned capability; they do
+not assume that every non-Ubuntu target is RHEL.
 
 ## Criterion dispatch contract
 
@@ -119,7 +146,11 @@ The catalog is validated as a tab-separated file with this exact header:
 code	category	severity	title
 ```
 
-The main file requires the exact ordered code range `U-01` through `U-67`. A row such as `U-01` maps to the Bash function `check_u_01`. A missing function, invalid status, or missing result becomes an `ERROR` rather than silently omitting a criterion. A report write failure sets a process-level report error and produces exit status `2`; it does not synthesize another criterion record.
+The main file requires all codes from `U-01` through `U-67` in that order. Each
+code maps to a Bash function: `U-01`, for example, calls `check_u_01`. A missing
+function, invalid status, or missing result produces `ERROR` for the criterion.
+A report write failure sets a process-level report error and produces exit status
+`2` without adding another criterion record.
 
 Each check returns through `set_result` with seven logical fields:
 
@@ -154,7 +185,11 @@ U-15, U-23, U-25, and U-33 share one lazy filesystem snapshot for each scan root
 
 Live collection retains host NSS behavior for U-15 by evaluating `-nouser` and `-nogroup` inside GNU `find`. Offline collection reads numeric UID, GID, type, and mode fields from a NUL-delimited GNU `find -P` metadata stream and compares them with the selected root's validated account databases. Symbolic-link records therefore use the link's own metadata instead of dereferencing the target, and a dangling target does not make the shared inventory incomplete.
 
-All collector records terminate every field with NUL, so whitespace, control characters, and shell metacharacters in pathnames cannot change record boundaries. Evidence paths still pass through the normal display sanitizer. Tests that mutate a fixture after collection call `scanner_reset_full_filesystem_cache` before requesting a new snapshot.
+Every field in a collector record ends with NUL. Whitespace, control characters,
+and shell metacharacters in pathnames therefore cannot change record boundaries.
+The display sanitizer still processes evidence paths. Tests that change a fixture
+after collection must call `scanner_reset_full_filesystem_cache` before
+requesting another snapshot.
 
 U-67 uses a separate single-pass tagged traversal because its `/var/log` mount scope differs from the general local-filesystem scope. Regular-file and directory metadata comes from the same traversal, while symbolic-link targets retain rooted resolution and their existing policy treatment.
 
@@ -168,13 +203,19 @@ Source-to-resolver and resolver-to-criterion reverse maps retain successful, abs
 
 ## Configuration resolution
 
-Configuration formats do not share a universal merge algorithm. Shared helpers provide path safety and ordered file discovery, while each subsystem defines its own precedence and parsing rules.
+Each subsystem defines its own configuration precedence and parsing rules.
+Shared helpers confine paths and discover files in order; they do not impose a
+common merge algorithm.
 
 ### Layered files
 
-`select_layered_files` accepts directories in descending priority. For equal basenames, the first directory wins. Selected basenames are then processed in bytewise lexical order. Unreadable directories and unsafe symlink resolution are errors, not absence.
+`select_layered_files` accepts directories in descending priority. When several
+files have the same basename, it selects the first directory's file. It then
+processes the selected basenames in bytewise lexical order. Unreadable
+directories and unsafe symlinks produce errors rather than an absent state.
 
-This primitive is used only where the subsystem follows compatible drop-in semantics. It is not a general substitute for a native parser.
+Only subsystems with these drop-in rules use this helper. Other formats require
+their own parser or a native parser.
 
 ### sysctl
 
@@ -189,7 +230,11 @@ The filesystem model selects `.conf` files from these directories:
 
 It implements same-basename priority, lexical application order, `/dev/null` masks, explicit assignments, exclusion directives, glob assignments, and dot/slash key normalization. During a live systemd-based scan, the resolver also requests the loader's `--cat-config` stream and compares that interpretation with the filesystem model and current kernel value. Both `/lib/systemd/systemd-sysctl` and `/usr/lib/systemd/systemd-sysctl` are accepted after ownership, mode, and parent-path validation.
 
-In a live non-systemd container, the absence of a systemd loader is an established runtime state rather than a loader error. If no trusted `sysctl` command exists, a dot-form key may use an existing regular `/proc/sys` file as a read-only runtime fallback. Filesystem drop-ins remain visible as static evidence but are not reported as applied persistent state without an active loader.
+In a live non-systemd container, a missing systemd loader is recorded as runtime
+state without raising a loader error. If no trusted `sysctl` command exists, the
+resolver may read an existing regular `/proc/sys` file for a dot-form key.
+Filesystem drop-ins remain static evidence; without an active loader, the
+scanner cannot report them as applied persistent state.
 
 Unexpected loader commands, unsupported service overrides, or supplied `sysctl.extra` credential material prevent a conclusive result. A stock unit declaration that can load `sysctl.extra` is not itself evidence that a credential was supplied. On Debian-family targets, an active UFW `IPT_SYSCTL` source is resolved as an additional network-sysctl layer. `/etc/sysctl.conf.d` is reported as nonstandard and inactive; it is not treated as a standard source directory.
 
@@ -237,9 +282,13 @@ or HTML structure.
 
 During a normal scan, Markdown criterion sections are written to a protected run-scoped fragment. Separate protected fragments retain linked `ERROR`, `VULNERABLE`, and `MANUAL` index entries in scan order. After all selected checks complete, `write_report_summary` appends the overview, concatenates the three priority fragments in that order, and then appends the detailed criterion fragment. This produces header, overview, priority queue, and detailed-results ordering without retaining complete report content in shell variables. The fragments are removed with the existing protected scratch workspace.
 
-The JSONL serializer and schema are independent from the Markdown presentation path. Its copy retains the unprefixed normalized evidence value and additionally removes an incomplete UTF-8 suffix created at the byte boundary. The Markdown evidence disclosure is omitted when its value is empty. Counters increment only after the criterion fragment, any priority-index entry, and the JSONL record are written successfully.
+The JSONL serializer and schema are independent of Markdown rendering. JSONL
+keeps the unprefixed normalized evidence value and removes any incomplete UTF-8
+suffix at the byte limit. Markdown omits the evidence disclosure when evidence
+is empty. Counters increment only after successful writes of the criterion
+fragment, any priority-index entry, and the JSONL record.
 
-Before success, `validate_reports` verifies:
+Before reporting success, `validate_reports` checks that:
 
 - both files are non-empty;
 - both files belong to the invoking UID;
@@ -251,7 +300,8 @@ Before success, `validate_reports` verifies:
 - complete mode contains exactly 67 results and zero final `MANUAL` states.
 - automation mode publishes only when all 67 `status` and `technical_status` fields are `GOOD`, `VULNERABLE`, or `NOT_APPLICABLE`; policy provenance retains the original manual basis, and a blocked run leaves no report artifact from that invocation.
 
-JSON schema validation is not currently part of the runtime finalization path. The test suite optionally parses JSONL with `jq` when it is installed.
+Runtime finalization does not validate JSON schemas. The test suite also parses
+JSONL with `jq` when it is installed.
 
 ## Design boundaries
 

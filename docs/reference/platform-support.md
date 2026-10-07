@@ -2,9 +2,17 @@
 
 ## Scope
 
-This support matrix is a lifecycle snapshot dated 2026-09-03. The default gate covers releases receiving project or vendor base-stream security maintenance. Subscription-only extended streams, third-party extended maintenance, development releases, and point releases whose projects retire them when superseded are excluded.
+This matrix records support as of 2026-09-03. By default, the scanner accepts
+releases receiving project or vendor base-stream security maintenance. It
+excludes subscription-only extended streams, third-party extended maintenance,
+development releases, and point releases retired when a successor is released.
 
-The scanner support claim means that every listed identity is covered by detection and classification fixtures, while implemented Debian-family and Enterprise Linux semantics are covered by targeted fixtures. It is not a vendor certification. Live acceptance on every listed target remains required before a release. See [KISA platform semantics](kisa-platform-semantics.md) for the guide-explicit branches and conservative result boundary.
+Detection and classification fixtures cover every listed product identity.
+Separate fixtures cover the implemented Debian-family and Enterprise Linux
+configuration rules. This coverage is not vendor certification; release
+acceptance still requires live testing on every listed target. See
+[KISA platform semantics](kisa-platform-semantics.md) for distribution-specific
+guide procedures and the limits of automatic assessment.
 
 ## Direct distributions
 
@@ -21,7 +29,10 @@ The scanner support claim means that every listed identity is covered by detecti
 
 Sources: [Debian releases](https://www.debian.org/releases/), [Debian 12 LTS transition](https://www.debian.org/News/2026/20260712), [Ubuntu release cycle](https://ubuntu.com/about/release-cycle), and [RHEL lifecycle](https://access.redhat.com/support/policy/updates/errata).
 
-The RHEL 9 and 10 major lifecycle dates do not make one minor release the base stream for the full period. The allowlist must move when Red Hat publishes the next base-stream minor; pinned older minors require a separately qualified extended-support entitlement.
+The RHEL 9 and 10 lifecycle dates apply to the major release, not to each minor
+release for that entire period. Update the allowlist when Red Hat publishes
+the next base-stream minor. A pinned older minor requires a separately
+qualified extended-support entitlement.
 
 ## Enterprise Linux derivatives
 
@@ -32,7 +43,8 @@ The RHEL 9 and 10 major lifecycle dates do not make one minor release the base s
 | Oracle Linux | `ol` | `8.10`, `9.8`, `10.2` | Current update snapshots; Oracle treats update releases as rolling snapshots within each major release. |
 | CentOS Stream | `centos` | `9`, `10` | Stream 9 ends 2027-05-31; Stream 10 ends 2030-05-31. |
 
-CentOS acceptance also requires `PRETTY_NAME` to identify CentOS Stream. `ID_LIKE` alone never authorizes an Enterprise Linux derivative.
+For CentOS, `PRETTY_NAME` must also identify CentOS Stream. An `ID_LIKE` match
+alone does not qualify an Enterprise Linux derivative for support.
 
 Sources: [AlmaLinux release notes](https://wiki.almalinux.org/release-notes/), [Rocky Linux release policy](https://docs.rockylinux.org/latest/releases/), Oracle Linux release information for [8](https://docs.oracle.com/en/operating-systems/oracle-linux/8/), [9](https://docs.oracle.com/en/operating-systems/oracle-linux/9/), and [10](https://docs.oracle.com/en/operating-systems/oracle-linux/10/), the [Oracle Linux lifetime support policy](https://www.oracle.com/a/ocom/docs/lifetime-support-policy-operating-system.pdf), and the [CentOS Stream lifecycle](https://www.centos.org/download/).
 
@@ -63,11 +75,13 @@ Identity-field evidence: [Linux Mint 21.3 base-files](http://packages.linuxmint.
 - AlmaLinux and Rocky Linux point releases stop receiving project updates when superseded.
 - CentOS Linux, CentOS Stream 8, arbitrary `ID_LIKE` matches, and development or beta releases are unsupported.
 
-Use `--allow-unsupported` only for exploratory collection. It does not turn an excluded target into a supported or authoritative assessment.
+Use `--allow-unsupported` only for exploratory collection. Results from excluded
+targets remain outside the supported assessment scope and are not authoritative.
 
 ## Platform adapters
 
-The detector assigns a configuration family and a base release separately from the product identity:
+The detector records each product's configuration family and base release
+separately from its identity:
 
 - Debian, Ubuntu, and approved Ubuntu derivatives use Debian-family PAM, APT, BIND, Chrony, and path conventions.
 - RHEL and approved Enterprise Linux derivatives use Enterprise Linux PAM, authselect, DNF, BIND, Chrony, and path conventions.
@@ -78,18 +92,17 @@ The detector assigns a configuration family and a base release separately from t
 
 Ubuntu 26.04 ships rust-coreutils 0.8.0 as the default provider, while `cp`,
 `mv`, and `rm` remain GNU coreutils 9.7. The scanner treats this as a mixed
-command environment and validates the exact option capabilities it consumes
-rather than matching an implementation name. The focused gate is
+command environment and tests the command options it uses. It does not select
+commands by implementation name alone. Run the focused regression test with
 `tests/uutils_compatibility.sh`. See Canonical's
 [rust-coreutils update](https://discourse.ubuntu.com/t/an-update-on-rust-coreutils/80773),
 the [Ubuntu 26.04 release notes](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/),
 and the [Resolute GNU package](https://packages.ubuntu.com/resolute/gnu-coreutils).
 
-Chrony, not ntpd-rs, is the default time daemon for new Ubuntu 26.04
-installations. The `ntpd-rs` package is available for optional installation in
-the Resolute archive. Canonical's published target is archive testing in Ubuntu
-26.10 and default adoption in Ubuntu 27.04; those statements are future goals,
-not Ubuntu 26.04 defaults. See the
+Chrony is the default time daemon for new Ubuntu 26.04 installations. The
+Resolute archive also provides `ntpd-rs` as an optional package. Canonical's
+published goals are archive testing in Ubuntu 26.10 and default adoption in
+Ubuntu 27.04. These plans do not change the Ubuntu 26.04 default. See the
 [Chrony release note](https://documentation.ubuntu.com/release-notes/26.04/summary-for-lts-users/#chrony),
 [ntpd-rs transition plan](https://discourse.ubuntu.com/t/ntpd-rs-its-about-time/79154),
 and [Resolute ntpd-rs package](https://packages.ubuntu.com/resolute/ntpd-rs).
@@ -99,11 +112,15 @@ extension. It recognizes `/etc/ntpd-rs/ntp.toml`, `ntpd-rs.service`, and
 normalized `ntp-ctl status` evidence while retaining Chrony as the expected
 Ubuntu 26.04 provider.
 
-The matrix must be reviewed whenever an upstream publishes a new stable, LTS, Enterprise Linux minor, or derivative release. Update the detector, fixtures, this document, and target-host acceptance evidence together.
+Review the matrix whenever an upstream project publishes a stable, LTS,
+Enterprise Linux minor, or derivative release. Update the detector, fixtures,
+this document, and target-host acceptance evidence together.
 
 ## Acceptance status
 
-The repository currently contains deterministic generated fixtures, not retained booted-host reports for every matrix row. A release claim must distinguish these levels:
+The repository contains deterministic generated fixtures. Booted-host reports
+have not been retained for every matrix row. Report release validation at the
+following levels:
 
 | Level | Current status |
 |---|---|
@@ -126,6 +143,20 @@ The full root scan results were:
 | Rocky Linux 9.8 | 33 | 7 | 8 | 19 | 0 |
 | Rocky Linux 10.2 | 33 | 7 | 8 | 19 | 0 |
 
-The containerized run used Apple container 1.3.1 with read-only source mounts and the function-grouped `lib/kisa-cce-*` layout. Test-tool packages were added to locally prepared OCI images before execution. Each staged installation retained private `_*.sh` modules below its functional directory. The installed policy compiler converted the neutral YAML example into a mode-0700 directory with a mode-0600 TSV and a validated policy digest.
+The run used Apple container 1.3.1, read-only source mounts, and the
+`lib/kisa-cce-*` directory layout. Test tools were installed in local OCI images
+before execution. Each staged installation kept private `_*.sh` modules in
+their function-specific directories. The installed policy compiler converted
+the YAML example with no approvals into a mode-0700 directory containing a
+mode-0600 TSV and a validated policy digest.
 
-Minimal images without a machine ID correctly rejected evidence collection; the acceptance run seeded an ephemeral valid machine ID, then verified schema version 2, all 11 checksums, directory mode 0700, and file mode 0600. Non-systemd containers resolved `kernel.randomize_va_space` read-only through `/proc/sys`, reporting `loader=no-system-manager` and runtime value `2`. These tests cover the installed userspace, supported Bash and ShellCheck ranges, configuration adapters, report integrity, and static-only mount-boundary collection. They do not represent a booted systemd host, SELinux enforcement, host storage topology, or live service and listener acceptance.
+Evidence collection was rejected on minimal images without a machine ID. The
+test then supplied a temporary valid ID and verified schema version 2, all 11
+checksums, directory mode 0700, and file mode 0600. Non-systemd containers read
+`kernel.randomize_va_space` through `/proc/sys` without changing it and reported
+`loader=no-system-manager` with runtime value `2`.
+
+These tests cover installed userspace, supported Bash and ShellCheck versions,
+configuration adapters, report integrity, and static-only mount-boundary
+collection. They do not establish acceptance on a booted systemd host or verify
+SELinux enforcement, host storage topology, or live services and listeners.
